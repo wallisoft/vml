@@ -117,7 +117,6 @@ public static class ScriptHandler
         }
         }
 
-        // VML interpreter - engine commands
         if (cleanInterp == "vml")
         {
             ExecuteVmlCommands(scriptCode);
