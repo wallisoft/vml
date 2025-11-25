@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using NLua;
 using Microsoft.Data.Sqlite;
+using Avalonia.Controls;
 
 namespace VB;
 
@@ -376,7 +377,53 @@ public class VmlLuaEngine
     
     public string GetProperty(string controlName, string propertyName)
     {
+        // Try to get runtime value from actual control first
+        var control = FindControlInWindow(controlName);
+        if (control != null)
+        {
+            try
+            {
+                if (propertyName == "Text" && control is TextBox tb)
+                    return tb.Text ?? "";
+                if (propertyName == "SelectedItem" && control is ComboBox cb)
+                    return cb.SelectedItem?.ToString() ?? "";
+                if (propertyName == "SelectedIndex" && control is ComboBox cb2)
+                    return cb2.SelectedIndex.ToString();
+                if (propertyName == "IsChecked" && control is CheckBox chk)
+                    return chk.IsChecked?.ToString() ?? "false";
+            }
+            catch { }
+        }
+        
+        // Fall back to PropertyStore for design-time properties
         return PropertyStore.Get(controlName, propertyName) ?? "";
+    }
+    
+    private Control? FindControlInWindow(string name)
+    {
+        if (Avalonia.Application.Current.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+        foreach (var window in desktop.Windows)
+        {
+            var found = FindControlRecursive(window, name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+    
+    private Control? FindControlRecursive(Control parent, string name)
+    {
+        if (parent.Name == name) return parent;
+        
+        if (parent is Panel panel)
+            foreach (var child in panel.Children)
+                if (FindControlRecursive(child, name) is Control found)
+                    return found;
+        else if (parent is ContentControl cc && cc.Content is Control content)
+            return FindControlRecursive(content, name);
+        else if (parent is Decorator dec && dec.Child is Control decChild)
+            return FindControlRecursive(decChild, name);
+            
+        return null;
     }
     
     public void SetProperty(string controlName, string propertyName, string value)
