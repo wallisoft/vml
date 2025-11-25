@@ -41,8 +41,16 @@ OnClick=CSharpResetScript
 @Script CSharpCounterScript
 Interpreter=csharp
 Instance=csharpCounter
-int count = 0;
-count++;
+// Try to increment, catch if doesn't exist yet
+try
+{
+    count++;
+}
+catch
+{
+    int count = 1;
+}
+Vml("SetProperty", "CountDisplay", "Text", $"Count: {count}");
 Vml("SetProperty", "CountDisplay", "Text", $"Count: {count}");
 Console.WriteLine($"C# Count: {count}");
 
