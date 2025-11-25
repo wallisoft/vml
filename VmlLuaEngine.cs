@@ -14,9 +14,14 @@ public class VmlLuaEngine
     {
         _lua = new Lua();
         _lua.State.Encoding = System.Text.Encoding.UTF8;
+
         // Load standard libraries
         _lua.DoString("io = require('io')");
-
+        _lua.DoString("os = require('os')");
+        _lua.DoString("utf8 = require('utf8')");
+        _lua.DoString("debug = require('debug')");
+        _lua.DoString("coroutine = require('coroutine')");
+        _lua.DoString("package = require('package')");  // Includes loadlib 
 
         // Register VML functions
         _lua.RegisterFunction("Vml", this, GetType().GetMethod(nameof(Vml)));
