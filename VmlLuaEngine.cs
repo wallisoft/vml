@@ -379,6 +379,7 @@ public class VmlLuaEngine
     {
         // Try to get runtime value from actual control first
         var control = FindControlInWindow(controlName);
+        Console.WriteLine($"[GETPROP] Looking for {controlName}.{propertyName}, found: {control?.GetType().Name ?? "null"}");
         if (control != null)
         {
             try
@@ -532,9 +533,9 @@ public class VmlLuaEngine
 
                 // Properties
                 case "GetProperty":
+                    return GetProperty(args[0].ToString()!, args[1].ToString()!);
                 case "GetSelectedControlName":
                     return DesignerWindow.GetSelectedControl()?.Name ?? "";
-                    return GetProperty(args[0].ToString()!, args[1].ToString()!);
                 case "SetProperty":
                     SetProperty(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);
                     return null;
