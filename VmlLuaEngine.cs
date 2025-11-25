@@ -374,42 +374,44 @@ public class VmlLuaEngine
     }
     
     // ===== PROPERTY FUNCTIONS =====
-    
     public string GetProperty(string controlName, string propertyName)
     {
-        // Try to get runtime value from actual control first
-        var control = FindControlInWindow(controlName);
-        Console.WriteLine($"[GETPROP] Looking for {controlName}.{propertyName}, found: {control?.GetType().Name ?? "null"}");
-        if (control != null)
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
-            try
+            // Try to get runtime value from actual control first
+            var control = FindControlInWindow(controlName);
+            Console.WriteLine($"[GETPROP] Looking for {controlName}.{propertyName}, found: {control?.GetType().Name ?? "null"}");
+            if (control != null)
             {
-                if (propertyName == "Text" && control is TextBox tb)
-                    return tb.Text ?? "";
-                if (propertyName == "SelectedItem" && control is ComboBox cb)
-                    return cb.SelectedItem?.ToString() ?? "";
-                if (propertyName == "SelectedIndex" && control is ComboBox cb2)
-                    return cb2.SelectedIndex.ToString();
-                if (propertyName == "IsChecked" && control is CheckBox chk)
-                    return chk.IsChecked?.ToString() ?? "false";
+                try
+                {
+                    if (propertyName == "Text" && control is TextBox tb)
+                        return tb.Text ?? "";
+                    if (propertyName == "SelectedItem" && control is ComboBox cb)
+                        return cb.SelectedItem?.ToString() ?? "";
+                    if (propertyName == "SelectedIndex" && control is ComboBox cb2)
+                        return cb2.SelectedIndex.ToString();
+                    if (propertyName == "IsChecked" && control is CheckBox chk)
+                        return chk.IsChecked?.ToString() ?? "false";
+                }
+                catch { }
             }
-            catch { }
-        }
-        
-        // Fall back to PropertyStore for design-time properties
-        return PropertyStore.Get(controlName, propertyName) ?? "";
+            
+            // Fall back to PropertyStore for design-time properties
+            return PropertyStore.Get(controlName, propertyName) ?? "";
+        }).Result;
     }
     
     private Control? FindControlInWindow(string name)
     {
         var lifetime = Avalonia.Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
         Console.WriteLine($"[FINDCTRL] Searching for {name}, windows: {lifetime?.Windows.Count ?? 0}");
-        if (Avalonia.Application.Current.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-        foreach (var window in desktop.Windows)
-        {
-            var found = FindControlRecursive(window, name);
-            if (found != null) return found;
-        }
+        if (lifetime != null)
+            foreach (var window in lifetime.Windows)
+            {
+                var found = FindControlRecursive(window, name);
+                if (found != null) return found;
+            }
         return null;
     }
     
@@ -418,15 +420,23 @@ public class VmlLuaEngine
         Console.WriteLine($"[FINDCTRL] Checking {parent.GetType().Name} {parent.Name ?? "unnamed"}");
         if (parent.Name == name) return parent;
         
+        if (parent is Window w)
+        {
+            Console.WriteLine($"[FINDCTRL] Window content: {w.Content?.GetType().Name ?? "null"}");
+            if (w.Content is Control wContent)
+                if (FindControlRecursive(wContent, name) is Control found)
+                    return found;
+        }
+        
         if (parent is Panel panel)
             foreach (var child in panel.Children)
-                if (FindControlRecursive(child, name) is Control found)
-                    return found;
-        if (parent is Window w)
-            Console.WriteLine($"[FINDCTRL] Window content: {w.Content?.GetType().Name ?? "null"}");
-        else if (parent is ContentControl cc && cc.Content is Control content)
+                if (FindControlRecursive(child, name) is Control found2)
+                    return found2;
+        
+        if (parent is ContentControl cc && cc.Content is Control content)
             return FindControlRecursive(content, name);
-        else if (parent is Decorator dec && dec.Child is Control decChild)
+            
+        if (parent is Decorator dec && dec.Child is Control decChild)
             return FindControlRecursive(decChild, name);
             
         return null;
