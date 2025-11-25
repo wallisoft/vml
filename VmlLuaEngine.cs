@@ -402,6 +402,8 @@ public class VmlLuaEngine
     
     private Control? FindControlInWindow(string name)
     {
+        var lifetime = Avalonia.Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+        Console.WriteLine($"[FINDCTRL] Searching for {name}, windows: {lifetime?.Windows.Count ?? 0}");
         if (Avalonia.Application.Current.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         foreach (var window in desktop.Windows)
         {
@@ -413,6 +415,7 @@ public class VmlLuaEngine
     
     private Control? FindControlRecursive(Control parent, string name)
     {
+        Console.WriteLine($"[FINDCTRL] Checking {parent.GetType().Name} {parent.Name ?? "unnamed"}");
         if (parent.Name == name) return parent;
         
         if (parent is Panel panel)
