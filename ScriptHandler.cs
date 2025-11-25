@@ -69,6 +69,7 @@ public static class ScriptHandler
                 try
                 {
                     var instanceName = interpreter.Contains(" ") ? interpreter.Split(" ")[1] : "";
+                    Console.WriteLine($"[LUA] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={LuaInstances.ContainsKey(instanceName)}");
                     VmlLuaEngine engine;
                     if (string.IsNullOrEmpty(instanceName))
                         engine = new VmlLuaEngine();
@@ -92,6 +93,7 @@ public static class ScriptHandler
                 try
                 {
                     var instanceName = interpreter.Contains(" ") ? interpreter.Split(" ")[1] : "";
+                    Console.WriteLine($"[LUA] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={LuaInstances.ContainsKey(instanceName)}");
                     var options = ScriptOptions.Default
                         .WithReferences(typeof(VmlLuaEngine).Assembly)
                         .WithImports("System", "VB");
