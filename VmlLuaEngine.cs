@@ -515,6 +515,9 @@ public class VmlLuaEngine
                     return null;
                 case "Shell":
                     return Shell(args[0].ToString()!);
+                case "ExecuteScript":
+                    ScriptHandler.Execute(args[0].ToString()!, args[1].ToString()!);
+                    return null;
 
                 default:
                     Console.WriteLine($"[VML] Unknown command: {command}");

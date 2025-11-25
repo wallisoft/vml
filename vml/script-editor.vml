@@ -181,7 +181,6 @@ end
 
 @Script TestScript
 Interpreter=lua
--- Test the current script
 local interp = Vml("GetProperty", "Interpreter", "SelectedItem")
 local code = Vml("GetProperty", "CodeEditor", "Text")
 
@@ -190,11 +189,6 @@ if code == "" or code:match("^%s*$") then
     return
 end
 
--- Create temp file and execute
-local tmpfile = "/tmp/vml_test." .. interp
-local f = io.open(tmpfile, "w")
-f:write(code)
-f:close()
-
-local result = Vml("Shell", interp .. " " .. tmpfile)
-Vml("InfoDialog", "Test Output:\n\n" .. (result or "(no output)"))
+-- Execute internally, not via shell
+Vml("ExecuteScript", code, interp)
+Vml("InfoDialog", "Script executed - check console for output")
