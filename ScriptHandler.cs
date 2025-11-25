@@ -147,17 +147,27 @@ public static class ScriptHandler
                     var module = Wasmtime.Module.FromText(engine, "temp", scriptCode);
                     var instance = linker.Instantiate(store, module);
                     
-                    // Invoke entry point
+                    // Try calculate function (returns result) or _start/main
+                    var calcFunc = instance.GetFunction("calculate");
                     var mainFunc = instance.GetFunction("_start") ?? instance.GetFunction("main");
                     
-                    if (mainFunc != null)
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    
+                    if (calcFunc != null)
+                    {
+                        var result = calcFunc.Invoke();
+                        sw.Stop();
+                        Console.WriteLine($"[WASM] Result: {result} in {sw.Elapsed.TotalSeconds:F3} seconds");
+                    }
+                    else if (mainFunc != null)
                     {
                         mainFunc.Invoke();
-                        Console.WriteLine("[WASM] Execution complete");
+                        sw.Stop();
+                        Console.WriteLine($"[WASM] Execution complete in {sw.Elapsed.TotalSeconds:F3} seconds");
                     }
                     else
                     {
-                        Console.WriteLine("[WASM] No _start or main function found");
+                        Console.WriteLine("[WASM] No calculate, _start or main function found");
                     }
                 }
                 catch (Exception ex)

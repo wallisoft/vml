@@ -155,8 +155,8 @@ Interpreter=wasm
       )
     )
   )
-  ;; Entry point - calculate fib(35)
-  (func (export "_start")
-    (drop (call $fib (i32.const 35)))
+  ;; Export function returning result
+  (func (export "calculate") (result i32)
+    (call $fib (i32.const 35))
   )
 )
