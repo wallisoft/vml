@@ -441,7 +441,32 @@ public class VmlLuaEngine
     
     public void SetProperty(string controlName, string propertyName, string value)
     {
-        PropertyStore.Set(controlName, propertyName, value);
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(controlName);
+            Console.WriteLine($"[SETPROP] Setting {controlName}.{propertyName} = {value}, found: {control?.GetType().Name ?? "null"}");
+            
+            if (control != null)
+            {
+                try
+                {
+                    if (propertyName == "Text" && control is TextBox tb)
+                        tb.Text = value;
+                    else if (propertyName == "Text" && control is TextBlock tbl)
+                        tbl.Text = value;
+                    else if (propertyName == "Content" && control is Button btn)
+                        btn.Content = value;
+                    else if (propertyName == "IsChecked" && control is CheckBox chk)
+                        chk.IsChecked = bool.Parse(value);
+                    else if (propertyName == "SelectedIndex" && control is ComboBox cb)
+                        cb.SelectedIndex = int.Parse(value);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SETPROP] Error: {ex.Message}");
+                }
+            }
+        }).Wait();
     }
 
     // ===== CANVAS/FORM FUNCTIONS =====
