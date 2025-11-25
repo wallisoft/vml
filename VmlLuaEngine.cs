@@ -374,13 +374,13 @@ public class VmlLuaEngine
     }
     
     // ===== PROPERTY FUNCTIONS =====
+
     public string GetProperty(string controlName, string propertyName)
     {
         return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             // Try to get runtime value from actual control first
             var control = FindControlInWindow(controlName);
-            Console.WriteLine($"[GETPROP] Looking for {controlName}.{propertyName}, found: {control?.GetType().Name ?? "null"}");
             if (control != null)
             {
                 try
@@ -405,7 +405,6 @@ public class VmlLuaEngine
     private Control? FindControlInWindow(string name)
     {
         var lifetime = Avalonia.Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
-        Console.WriteLine($"[FINDCTRL] Searching for {name}, windows: {lifetime?.Windows.Count ?? 0}");
         if (lifetime != null)
             foreach (var window in lifetime.Windows)
             {
@@ -514,10 +513,6 @@ public class VmlLuaEngine
 
     public object? Vml(string command, params object[] args)
     {
-        Console.WriteLine($"[VML] {command}({string.Join(", ", args.Select(a => a?.ToString() ?? "null"))})");
-
-            Console.WriteLine($"[VML] *** CALLED *** command={command}, args={args?.Length ?? 0}");
-
         try
         {
             switch (command)
