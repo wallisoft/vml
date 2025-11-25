@@ -237,6 +237,7 @@ public static class FormLoader
 
         // Script lookup
         var script = ScriptRegistry.Get(handler);
+        Console.WriteLine($"[FORMLOADER] Script: {script?.Name ?? "null"}, Interp: {script?.Interpreter ?? "null"}, Instance: {script?.Instance ?? "null"}");
         if (script != null)
         {
             var interpreter = script.Instance != "" ? $"{script.Interpreter} {script.Instance}" : script.Interpreter;
@@ -262,7 +263,7 @@ public static class FormLoader
             var content = reader.GetString(1);
             var interpreter = reader.GetString(2);
             var instance = reader.IsDBNull(3) ? "" : reader.GetString(3);
-            ScriptRegistry.Register(name, content, interpreter);
+            ScriptRegistry.Register(name, content, interpreter, instance);
         }
     }
 }
