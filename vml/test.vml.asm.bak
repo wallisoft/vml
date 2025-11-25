@@ -1,0 +1,31 @@
+@Window WasmTestWindow
+Title=WebAssembly Test
+Width=300
+Height=200
+
+@StackPanel Main
+Parent=WasmTestWindow
+Margin=20
+Spacing=15
+
+@TextBlock Info
+Parent=Main
+Text=Click to test WASM execution
+TextWrapping=Wrap
+
+@Button TestWasmBtn
+Parent=Main
+Content=Run WASM
+Width=150
+Background=#cc6600
+Foreground=White
+OnClick=WasmTestScript
+
+@Script WasmTestScript
+Interpreter=wasm
+(module
+  (func (export "_start")
+    i32.const 42
+    drop
+  )
+)
