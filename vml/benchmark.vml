@@ -1,0 +1,162 @@
+@Window BenchmarkWindow
+Title=VML Speed Benchmark - Lua vs C# vs WASM
+Width=450
+Height=400
+Background=#1e1e1e
+
+@StackPanel Main
+Parent=BenchmarkWindow
+Margin=20
+Spacing=15
+
+@TextBlock Title
+Parent=Main
+Text=🚀 Fibonacci(35) Speed Test
+FontSize=20
+FontWeight=Bold
+Foreground=#66bb6a
+HorizontalAlignment=Center
+
+@TextBlock Subtitle
+Parent=Main
+Text=Click each to time the calculation
+Foreground=#888888
+HorizontalAlignment=Center
+
+@Border LuaResult
+Parent=Main
+Background=#2d2d2d
+BorderBrush=#f9a825
+BorderThickness=2
+CornerRadius=8
+Padding=15
+
+@StackPanel LuaStack
+Parent=LuaResult
+Spacing=5
+
+@TextBlock LuaLabel
+Parent=LuaStack
+Text=🌙 Lua
+FontSize=16
+FontWeight=Bold
+Foreground=#f9a825
+
+@TextBlock LuaTime
+Parent=LuaStack
+Text=Click to run...
+Foreground=White
+
+@Button RunLua
+Parent=LuaStack
+Content=Run Lua
+Background=#f9a825
+Foreground=Black
+Width=100
+OnClick=LuaFibScript
+
+@Border CSharpResult
+Parent=Main
+Background=#2d2d2d
+BorderBrush=#0066cc
+BorderThickness=2
+CornerRadius=8
+Padding=15
+
+@StackPanel CSharpStack
+Parent=CSharpResult
+Spacing=5
+
+@TextBlock CSharpLabel
+Parent=CSharpStack
+Text=🎯 C#
+FontSize=16
+FontWeight=Bold
+Foreground=#0066cc
+
+@TextBlock CSharpTime
+Parent=CSharpStack
+Text=Click to run...
+Foreground=White
+
+@Button RunCSharp
+Parent=CSharpStack
+Content=Run C#
+Background=#0066cc
+Foreground=White
+Width=100
+OnClick=CSharpFibScript
+
+@Border WasmResult
+Parent=Main
+Background=#2d2d2d
+BorderBrush=#cc6600
+BorderThickness=2
+CornerRadius=8
+Padding=15
+
+@StackPanel WasmStack
+Parent=WasmResult
+Spacing=5
+
+@TextBlock WasmLabel
+Parent=WasmStack
+Text=⚡ WebAssembly
+FontSize=16
+FontWeight=Bold
+Foreground=#cc6600
+
+@TextBlock WasmTime
+Parent=WasmStack
+Text=Click to run...
+Foreground=White
+
+@Button RunWasm
+Parent=WasmStack
+Content=Run WASM
+Background=#cc6600
+Foreground=White
+Width=100
+OnClick=WasmFibScript
+
+@Script LuaFibScript
+Interpreter=lua
+local function fib(n)
+    if n < 2 then return n end
+    return fib(n-1) + fib(n-2)
+end
+Vml("SetProperty", "LuaTime", "Text", "Computing fib(35)...")
+local start = os.clock()
+local result = fib(35)
+local elapsed = os.clock() - start
+Vml("SetProperty", "LuaTime", "Text", string.format("Result: %d in %.3f seconds", result, elapsed))
+
+@Script CSharpFibScript
+Interpreter=csharp
+int Fib(int n) => n < 2 ? n : Fib(n-1) + Fib(n-2);
+Vml("SetProperty", "CSharpTime", "Text", "Computing fib(35)...");
+var sw = System.Diagnostics.Stopwatch.StartNew();
+var result = Fib(35);
+sw.Stop();
+Vml("SetProperty", "CSharpTime", "Text", $"Result: {result} in {sw.Elapsed.TotalSeconds:F3} seconds");
+
+@Script WasmFibScript
+Interpreter=wasm
+(module
+  ;; Recursive Fibonacci in WebAssembly
+  (func $fib (param $n i32) (result i32)
+    (if (result i32) (i32.lt_s (local.get $n) (i32.const 2))
+      (then (local.get $n))
+      (else
+        (i32.add
+          (call $fib (i32.sub (local.get $n) (i32.const 1)))
+          (call $fib (i32.sub (local.get $n) (i32.const 2)))
+        )
+      )
+    )
+  )
+  ;; Entry point - calculate fib(35)
+  (func (export "_start")
+    (drop (call $fib (i32.const 35)))
+  )
+)
