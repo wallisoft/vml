@@ -1,0 +1,43 @@
+# About Visualised Dialog
+
+@Window AboutWindow
+Title=About Visualised
+Width=400
+Height=300
+
+@StackPanel MainStack
+Parent=AboutWindow
+Margin=20
+Spacing=15
+
+@TextBlock Title
+Parent=MainStack
+Text=Visualised v1.0
+FontSize=24
+FontWeight=Bold
+HorizontalAlignment=Center
+
+@TextBlock Description
+Parent=MainStack
+Text=A revolutionary cross-platform RAD IDE
+TextWrapping=Wrap
+HorizontalAlignment=Center
+
+@TextBlock Author
+Parent=MainStack
+Text=Steve Wallis & Claude (Anthropic)
+FontStyle=Italic
+HorizontalAlignment=Center
+
+@TextBlock Year
+Parent=MainStack
+Text=2025
+HorizontalAlignment=Center
+
+@Button CloseButton
+Parent=MainStack
+Content=Close
+Width=100
+HorizontalAlignment=Center
+Margin=0,20,0,0
+OnClick=FormClose()

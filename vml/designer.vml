@@ -1,0 +1,581 @@
+# Designer Window - The IDE Defining Itself
+
+@Window Designer
+Title=Visualised Form Editor
+Width=1350
+Height=750
+
+@Grid MainGrid
+Parent=Designer
+RowDefinitions=Auto,*,Auto
+
+@TinyMenu MainMenu
+Parent=MainGrid
+Grid.Row=0
+
+@TextBlock MenuText
+Parent=MenuBar
+Text=  Menu (placeholder)
+VerticalAlignment=Center
+Foreground=White
+FontWeight=Bold
+
+@Grid Workspace
+Parent=MainGrid
+Grid.Row=1
+ColumnDefinitions=280,*,0
+Background=#e8f5e9
+
+@Border formBuilderBorder
+Parent=Workspace
+Grid.Column=0
+Background=#e8f5e9
+BorderBrush=#107C10
+BorderThickness=2
+CornerRadius=2
+Padding=10
+Margin=5
+
+@DockPanel FormBuilderStack
+Parent=formBuilderBorder
+
+@Border TitleBar
+Parent=FormBuilderStack
+DockPanel.Dock=Top
+Padding=5,3
+Margin=0,0,0,5
+
+@Grid TitleGrid
+Parent=TitleBar
+ColumnDefinitions=*,Auto
+
+@TextBlock FormTitle
+Parent=TitleGrid
+Grid.Column=0
+Text=FormBuilder
+FontSize=17
+FontWeight=Bold
+Foreground=#424242
+VerticalAlignment=Center
+HorizontalAlignment=Left
+
+@Button closePanelBtn
+Parent=TitleGrid
+Grid.Column=1
+Content=✕
+Width=20
+Height=20
+FontSize=20
+FontWeight=Bold
+Padding=0,-3,0,0
+Background=Transparent
+Foreground=#424242
+BorderBrush=#66bb6a
+BorderThickness=2
+CornerRadius=2
+HorizontalAlignment=Center
+VerticalAlignment=Center
+
+@StackPanel SelectorRow
+Parent=FormBuilderStack
+DockPanel.Dock=Top
+Orientation=Horizontal
+Spacing=5
+Margin=30,0,0,0
+
+@ScrollViewer PropsScroll
+Parent=FormBuilderStack
+VerticalScrollBarVisibility=Visible
+Padding=3,4
+
+@StackPanel propertiesStack
+Parent=PropsScroll
+Spacing=5
+
+@Border StatusBar
+Parent=MainGrid
+Grid.Row=2
+Background=#107C10
+BorderBrush=#0d6b0d
+BorderThickness=0,1,0,0
+Height=25
+
+@TextBlock statusText
+Parent=StatusBar
+Text=Ready
+VerticalAlignment=Center
+Foreground=White
+Margin=10,0,0,0
+FontSize=11
+
+# ========================================
+# MENU SYSTEM
+# ========================================
+
+# Menu Theme
+@MenuTheme MenuTheme
+Background=#107C10
+Foreground=White
+HoverBackground=#107C10
+HoverForeground=White
+PopupBackground=White
+PopupBorder=#107C10
+Height=30
+
+# Top-level Menu Items
+@MenuItem File
+Parent=MenuBar
+Text=File
+
+@MenuItem Edit
+Parent=MenuBar
+Text=Edit
+
+@MenuItem Tools
+Parent=MenuBar
+Text=Tools
+
+@MenuItem Help
+Parent=MenuBar
+Text=Help
+
+# FILE MENU
+@MenuItem FileNew
+Parent=File
+Text=New Form
+Shortcut=Ctrl+N
+OnClick=FileNewScript
+
+@MenuItem FileOpen
+Parent=File
+Text=Open...
+Shortcut=Ctrl+O
+OnClick=FileOpenScript
+
+@MenuItem FileSave
+Parent=File
+Text=Save
+Shortcut=Ctrl+S
+OnClick=FileSaveScript
+
+@MenuItem FileSaveAs
+Parent=File
+Text=Save As...
+Shortcut=Ctrl+Shift+S
+OnClick=FileSaveAsScript
+
+@MenuItem FileExport
+Parent=File
+Text=Export VML
+OnClick=FileExportScript
+
+@MenuItem FileExit
+Parent=File
+Text=Exit
+OnClick=FileExitScript
+
+# EDIT MENU
+@MenuItem EditUndo
+Parent=Edit
+Text=Undo
+Shortcut=Ctrl+Z
+OnClick=EditUndoScript
+
+@MenuItem EditRedo
+Parent=Edit
+Text=Redo
+Shortcut=Ctrl+Y
+OnClick=EditRedoScript
+
+@MenuItem EditCut
+Parent=Edit
+Text=Cut
+Shortcut=Ctrl+X
+OnClick=EditCutScript
+
+@MenuItem EditCopy
+Parent=Edit
+Text=Copy
+Shortcut=Ctrl+C
+OnClick=EditCopyScript
+
+@MenuItem EditPaste
+Parent=Edit
+Text=Paste
+Shortcut=Ctrl+V
+OnClick=EditPasteScript
+
+@MenuItem EditDelete
+Parent=Edit
+Text=Delete
+Shortcut=Del
+OnClick=EditDeleteScript
+
+# TOOLS MENU
+@MenuItem ToolsSettings
+Parent=Tools
+Text=Settings...
+OnClick=FormOpenModal options_dialog.vml
+
+@MenuItem ToolsGrid
+Parent=Tools
+Text=Grid Options...
+OnClick=ToolsGridScript
+
+@MenuItem ToolsImport
+Parent=Tools
+Text=Import...
+
+@MenuItem ImportVB5
+Parent=ToolsImport
+Text=VB5/6 Project
+OnClick=ImportVB5Script
+
+@MenuItem ImportHTML
+Parent=ToolsImport
+Text=HTML/CSS Project
+OnClick=ImportHTMLScript
+
+@MenuItem ImportXAML
+Parent=ToolsImport
+Text=XAML Project
+OnClick=ImportXAMLScript
+
+@MenuItem ImportJSON
+Parent=ToolsImport
+Text=JSON Schema
+OnClick=ImportJSONScript
+
+@MenuItem ImportSQL
+Parent=ToolsImport
+Text=SQL Database
+OnClick=ImportSQLScript
+
+@MenuItem ImportGlade
+Parent=ToolsImport
+Text=Glade UI
+OnClick=ImportGladeScript
+
+# HELP MENU
+@MenuItem HelpDocs
+Parent=Help
+Text=Documentation
+Shortcut=F1
+OnClick=HelpDocsScript
+
+@MenuItem HelpAbout
+Parent=Help
+Text=About Visualised
+OnClick=FormOpenModal about_dialog.vml
+
+# ========================================
+# CONTEXT MENU FOR DESIGN CANVAS
+# ========================================
+
+@ContextMenu CanvasContextMenu
+AttachTo=designCanvas
+
+@MenuItem CtxPaste
+Parent=CanvasContextMenu
+Text=Paste
+Shortcut=Ctrl+V
+OnClick=CtxPasteHandler
+
+# ========================================
+# CONTEXT MENU FOR CONTROLS
+# ========================================
+
+@ContextMenu ControlContextMenu
+
+@MenuItem CtrlEditScript
+Parent=ControlContextMenu
+Text=Edit Script...
+OnClick=CtxEditScriptHandler
+
+@MenuItem CtrlSep1
+Parent=ControlContextMenu
+IsSeparator=true
+
+@MenuItem CtrlCut
+Parent=ControlContextMenu
+Text=Cut
+Shortcut=Ctrl+X
+OnClick=CtxCutHandler
+
+@MenuItem CtrlCopy
+Parent=ControlContextMenu
+Text=Copy
+Shortcut=Ctrl+C
+OnClick=CtxCopyHandler
+
+@MenuItem CtrlPaste
+Parent=ControlContextMenu
+Text=Paste
+Shortcut=Ctrl+V
+OnClick=CtxPasteHandler
+
+@MenuItem CtrlSep2
+Parent=ControlContextMenu
+IsSeparator=true
+
+@MenuItem CtrlDelete
+Parent=ControlContextMenu
+Text=Delete
+OnClick=CtxDeleteHandler
+
+@MenuItem CtrlSep3
+Parent=ControlContextMenu
+IsSeparator=true
+
+@MenuItem CtrlProperties
+Parent=ControlContextMenu
+Text=Properties
+OnClick=CtxPropertiesHandler
+
+# ========================================
+# FILE MENU SCRIPTS (LUA)
+# ========================================
+
+@Script FileNewScript
+Interpreter=lua
+Content=<<EOF
+-- Clear canvas
+local affected = Vml("SqlExecute", "DELETE FROM ui_tree WHERE source_file NOT LIKE '%designer.vml%'")
+Vml("ReloadCanvas")
+Vml("InfoDialog", "Canvas cleared - ready for new form!")
+EOF
+
+@Script FileOpenScript
+Interpreter=lua
+Content=<<EOF
+-- Show file dialog
+local filepath = Vml("FileOpenDialog", "Open VML File", "vml")
+
+if filepath ~= "" then
+    -- Use shell to import (parser outputs SQL)
+    local cmd = string.format('vml-parse "%s" | sqlite3 "$VML_DB_PATH"', filepath)
+    Vml("Shell", cmd)
+
+    Vml("ReloadCanvas")
+    Vml("InfoDialog", "Imported: " .. filepath)
+end
+EOF
+
+@Script FileSaveScript
+Interpreter=lua
+Content=<<EOF
+-- Show save dialog
+local filepath = Vml("FileSaveDialog", "Save VML File", "myform", "vml")
+
+if filepath ~= "" then
+    -- Export using parser
+    local cmd = string.format('vml-parse --export "$VML_DB_PATH" "designer" > "%s"', filepath)
+    Vml("Shell", cmd)
+
+    Vml("InfoDialog", "Saved to: " .. filepath)
+end
+EOF
+
+@Script FileSaveAsScript
+Interpreter=lua
+Content=<<EOF
+-- Show save dialog
+local filepath = Vml("FileSaveDialog", "Save VML File As", "untitled", "vml")
+
+if filepath ~= "" then
+    -- Export using parser
+    local cmd = string.format('vml-parse --export "$VML_DB_PATH" "designer" > "%s"', filepath)
+    Vml("Shell", cmd)
+
+    Vml("InfoDialog", "Saved to: " .. filepath)
+end
+EOF
+
+@Script FileExitScript
+Interpreter=lua
+Content=<<EOF
+-- Confirm and exit
+if Vml("ConfirmDialog", "Exit Visualised?") then
+    Vml("AppExit")
+end
+EOF
+
+@Script EditUndoScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Edit > Undo - Not yet implemented"
+EOF
+
+@Script EditRedoScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Edit > Redo - Not yet implemented"
+EOF
+
+@Script EditCutScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Edit > Cut - Not yet implemented"
+EOF
+
+@Script EditCopyScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Edit > Copy - Not yet implemented"
+EOF
+
+@Script EditPasteScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Edit > Paste - Not yet implemented"
+EOF
+
+@Script EditDeleteScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Edit > Delete - Not yet implemented"
+EOF
+
+@Script ToolsSettingsScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Tools > Settings - Not yet implemented"
+EOF
+
+@Script ToolsGridScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Tools > Grid Options - Not yet implemented"
+EOF
+
+@Script HelpDocsScript
+Interpreter=bash
+Content=<<EOF
+#!/bin/bash
+echo "[MENU] Opening documentation..."
+xdg-open "https://visualised.dev/docs" 2>/dev/null || echo "Documentation URL: https://visualised.dev/docs"
+EOF
+
+# ========================================
+# CONTEXT MENU SCRIPTS
+# ========================================
+
+@Script CtxEditScriptHandler
+Interpreter=lua
+Content=<<EOF
+Vml("FormOpenModal", "script-editor.vml")
+EOF
+
+@Script CtxCutHandler
+Interpreter=lua
+Content=<<EOF
+-- Cut selected control
+local selected = GetSelectedControl()
+if selected then
+    SetClipboard(selected, true)  -- true = cut operation
+    SetOpacity(selected, 0.5)
+    StatusText("Cut: " .. selected)
+else
+    Vml("InfoDialog", "Please select a control to cut")
+end
+EOF
+
+@Script CtxCopyHandler
+Interpreter=lua
+Content=<<EOF
+-- Copy selected control
+local selected = GetSelectedControl()
+if selected then
+    SetClipboard(selected, false)  -- false = copy operation
+    StatusText("Copied: " .. selected)
+else
+    Vml("InfoDialog", "Please select a control to copy")
+end
+EOF
+
+@Script CtxPasteHandler
+Interpreter=lua
+Content=<<EOF
+-- Paste control from clipboard
+local clipboard = GetClipboard()
+if clipboard then
+    local newControl = PasteControl(clipboard)
+    SelectControl(newControl)
+    StatusText("Pasted: " .. newControl)
+else
+    Vml("InfoDialog", "Nothing to paste")
+end
+EOF
+
+@Script CtxDeleteHandler
+Interpreter=lua
+Content=<<EOF
+-- Delete selected control
+local selected = GetSelectedControl()
+if selected then
+    if Vml("ConfirmDialog", "Delete " .. selected .. "?") then
+        DeleteControl(selected)
+        StatusText("Deleted: " .. selected)
+    end
+else
+    Vml("InfoDialog", "Please select a control to delete")
+end
+EOF
+
+@Script CtxPropertiesHandler
+Interpreter=lua
+Content=<<EOF
+-- Show properties for selected control
+local selected = GetSelectedControl()
+if selected then
+    -- Properties panel should already be showing it
+    StatusText("Properties: " .. selected)
+else
+    Vml("InfoDialog", "Please select a control")
+end
+EOF
+
+@Script CtxAddButtonHandler
+Interpreter=lua
+Content=<<EOF
+AddControlToCanvas("Button")
+EOF
+
+@Script CtxAddTextBoxHandler
+Interpreter=lua
+Content=<<EOF
+AddControlToCanvas("TextBox")
+EOF
+
+@Script CtxAddLabelHandler
+Interpreter=lua
+Content=<<EOF
+AddControlToCanvas("Label")
+EOF
+
+@Script CtxAddCheckBoxHandler
+Interpreter=lua
+Content=<<EOF
+AddControlToCanvas("CheckBox")
+EOF
+
+@Script CtxAddComboBoxHandler
+Interpreter=lua
+Content=<<EOF
+AddControlToCanvas("ComboBox")
+EOF
+
+@Script CtxAddListBoxHandler
+Interpreter=lua
+Content=<<EOF
+AddControlToCanvas("ListBox")
+EOF
+

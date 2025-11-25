@@ -1,0 +1,651 @@
+# No-Stick Boot Manager
+# Revolutionary USB-free boot solution
+# Copyright (c) 2025 Wallisoft - Two-tier license model
+
+@Window MainWindow
+Title=No-Stick Boot Manager v1.0
+Width=800
+Height=600
+Background=#f5f5f5
+Icon=no-stick-icon.png
+
+@DockPanel MainLayout
+LastChildFill=true
+Parent=MainWindow
+
+# Menu Bar - DISABLED FOR NOW
+# @Menu TopMenu
+# DockPanel.Dock=Top
+# Height=30
+# Background=#2c3e50
+# Foreground=White
+# Parent=MainLayout
+
+# @MenuItem FileMenu
+# Header=_File
+# Parent=TopMenu
+
+# @MenuItem FileRefresh
+# Header=_Refresh ISO List
+# Parent=FileMenu
+
+# @MenuItem FileSeparator1
+# Header=-
+# Parent=FileMenu
+
+# @MenuItem FileExit
+# Header=E_xit
+# Parent=FileMenu
+
+# @MenuItem ToolsMenu
+# Header=_Tools
+# Parent=TopMenu
+
+# @MenuItem ToolsGrubConfig
+# Header=_GRUB2 Configuration
+# Parent=ToolsMenu
+
+# @MenuItem ToolsSwapManage
+# Header=_Manage Swap Space
+# Parent=ToolsMenu
+
+# @MenuItem HelpMenu
+# Header=_Help
+# Parent=TopMenu
+
+# @MenuItem HelpDocs
+# Header=_Documentation
+# Parent=HelpMenu
+
+# @MenuItem HelpGitHub
+# Header=_GitHub Repository
+# Parent=HelpMenu
+
+# @MenuItem HelpSeparator1
+# Header=-
+# Parent=HelpMenu
+
+# @MenuItem HelpAbout
+# Header=_About No-Stick
+# Parent=HelpMenu
+
+# Main Content - TabControl
+@TabControl MainTabs
+Background=White
+Margin=0
+Parent=MainLayout
+
+# ============================================
+# QUICK TAB - Simple ISO selection & install
+# ============================================
+@TabItem TabQuick
+Header=  Quick  
+FontSize=14
+Parent=MainTabs
+
+@Grid QuickGrid
+Margin=20
+ColumnDefinitions=370,*
+Parent=TabQuick
+
+# Left Panel - ISO Selection
+@StackPanel QuickLeftPanel
+Grid.Column=0
+Width=350
+Padding=15
+Background=#ecf0f1
+Parent=QuickGrid
+
+@TextBlock QuickTitle
+Text=📀 Boot ISO Selection
+FontSize=18
+FontWeight=Bold
+Foreground=#2c3e50
+Margin=0,0,0,15
+Parent=QuickLeftPanel
+
+@Border MethodBorder
+Background=White
+BorderBrush=#bdc3c7
+BorderThickness=1
+CornerRadius=4
+Padding=15
+Margin=0,0,0,15
+Parent=QuickLeftPanel
+
+@StackPanel MethodPanel
+Parent=MethodBorder
+
+@TextBlock MethodLabel
+Text=Select ISO Source:
+FontSize=14
+FontWeight=SemiBold
+Margin=0,0,0,10
+Parent=MethodPanel
+
+@RadioButton RadioLocalFile
+Content=📁 Browse Local File System
+GroupName=IsoSource
+IsChecked=true
+Margin=0,0,0,10
+Parent=MethodPanel
+
+@RadioButton RadioDownload
+Content=⬇️ Download from Repository
+GroupName=IsoSource
+Margin=0,0,0,0
+Parent=MethodPanel
+
+# Local File Section
+@Border LocalFileBorder
+Background=#e8f4f8
+BorderBrush=#3498db
+BorderThickness=1
+CornerRadius=4
+Padding=10
+Margin=0,0,0,15
+Parent=QuickLeftPanel
+
+@StackPanel LocalFilePanel
+Parent=LocalFileBorder
+
+@TextBlock LocalFileLabel
+Text=ISO File Path:
+FontSize=12
+Margin=0,0,0,5
+Parent=LocalFilePanel
+
+@TextBox txtIsoPath
+Watermark=/path/to/your/file.iso
+Width=310
+Height=32
+Margin=0,0,0,8
+Parent=LocalFilePanel
+
+@Button btnBrowse
+Content=🔍 Browse...
+Width=150
+Height=35
+Background=#3498db
+Foreground=White
+CornerRadius=4
+HorizontalAlignment=Left
+Parent=LocalFilePanel
+
+# Download List Section
+@Border DownloadBorder
+Background=White
+BorderBrush=#bdc3c7
+BorderThickness=1
+CornerRadius=4
+Padding=10
+Parent=QuickLeftPanel
+
+@StackPanel DownloadPanel
+Parent=DownloadBorder
+
+@TextBlock DownloadLabel
+Text=📥 Popular ISOs (Community Curated):
+FontSize=12
+FontWeight=SemiBold
+Margin=0,0,0,8
+Parent=DownloadPanel
+
+@ListBox lstIsoDownloads
+Height=200
+Background=White
+BorderBrush=#bdc3c7
+BorderThickness=1
+Parent=DownloadPanel
+
+# Right Panel - Actions & Status
+@StackPanel QuickRightPanel
+Grid.Column=1
+Padding=20
+Parent=QuickGrid
+
+@TextBlock StatusTitle
+Text=🚀 Installation Status
+FontSize=18
+FontWeight=Bold
+Foreground=#2c3e50
+Margin=0,0,0,15
+Parent=QuickRightPanel
+
+@Border StatusBorder
+Background=White
+BorderBrush=#bdc3c7
+BorderThickness=2
+CornerRadius=8
+Padding=20
+Margin=0,0,0,20
+Parent=QuickRightPanel
+
+@StackPanel StatusPanel
+Parent=StatusBorder
+
+@TextBlock StatusText
+Text=Ready to configure boot options
+FontSize=14
+Foreground=#7f8c8d
+TextWrapping=Wrap
+Margin=0,0,0,15
+Parent=StatusPanel
+
+@TextBlock SwapInfoText
+Text=Swap Space: Not configured
+FontSize=12
+Foreground=#e67e22
+Margin=0,0,0,5
+Parent=StatusPanel
+
+@TextBlock IsoInfoText
+Text=Boot ISOs: 0 configured
+FontSize=12
+Foreground=#e67e22
+Margin=0,0,0,5
+Parent=StatusPanel
+
+@TextBlock GrubInfoText
+Text=GRUB2: Not configured
+FontSize=12
+Foreground=#e67e22
+Margin=0,0,0,0
+Parent=StatusPanel
+
+# Action Buttons
+@StackPanel ActionPanel
+Margin=0,20,0,0
+Parent=QuickRightPanel
+
+@Button btnDownloadInstall
+Content=⬇️ Download & Install
+Width=350
+Height=45
+Background=#27ae60
+Foreground=White
+FontSize=16
+FontWeight=Bold
+CornerRadius=6
+Margin=0,0,0,10
+Parent=ActionPanel
+
+@Button btnInstallLocal
+Content=💾 Install Local ISO
+Width=350
+Height=45
+Background=#2980b9
+Foreground=White
+FontSize=16
+FontWeight=Bold
+CornerRadius=6
+Margin=0,0,0,10
+Parent=ActionPanel
+
+@Button btnManageBoot
+Content=⚙️ Manage Boot Options
+Width=350
+Height=35
+Background=#7f8c8d
+Foreground=White
+CornerRadius=4
+Parent=ActionPanel
+
+# Progress Section
+@Border ProgressBorder
+Background=#ecf0f1
+BorderBrush=#95a5a6
+BorderThickness=1
+CornerRadius=4
+Padding=15
+Margin=0,20,0,0
+Parent=QuickRightPanel
+
+@StackPanel ProgressPanel
+Parent=ProgressBorder
+
+@TextBlock ProgressLabel
+Text=Operation Progress:
+FontSize=12
+FontWeight=SemiBold
+Margin=0,0,0,8
+Parent=ProgressPanel
+
+@ProgressBar pbOperation
+Height=20
+Minimum=0
+Maximum=100
+Value=0
+Parent=ProgressPanel
+
+@TextBlock ProgressText
+Text=Waiting for operation...
+FontSize=11
+Foreground=#7f8c8d
+Margin=0,8,0,0
+Parent=ProgressPanel
+
+# ============================================
+# ADVANCED TAB - Swap location & GRUB config
+# ============================================
+@TabItem TabAdvanced
+Header=  Advanced  
+FontSize=14
+Parent=MainTabs
+
+@Grid AdvancedGrid
+Margin=20
+ColumnDefinitions=380,*
+Parent=TabAdvanced
+
+# Left Panel - Swap Configuration
+@StackPanel AdvancedLeftPanel
+Grid.Column=0
+Width=360
+Padding=15
+Background=#ecf0f1
+Parent=AdvancedGrid
+
+@TextBlock AdvancedTitle
+Text=⚙️ Advanced Configuration
+FontSize=18
+FontWeight=Bold
+Foreground=#2c3e50
+Margin=0,0,0,15
+Parent=AdvancedLeftPanel
+
+# Swap Location Section
+@Border SwapBorder
+Background=White
+BorderBrush=#bdc3c7
+BorderThickness=1
+CornerRadius=4
+Padding=15
+Margin=0,0,0,15
+Parent=AdvancedLeftPanel
+
+@StackPanel SwapPanel
+Parent=SwapBorder
+
+@TextBlock SwapTitle
+Text=💾 Swap Space Configuration
+FontSize=14
+FontWeight=SemiBold
+Margin=0,0,0,10
+Parent=SwapPanel
+
+@RadioButton RadioSwapAuto
+Content=Automatic (Create dedicated space)
+GroupName=SwapMode
+IsChecked=true
+Margin=0,0,0,8
+Parent=SwapPanel
+
+@RadioButton RadioSwapCustom
+Content=Custom Location
+GroupName=SwapMode
+Margin=0,0,0,8
+Parent=SwapPanel
+
+@RadioButton RadioSwapPartition
+Content=Use Existing Swap Partition
+GroupName=SwapMode
+Margin=0,0,0,15
+Parent=SwapPanel
+
+@TextBlock SwapPathLabel
+Text=Custom Swap Path:
+FontSize=12
+Margin=0,0,0,5
+Parent=SwapPanel
+
+@TextBox txtSwapPath
+Watermark=/path/to/swap/location
+Height=32
+Margin=0,0,0,8
+Parent=SwapPanel
+
+@Button btnBrowseSwap
+Content=🔍 Browse...
+Width=120
+Height=30
+Background=#3498db
+Foreground=White
+CornerRadius=4
+Parent=SwapPanel
+
+@TextBlock SwapSizeLabel
+Text=Minimum Size: 8 GB
+FontSize=11
+Foreground=#7f8c8d
+Margin=0,10,0,0
+Parent=SwapPanel
+
+# Partition Tools Section
+@Border PartitionBorder
+Background=White
+BorderBrush=#bdc3c7
+BorderThickness=1
+CornerRadius=4
+Padding=15
+Parent=AdvancedLeftPanel
+
+@StackPanel PartitionPanel
+Parent=PartitionBorder
+
+@TextBlock PartitionTitle
+Text=💿 Partition Management
+FontSize=14
+FontWeight=SemiBold
+Margin=0,0,0,10
+Parent=PartitionPanel
+
+@Button btnCheckPartitions
+Content=📋 List Partitions
+Width=320
+Height=35
+Background=#16a085
+Foreground=White
+CornerRadius=4
+Margin=0,0,0,8
+Parent=PartitionPanel
+
+@Button btnCheckBitLocker
+Content=🔒 Check BitLocker Status
+Width=320
+Height=35
+Background=#e67e22
+Foreground=White
+CornerRadius=4
+Parent=PartitionPanel
+
+# Right Panel - GRUB2 Configuration
+@StackPanel AdvancedRightPanel
+Grid.Column=1
+Padding=20
+Parent=AdvancedGrid
+
+@TextBlock GrubTitle
+Text=⚡ GRUB2 Configuration
+FontSize=18
+FontWeight=Bold
+Foreground=#2c3e50
+Margin=0,0,0,15
+Parent=AdvancedRightPanel
+
+@Border GrubBorder
+Background=White
+BorderBrush=#2c3e50
+BorderThickness=2
+CornerRadius=4
+Padding=15
+Parent=AdvancedRightPanel
+
+@StackPanel GrubPanel
+Parent=GrubBorder
+
+@TextBlock GrubEditorLabel
+Text=GRUB Configuration Editor:
+FontSize=12
+FontWeight=SemiBold
+Margin=0,0,0,8
+Parent=GrubPanel
+
+@TextBox txtGrubConfig
+AcceptsReturn=true
+TextWrapping=Wrap
+Height=300
+FontFamily=Courier New
+FontSize=11
+Background=#282c34
+Foreground=#abb2bf
+Padding=10
+Text=# GRUB2 Configuration\n# Auto-generated by No-Stick Boot Manager\n\nGRUB_DEFAULT=0\nGRUB_TIMEOUT=10\nGRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash"\nGRUB_CMDLINE_LINUX=""\n\n# No-Stick Boot Entry\nmenuentry "No-Stick Boot Menu" {\n    set root=(hd0,1)\n    chainloader +1\n}
+Parent=GrubPanel
+
+@StackPanel GrubButtonPanel
+Orientation=Horizontal
+Margin=0,15,0,0
+Parent=GrubPanel
+
+@Button btnGrubDefaults
+Content=↺ Reset to Defaults
+Width=140
+Height=35
+Background=#95a5a6
+Foreground=White
+CornerRadius=4
+Margin=0,0,10,0
+Parent=GrubButtonPanel
+
+@Button btnGrubSave
+Content=💾 Save Configuration
+Width=140
+Height=35
+Background=#27ae60
+Foreground=White
+CornerRadius=4
+Parent=GrubButtonPanel
+
+@TextBlock GrubWarning
+Text=⚠️ Warning: Incorrect GRUB configuration can make your system unbootable. Create a backup before modifying.
+FontSize=11
+Foreground=#e74c3c
+TextWrapping=Wrap
+Margin=0,15,0,0
+Parent=AdvancedRightPanel
+
+# ============================================
+# PRO TAB - Advanced features
+# ============================================
+@TabItem TabPro
+Header=  Pro  
+FontSize=14
+Parent=MainTabs
+
+@Grid ProGrid
+Margin=20
+Parent=TabPro
+
+@StackPanel ProPanel
+HorizontalAlignment=Center
+VerticalAlignment=Center
+Parent=ProGrid
+
+@TextBlock ProTitle
+Text=🎯 Professional Features
+FontSize=24
+FontWeight=Bold
+Foreground=#2c3e50
+HorizontalAlignment=Center
+Margin=0,0,0,20
+Parent=ProPanel
+
+@TextBlock ProDescription
+Text=Advanced features for power users
+FontSize=14
+Foreground=#7f8c8d
+HorizontalAlignment=Center
+Margin=0,0,0,40
+Parent=ProPanel
+
+@Border ProFeaturesBorder
+Background=#ecf0f1
+BorderBrush=#95a5a6
+BorderThickness=1
+CornerRadius=8
+Padding=30
+MinWidth=500
+Parent=ProPanel
+
+@StackPanel ProFeaturesPanel
+Parent=ProFeaturesBorder
+
+@TextBlock ProFeature1
+Text=• Multi-boot ISO management
+FontSize=14
+Margin=0,0,0,10
+Parent=ProFeaturesPanel
+
+@TextBlock ProFeature2
+Text=• Custom boot scripts
+FontSize=14
+Margin=0,0,0,10
+Parent=ProFeaturesPanel
+
+@TextBlock ProFeature3
+Text=• Chainloader configuration
+FontSize=14
+Margin=0,0,0,10
+Parent=ProFeaturesPanel
+
+@TextBlock ProFeature4
+Text=• UEFI/BIOS mode detection
+FontSize=14
+Margin=0,0,0,10
+Parent=ProFeaturesPanel
+
+@TextBlock ProFeature5
+Text=• Automated backup/restore
+FontSize=14
+Margin=0,0,0,0
+Parent=ProFeaturesPanel
+
+@TextBlock ProComingSoon
+Text=Coming Soon...
+FontSize=16
+FontWeight=SemiBold
+Foreground=#e67e22
+HorizontalAlignment=Center
+Margin=0,30,0,0
+Parent=ProPanel
+
+# Status Bar - DISABLED FOR NOW (causing layout issues)
+# @Border StatusBar
+# DockPanel.Dock=Bottom
+# Height=30
+# Background=#34495e
+# BorderBrush=#2c3e50
+# BorderThickness=0,1,0,0
+# Parent=MainLayout
+
+# @Grid StatusBarGrid
+# ColumnDefinitions=*,*
+# Parent=StatusBar
+
+# @TextBlock StatusBarLeft
+# Text=Ready
+# Foreground=White
+# Margin=10,0,0,0
+# VerticalAlignment=Center
+# Grid.Column=0
+# Parent=StatusBarGrid
+
+# @TextBlock StatusBarRight
+# Text=No-Stick Boot Manager v1.0 | Wallisoft © 2025
+# Foreground=#95a5a6
+# Margin=0,0,10,0
+# VerticalAlignment=Center
+# HorizontalAlignment=Right
+# Grid.Column=1
+# Parent=StatusBarGrid

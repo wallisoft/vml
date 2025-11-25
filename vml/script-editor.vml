@@ -1,0 +1,170 @@
+# Script Editor - VML Style
+@Window ScriptEditor
+Title=Edit Script
+Width=520
+Height=450
+Background=#e8f5e9
+
+@Border MainBorder
+Parent=ScriptEditor
+Background=#e8f5e9
+BorderBrush=#107C10
+BorderThickness=2
+Margin=10
+CornerRadius=8
+
+@StackPanel Main
+Parent=MainBorder
+Margin=15
+Spacing=12
+
+# Header
+@TextBlock Header
+Parent=Main
+Text=Script Editor
+FontSize=18
+FontWeight=Bold
+Foreground=#107C10
+HorizontalAlignment=Center
+Margin=0,0,0,10
+
+# Interpreter Row
+@StackPanel InterpRow
+Parent=Main
+Orientation=Horizontal
+Spacing=10
+
+@TextBlock LblInterp
+Parent=InterpRow
+Text=Interpreter:
+Foreground=#424242
+VerticalAlignment=Center
+Width=80
+
+@ComboBox Interpreter
+Parent=InterpRow
+Width=130
+Items=bash,lua,csharp,python
+SelectedIndex=1
+Background=White
+BorderBrush=#66bb6a
+
+# Event Row
+@StackPanel EventRow
+Parent=Main
+Orientation=Horizontal
+Spacing=10
+
+@TextBlock LblEvent
+Parent=EventRow
+Text=Event:
+Foreground=#424242
+VerticalAlignment=Center
+Width=80
+
+@ComboBox Event
+Parent=EventRow
+Width=180
+Items=OnClick,OnLostFocus,OnGotFocus,OnTextChanged,OnSelectionChanged,OnChecked,───────,OnUnchecked,OnPointerEnter,OnPointerLeave,OnPointerPressed,OnOpened,OnClosing
+SelectedIndex=0
+Background=White
+BorderBrush=#66bb6a
+
+# Code Editor
+@Border CodeBorder
+Parent=Main
+BorderBrush=#107C10
+BorderThickness=1
+CornerRadius=4
+Background=#1e1e1e
+
+@TextBox CodeEditor
+Parent=CodeBorder
+Height=220
+AcceptsReturn=True
+TextWrapping=Wrap
+FontFamily=Consolas
+FontSize=13
+Background=#1e1e1e
+Foreground=#d4d4d4
+Padding=8
+
+# Button Row
+@StackPanel ButtonRow
+Parent=Main
+Orientation=Horizontal
+Spacing=10
+HorizontalAlignment=Center
+Margin=0,10,0,0
+
+@Button ApplyBtn
+Parent=ButtonRow
+Content=✓ Apply
+Width=90
+Background=#107C10
+Foreground=White
+OnClick=ApplyScript
+
+@Button ExternalBtn
+Parent=ButtonRow
+Content=⬚ External
+Width=90
+Background=#66bb6a
+Foreground=White
+OnClick=OpenExternal
+
+@Button CloseBtn
+Parent=ButtonRow
+Content=✕ Close
+Width=90
+Background=#424242
+Foreground=White
+OnClick=FormClose()
+
+# Scripts
+@Script ApplyScript
+Interpreter=lua
+-- Get values and save
+local control = Vml("GetSetting", "selected_control")
+local interp = Vml("GetProperty", "Interpreter", "SelectedItem")
+local event = Vml("GetProperty", "Event", "SelectedItem")
+local code = Vml("GetProperty", "CodeEditor", "Text")
+
+if control == "" then
+    Vml("ErrorDialog", "No control selected")
+    return
+end
+
+local scriptName = control .. "_" .. event
+Vml("SqlExecute", string.format([[
+    INSERT OR REPLACE INTO scripts (name, interpreter, content, created_at)
+    VALUES ('%s', '%s', '%s', %d)
+]], scriptName, interp, code:gsub("'", "''"), os.time()))
+
+Vml("SqlExecute", string.format([[
+    INSERT OR REPLACE INTO ui_properties (ui_tree_id, property_name, property_value)
+    SELECT id, '%s', '%s' FROM ui_tree WHERE name = '%s'
+]], event, scriptName, control))
+
+Vml("InfoDialog", "✓ Script saved: " .. scriptName)
+
+@Script OpenExternal
+Interpreter=lua
+-- Save to temp, open editor, reload
+local code = Vml("GetProperty", "CodeEditor", "Text")
+local tmpfile = "/tmp/vml_script_edit.lua"
+local f = io.open(tmpfile, "w")
+f:write(code)
+f:close()
+
+local editor = Vml("GetSetting", "default_editor_linux")
+editor = editor:gsub("{file}", tmpfile)
+Vml("Shell", editor)
+
+-- Reload
+local f2 = io.open(tmpfile, "r")
+if f2 then
+    local newcode = f2:read("*all")
+    f2:close()
+    Vml("SetProperty", "CodeEditor", "Text", newcode)
+end

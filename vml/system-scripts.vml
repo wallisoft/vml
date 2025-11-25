@@ -1,0 +1,114 @@
+# ========================================
+# VML PARSER - AWK EDITION (System Script)
+# ========================================
+
+@Script VmlParserAwk
+Interpreter=awk
+Content=<<EOF
+#!/usr/bin/awk -f
+# VML Parser v1.0 - Universal Format Converter (AWK Edition)
+# 70MB → 2KB - Steve Wallis & Claude (Anthropic) 2025
+#!/usr/bin/awk -f
+# VML Parser v2.0 - Bidirectional VML ↔ SQL with source tracking
+
+#!/usr/bin/awk -f
+BEGIN {
+    if (ARGC < 2) {
+        print "VML Parser v2.0 - Bidirectional Converter" > "/dev/stderr"
+        print "Usage: vml-parse input.vml > output.sql" > "/dev/stderr"
+        print "       vml-parse --export db.db form-name > output.vml" > "/dev/stderr"
+        exit 1
+    }
+
+    id = 1
+    in_heredoc = 0
+    current_control = 0
+    source_file = ARGV[1]
+    timestamp = systime()
+
+    print "Converting VML → SQL..." > "/dev/stderr"
+}
+
+/^#/ || /^[[:space:]]*$/ { next }
+
+in_heredoc && /^EOF[[:space:]]*$/ {
+    props[current_control, heredoc_key] = heredoc_content
+    in_heredoc = 0
+    heredoc_content = ""
+    next
+}
+
+in_heredoc {
+    heredoc_content = heredoc_content $0 "\n"
+    next
+}
+
+/^@/ {
+    current_control++
+    type = $1
+    sub(/^@/, "", type)
+    name = $2
+    if (name == "") name = type "_" current_control
+    control_type[current_control] = type
+    control_name[current_control] = name
+    next
+}
+
+/=/ {
+    if (current_control == 0) next
+    eq = index($0, "=")
+    key = substr($0, 1, eq - 1)
+    value = substr($0, eq + 1)
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+    if (value == "<<EOF") {
+        in_heredoc = 1
+        heredoc_key = key
+        heredoc_content = ""
+        next
+    }
+    props[current_control, key] = value
+    next
+}
+
+END {
+    print "✓ Parsed " current_control " controls" > "/dev/stderr"
+
+    for (i = 1; i <= current_control; i++) {
+        parent_id = 0
+        parent_name = props[i, "Parent"]
+
+        if (parent_name != "") {
+            for (j = 1; j < i; j++) {
+                if (control_name[j] == parent_name) {
+                    parent_id = j
+                    break
+                }
+            }
+        }
+
+        is_root = (parent_id == 0) ? 1 : 0
+
+        if (parent_id > 0) {
+            printf "INSERT INTO ui_tree (id, parent_id, control_type, name, display_order, is_root, source_file, imported_at) VALUES (%d, %d, '%s', '%s', %d, %d, '%s', %d);\n",
+                i, parent_id, control_type[i], control_name[i], i, is_root, source_file, timestamp
+        } else {
+            printf "INSERT INTO ui_tree (id, parent_id, control_type, name, display_order, is_root, source_file, imported_at) VALUES (%d, NULL, '%s', '%s', %d, %d, '%s', %d);\n",
+                i, control_type[i], control_name[i], i, is_root, source_file, timestamp
+        }
+
+        for (key in props) {
+            split(key, parts, SUBSEP)
+            if (parts[1] == i && parts[2] != "Parent") {
+                value = props[key]
+                gsub(/'/, "''", value)
+                printf "INSERT INTO ui_properties (ui_tree_id, property_name, property_value) VALUES (%d, '%s', '%s');\n",
+                    i, parts[2], value
+            }
+        }
+    }
+
+    print "✓ Conversion complete" > "/dev/stderr"
+}
+EOF
+
