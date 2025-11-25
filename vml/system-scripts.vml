@@ -4,7 +4,6 @@
 
 @Script VmlParserAwk
 Interpreter=awk
-Content=<<EOF
 #!/usr/bin/awk -f
 # VML Parser v1.0 - Universal Format Converter (AWK Edition)
 # 70MB → 2KB - Steve Wallis & Claude (Anthropic) 2025
@@ -110,5 +109,4 @@ END {
 
     print "✓ Conversion complete" > "/dev/stderr"
 }
-EOF
 

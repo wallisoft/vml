@@ -338,16 +338,13 @@ OnClick=CtxPropertiesHandler
 
 @Script FileNewScript
 Interpreter=lua
-Content=<<EOF
 -- Clear canvas
 local affected = Vml("SqlExecute", "DELETE FROM ui_tree WHERE source_file NOT LIKE '%designer.vml%'")
 Vml("ReloadCanvas")
 Vml("InfoDialog", "Canvas cleared - ready for new form!")
-EOF
 
 @Script FileOpenScript
 Interpreter=lua
-Content=<<EOF
 -- Show file dialog
 local filepath = Vml("FileOpenDialog", "Open VML File", "vml")
 
@@ -359,11 +356,9 @@ if filepath ~= "" then
     Vml("ReloadCanvas")
     Vml("InfoDialog", "Imported: " .. filepath)
 end
-EOF
 
 @Script FileSaveScript
 Interpreter=lua
-Content=<<EOF
 -- Show save dialog
 local filepath = Vml("FileSaveDialog", "Save VML File", "myform", "vml")
 
@@ -374,11 +369,9 @@ if filepath ~= "" then
 
     Vml("InfoDialog", "Saved to: " .. filepath)
 end
-EOF
 
 @Script FileSaveAsScript
 Interpreter=lua
-Content=<<EOF
 -- Show save dialog
 local filepath = Vml("FileSaveDialog", "Save VML File As", "untitled", "vml")
 
@@ -389,80 +382,59 @@ if filepath ~= "" then
 
     Vml("InfoDialog", "Saved to: " .. filepath)
 end
-EOF
 
 @Script FileExitScript
 Interpreter=lua
-Content=<<EOF
 -- Confirm and exit
 if Vml("ConfirmDialog", "Exit Visualised?") then
     Vml("AppExit")
 end
-EOF
 
 @Script EditUndoScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Edit > Undo - Not yet implemented"
-EOF
 
 @Script EditRedoScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Edit > Redo - Not yet implemented"
-EOF
 
 @Script EditCutScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Edit > Cut - Not yet implemented"
-EOF
 
 @Script EditCopyScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Edit > Copy - Not yet implemented"
-EOF
 
 @Script EditPasteScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Edit > Paste - Not yet implemented"
-EOF
 
 @Script EditDeleteScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Edit > Delete - Not yet implemented"
-EOF
 
 @Script ToolsSettingsScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Tools > Settings - Not yet implemented"
-EOF
 
 @Script ToolsGridScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Tools > Grid Options - Not yet implemented"
-EOF
 
 @Script HelpDocsScript
 Interpreter=bash
-Content=<<EOF
 #!/bin/bash
 echo "[MENU] Opening documentation..."
 xdg-open "https://visualised.dev/docs" 2>/dev/null || echo "Documentation URL: https://visualised.dev/docs"
-EOF
 
 # ========================================
 # CONTEXT MENU SCRIPTS
@@ -470,13 +442,10 @@ EOF
 
 @Script CtxEditScriptHandler
 Interpreter=lua
-Content=<<EOF
 Vml("FormOpenModal", "script-editor.vml")
-EOF
 
 @Script CtxCutHandler
 Interpreter=lua
-Content=<<EOF
 -- Cut selected control
 local selected = GetSelectedControl()
 if selected then
@@ -486,11 +455,9 @@ if selected then
 else
     Vml("InfoDialog", "Please select a control to cut")
 end
-EOF
 
 @Script CtxCopyHandler
 Interpreter=lua
-Content=<<EOF
 -- Copy selected control
 local selected = GetSelectedControl()
 if selected then
@@ -499,11 +466,9 @@ if selected then
 else
     Vml("InfoDialog", "Please select a control to copy")
 end
-EOF
 
 @Script CtxPasteHandler
 Interpreter=lua
-Content=<<EOF
 -- Paste control from clipboard
 local clipboard = GetClipboard()
 if clipboard then
@@ -513,11 +478,9 @@ if clipboard then
 else
     Vml("InfoDialog", "Nothing to paste")
 end
-EOF
 
 @Script CtxDeleteHandler
 Interpreter=lua
-Content=<<EOF
 -- Delete selected control
 local selected = GetSelectedControl()
 if selected then
@@ -528,11 +491,9 @@ if selected then
 else
     Vml("InfoDialog", "Please select a control to delete")
 end
-EOF
 
 @Script CtxPropertiesHandler
 Interpreter=lua
-Content=<<EOF
 -- Show properties for selected control
 local selected = GetSelectedControl()
 if selected then
@@ -541,41 +502,28 @@ if selected then
 else
     Vml("InfoDialog", "Please select a control")
 end
-EOF
 
 @Script CtxAddButtonHandler
 Interpreter=lua
-Content=<<EOF
 AddControlToCanvas("Button")
-EOF
 
 @Script CtxAddTextBoxHandler
 Interpreter=lua
-Content=<<EOF
 AddControlToCanvas("TextBox")
-EOF
 
 @Script CtxAddLabelHandler
 Interpreter=lua
-Content=<<EOF
 AddControlToCanvas("Label")
-EOF
 
 @Script CtxAddCheckBoxHandler
 Interpreter=lua
-Content=<<EOF
 AddControlToCanvas("CheckBox")
-EOF
 
 @Script CtxAddComboBoxHandler
 Interpreter=lua
-Content=<<EOF
 AddControlToCanvas("ComboBox")
-EOF
 
 @Script CtxAddListBoxHandler
 Interpreter=lua
-Content=<<EOF
 AddControlToCanvas("ListBox")
-EOF
 
