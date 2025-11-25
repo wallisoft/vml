@@ -416,12 +416,10 @@ public class VmlLuaEngine
     
     private Control? FindControlRecursive(Control parent, string name)
     {
-        Console.WriteLine($"[FINDCTRL] Checking {parent.GetType().Name} {parent.Name ?? "unnamed"}");
         if (parent.Name == name) return parent;
         
         if (parent is Window w)
         {
-            Console.WriteLine($"[FINDCTRL] Window content: {w.Content?.GetType().Name ?? "null"}");
             if (w.Content is Control wContent)
                 if (FindControlRecursive(wContent, name) is Control found)
                     return found;
