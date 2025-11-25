@@ -34,6 +34,9 @@ public static class FormLoader
         // Import using parser (handles timestamp checking internally now)
         VmlDatabaseParser.LoadVml(vmlPath); 
 
+        // Load scripts from database into registry
+        LoadScriptsIntoRegistry(PropertyStore.GetDbPath());
+
         // Load and display form
         ShowFormFromDatabase(vmlPath, modal);
     }
@@ -241,6 +244,23 @@ public static class FormLoader
         else
         {
             Console.WriteLine($"[FORMLOADER] No handler found: {handler}");
+        }
+    }
+
+    private static void LoadScriptsIntoRegistry(string dbPath)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name, content, interpreter FROM scripts";
+        
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var name = reader.GetString(0);
+            var content = reader.GetString(1);
+            var interpreter = reader.GetString(2);
+            ScriptRegistry.Register(name, content, interpreter);
         }
     }
 }
