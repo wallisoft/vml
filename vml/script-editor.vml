@@ -80,16 +80,6 @@ Foreground=White
 Margin=10,0,0,0
 OnClick=TestScript
 
-@Button TestBtn
-Parent=EventRow
-Content=▶ Test
-Width=70
-Height=28
-Background=#107C10
-Foreground=White
-Margin=10,0,0,0
-OnClick=TestScript
-
 # Code Editor
 @Border CodeBorder
 Parent=Main
