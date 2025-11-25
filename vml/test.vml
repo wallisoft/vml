@@ -1,62 +1,31 @@
-@Window CSharpCounterWindow
-Title=C# Counter Demo
+@Window WasmTestWindow
+Title=WebAssembly Test
 Width=300
 Height=200
-Background=#e8f5e9
 
 @StackPanel Main
-Parent=CSharpCounterWindow
+Parent=WasmTestWindow
 Margin=20
 Spacing=15
-HorizontalAlignment=Center
-VerticalAlignment=Center
 
-@TextBlock CountDisplay
+@TextBlock Info
 Parent=Main
-Text=Count: 0
-FontSize=32
-FontWeight=Bold
-Foreground=#0066cc
-HorizontalAlignment=Center
+Text=Click to test WASM execution
+TextWrapping=Wrap
 
-@Button IncrementBtn
+@Button TestWasmBtn
 Parent=Main
-Content=Increment (C#)
+Content=Run WASM
 Width=150
-Height=40
-Background=#0066cc
+Background=#cc6600
 Foreground=White
-FontSize=16
-OnClick=CSharpCounterScript
+OnClick=WasmTestScript
 
-@Button ResetBtn
-Parent=Main
-Content=Reset
-Width=150
-Height=40
-Background=#424242
-Foreground=White
-OnClick=CSharpResetScript
-
-@Script CSharpCounterScript
-Interpreter=csharp
-Instance=csharpCounter
-// Try to increment, catch if doesn't exist yet
-try
-{
-    count++;
-}
-catch
-{
-    int count = 1;
-}
-Vml("SetProperty", "CountDisplay", "Text", $"Count: {count}");
-Vml("SetProperty", "CountDisplay", "Text", $"Count: {count}");
-Console.WriteLine($"C# Count: {count}");
-
-@Script CSharpResetScript
-Interpreter=csharp
-Instance=csharpCounter
-int count = 0;
-Vml("SetProperty", "CountDisplay", "Text", "Count: 0");
-Console.WriteLine("C# Reset");
+@Script WasmTestScript
+Interpreter=wasm
+(module
+  (func (export "_start")
+    i32.const 42
+    drop
+  )
+)
