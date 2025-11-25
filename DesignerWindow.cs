@@ -828,7 +828,7 @@ public class DesignerWindow
         using var conn = new SqliteConnection($"Data Source={dbPath}");
         conn.Open();
         var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT name, content, interpreter FROM scripts";
+        cmd.CommandText = "SELECT name, content, interpreter, instance FROM scripts";
         
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -836,7 +836,8 @@ public class DesignerWindow
             var name = reader.GetString(0);
             var content = reader.GetString(1);
             var interpreter = reader.GetString(2);
-            ScriptRegistry.Register(name, content, interpreter);
+            var instance = reader.IsDBNull(3) ? "" : reader.GetString(3);
+            ScriptRegistry.Register(name, content, interpreter, instance);
         }
     }
 

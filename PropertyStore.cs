@@ -211,6 +211,7 @@ public static class PropertyStore
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
                     interpreter TEXT NOT NULL,
+                    instance TEXT,
                     content TEXT NOT NULL,
                     source_file TEXT,
                     created_at INTEGER

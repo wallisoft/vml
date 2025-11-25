@@ -228,8 +228,8 @@ Text=Import...
 
 @MenuItem ImportVB5
 Parent=ToolsImport
-Text=VB5/6 Project
-OnClick=ImportVB5Script
+Text=Open test.vml
+OnClick=OpenTestVml
 
 @MenuItem ImportHTML
 Parent=ToolsImport
@@ -528,4 +528,8 @@ AddControlToCanvas("ComboBox")
 @Script CtxAddListBoxHandler
 Interpreter=lua
 AddControlToCanvas("ListBox")
+
+@Script OpenTestVml
+Interpreter=lua
+Vml("FormOpenModal", "test.vml")
 

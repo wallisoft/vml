@@ -11,7 +11,7 @@ public static class ScriptRegistry
 {
     private static readonly Dictionary<string, VmlScript> Scripts = new();
     
-    public static void Register(string name, string content, string interpreter = "bash")
+    public static void Register(string name, string content, string interpreter = "bash", string instance = "")
     {
         Scripts[name] = new VmlScript
         {
@@ -40,5 +40,6 @@ public class VmlScript
     public string Name { get; set; } = "";
     public string Content { get; set; } = "";
     public string Interpreter { get; set; } = "bash";
+    public string Instance { get; set; } = "";
 }
 
