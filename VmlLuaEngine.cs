@@ -612,3 +612,25 @@ public class VmlLuaEngine
         }
     }
 }
+
+/// <summary>
+/// Globals available to C# scripts - provides VML API
+/// </summary>
+public class VmlScriptGlobals
+{
+    private readonly VmlLuaEngine _engine;
+    
+    public VmlScriptGlobals()
+    {
+        _engine = new VmlLuaEngine();
+    }
+    
+    /// <summary>
+    /// VML universal dispatcher - same API as Lua
+    /// Usage: Vml("InfoDialog", "Hello from C#!")
+    /// </summary>
+    public object? Vml(string command, params object[] args)
+    {
+        return _engine.Vml(command, args);
+    }
+}

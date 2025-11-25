@@ -1,11 +1,11 @@
-@Window CounterWindow
-Title=Counter Demo
+@Window CSharpCounterWindow
+Title=C# Counter Demo
 Width=300
 Height=200
 Background=#e8f5e9
 
 @StackPanel Main
-Parent=CounterWindow
+Parent=CSharpCounterWindow
 Margin=20
 Spacing=15
 HorizontalAlignment=Center
@@ -16,18 +16,18 @@ Parent=Main
 Text=Count: 0
 FontSize=32
 FontWeight=Bold
-Foreground=#107C10
+Foreground=#0066cc
 HorizontalAlignment=Center
 
 @Button IncrementBtn
 Parent=Main
-Content=Click Me!
+Content=Increment (C#)
 Width=150
 Height=40
-Background=#107C10
+Background=#0066cc
 Foreground=White
 FontSize=16
-OnClick=CounterScript
+OnClick=CSharpCounterScript
 
 @Button ResetBtn
 Parent=Main
@@ -36,20 +36,19 @@ Width=150
 Height=40
 Background=#424242
 Foreground=White
-OnClick=ResetScript
+OnClick=CSharpResetScript
 
-@Script CounterScript
-Interpreter=lua
-Instance=mycounter
--- Persistent counter using named instance
-if count == nil then
-    count = 0
-end
-count = count + 1
-Vml("SetProperty", "CountDisplay", "Text", "Count: " .. count)
+@Script CSharpCounterScript
+Interpreter=csharp
+Instance=csharpCounter
+int count = 0;
+count++;
+Vml("SetProperty", "CountDisplay", "Text", $"Count: {count}");
+Console.WriteLine($"C# Count: {count}");
 
-@Script ResetScript
-Interpreter=lua
-Instance=mycounter
-count = 0
-Vml("SetProperty", "CountDisplay", "Text", "Count: 0")
+@Script CSharpResetScript
+Interpreter=csharp
+Instance=csharpCounter
+int count = 0;
+Vml("SetProperty", "CountDisplay", "Text", "Count: 0");
+Console.WriteLine("C# Reset");

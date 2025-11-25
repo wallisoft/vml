@@ -84,7 +84,6 @@ public static class ScriptHandler
             });
             return;
         }
-
         // C# interpreter - Roslyn scripting
         if (cleanInterp == "csharp" || cleanInterp == "cs")
         {
@@ -93,22 +92,24 @@ public static class ScriptHandler
                 try
                 {
                     var instanceName = interpreter.Contains(" ") ? interpreter.Split(" ")[1] : "";
-                    Console.WriteLine($"[LUA] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={LuaInstances.ContainsKey(instanceName)}");
+                    Console.WriteLine($"[CSHARP] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={CSharpInstances.ContainsKey(instanceName)}");
+                    
+                    var globals = new VmlScriptGlobals();
                     var options = ScriptOptions.Default
                         .WithReferences(typeof(VmlLuaEngine).Assembly)
                         .WithImports("System", "VB");
-
+                    
                     if (string.IsNullOrEmpty(instanceName))
                     {
-                        await CSharpScript.EvaluateAsync(scriptCode, options);
+                        await CSharpScript.RunAsync(scriptCode, options, globals);
                     }
                     else if (CSharpInstances.TryGetValue(instanceName, out var state))
                     {
-                        CSharpInstances[instanceName] = await state.ContinueWithAsync(scriptCode);
+                        CSharpInstances[instanceName] = await state.ContinueWithAsync(scriptCode, options);
                     }
                     else
                     {
-                        CSharpInstances[instanceName] = await CSharpScript.RunAsync(scriptCode, options);
+                        CSharpInstances[instanceName] = await CSharpScript.RunAsync(scriptCode, options, globals);
                     }
                 }
                 catch (Exception ex)
