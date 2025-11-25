@@ -228,7 +228,7 @@ Text=Import...
 
 @MenuItem ImportVB5
 Parent=ToolsImport
-Text=Open test.vml
+Text=Open benchmark.vml
 OnClick=OpenTestVml
 
 @MenuItem ImportHTML
@@ -531,5 +531,5 @@ AddControlToCanvas("ListBox")
 
 @Script OpenTestVml
 Interpreter=lua
-Vml("FormOpenModal", "test.vml")
+Vml("FormOpenModal", "benchmark.vml")
 
