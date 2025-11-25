@@ -82,6 +82,7 @@ public static class ScriptHandler
                 }
             });
             return;
+        }
 
         // C# interpreter - Roslyn scripting
         if (cleanInterp == "csharp" || cleanInterp == "cs")
@@ -114,7 +115,6 @@ public static class ScriptHandler
                 }
             });
             return;
-        }
         }
 
         if (cleanInterp == "vml")
@@ -630,6 +630,7 @@ public static class ScriptHandler
             Console.WriteLine($"[VML] Error storing dialog result: {ex.Message}");
         }
     }
+
     public static void LoadScriptsFromDatabase(string sourceFile)
     {
         try 
