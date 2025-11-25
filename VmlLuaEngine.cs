@@ -422,6 +422,8 @@ public class VmlLuaEngine
             foreach (var child in panel.Children)
                 if (FindControlRecursive(child, name) is Control found)
                     return found;
+        if (parent is Window w)
+            Console.WriteLine($"[FINDCTRL] Window content: {w.Content?.GetType().Name ?? "null"}");
         else if (parent is ContentControl cc && cc.Content is Control content)
             return FindControlRecursive(content, name);
         else if (parent is Decorator dec && dec.Child is Control decChild)
