@@ -70,6 +70,26 @@ SelectedIndex=0
 Background=White
 BorderBrush=#66bb6a
 
+@Button TestBtn
+Parent=EventRow
+Content=▶ Test
+Width=70
+Height=28
+Background=#107C10
+Foreground=White
+Margin=10,0,0,0
+OnClick=TestScript
+
+@Button TestBtn
+Parent=EventRow
+Content=▶ Test
+Width=70
+Height=28
+Background=#107C10
+Foreground=White
+Margin=10,0,0,0
+OnClick=TestScript
+
 # Code Editor
 @Border CodeBorder
 Parent=Main
@@ -168,3 +188,23 @@ if f2 then
     f2:close()
     Vml("SetProperty", "CodeEditor", "Text", newcode)
 end
+
+@Script TestScript
+Interpreter=lua
+-- Test the current script
+local interp = Vml("GetProperty", "Interpreter", "SelectedItem")
+local code = Vml("GetProperty", "CodeEditor", "Text")
+
+if code == "" or code:match("^%s*$") then
+    Vml("ErrorDialog", "No code to test")
+    return
+end
+
+-- Create temp file and execute
+local tmpfile = "/tmp/vml_test." .. interp
+local f = io.open(tmpfile, "w")
+f:write(code)
+f:close()
+
+local result = Vml("Shell", interp .. " " .. tmpfile)
+Vml("InfoDialog", "Test Output:\n\n" .. (result or "(no output)"))
