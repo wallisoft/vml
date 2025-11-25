@@ -485,6 +485,8 @@ public class VmlLuaEngine
 
                 // Properties
                 case "GetProperty":
+                case "GetSelectedControlName":
+                    return DesignerWindow.GetSelectedControl()?.Name ?? "";
                     return GetProperty(args[0].ToString()!, args[1].ToString()!);
                 case "SetProperty":
                     SetProperty(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);

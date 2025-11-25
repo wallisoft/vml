@@ -442,6 +442,8 @@ xdg-open "https://visualised.dev/docs" 2>/dev/null || echo "Documentation URL: h
 
 @Script CtxEditScriptHandler
 Interpreter=lua
+local ctrlName = Vml("GetSelectedControlName")
+Vml("SetSetting", "selected_control", ctrlName)
 Vml("FormOpenModal", "script-editor.vml")
 
 @Script CtxCutHandler
