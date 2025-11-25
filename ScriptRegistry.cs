@@ -17,9 +17,10 @@ public static class ScriptRegistry
         {
             Name = name,
             Content = content,
-            Interpreter = interpreter
+            Interpreter = interpreter,
+            Instance = instance
         };
-        Console.WriteLine($"[SCRIPT REGISTRY] Registered: {name} ({interpreter})");
+        Console.WriteLine($"[SCRIPT REGISTRY] Registered: {name} ({interpreter}{(instance != "" ? " " + instance : "")})");
     }
     
     public static VmlScript? Get(string name)
