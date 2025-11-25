@@ -131,23 +131,23 @@ public static class ScriptHandler
                 {
                     var instanceName = interpreter.Contains(" ") ? interpreter.Split(" ")[1] : "";
                     Console.WriteLine($"[WASM] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={WasmEngines.ContainsKey(instanceName)}");
-
+                    
                     // Get or create engine
                     Wasmtime.Engine engine;
                     if (string.IsNullOrEmpty(instanceName))
                         engine = new Wasmtime.Engine();
                     else if (!WasmEngines.TryGetValue(instanceName, out engine!))
                         WasmEngines[instanceName] = engine = new Wasmtime.Engine();
-
-                    // Compile module
-                    var module = Wasmtime.Module.FromText(engine, "temp", scriptCode);
-
+                    
                     // Create linker and store
                     var linker = new Wasmtime.Linker(engine);
                     var store = new Wasmtime.Store(engine);
-
-                    // Instantiate and invoke
+                    
+                    // Compile and instantiate module
+                    var module = Wasmtime.Module.FromText(engine, "temp", scriptCode);
                     var instance = linker.Instantiate(store, module);
+                    
+                    // Invoke entry point
                     var mainFunc = instance.GetFunction("_start") ?? instance.GetFunction("main");
                     
                     if (mainFunc != null)
