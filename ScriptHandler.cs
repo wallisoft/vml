@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using Wasmtime;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.Data.Sqlite;
@@ -24,6 +25,7 @@ public static class ScriptHandler
     // Named interpreter instances for state persistence
     private static readonly Dictionary<string, VmlLuaEngine> LuaInstances = new();
     private static readonly Dictionary<string, Microsoft.CodeAnalysis.Scripting.ScriptState<object>> CSharpInstances = new();
+    private static readonly Dictionary<string, Wasmtime.Engine> WasmEngines = new();
     
     private static string? _tempDbPath;
     
@@ -115,6 +117,52 @@ public static class ScriptHandler
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[CSHARP] Script error: {ex.Message}");
+                }
+            });
+            return;
+        }
+
+        // WebAssembly interpreter
+        if (cleanInterp == "wasm" || cleanInterp == "wat")
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var instanceName = interpreter.Contains(" ") ? interpreter.Split(" ")[1] : "";
+                    Console.WriteLine($"[WASM] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={WasmEngines.ContainsKey(instanceName)}");
+
+                    // Get or create engine
+                    Wasmtime.Engine engine;
+                    if (string.IsNullOrEmpty(instanceName))
+                        engine = new Wasmtime.Engine();
+                    else if (!WasmEngines.TryGetValue(instanceName, out engine!))
+                        WasmEngines[instanceName] = engine = new Wasmtime.Engine();
+
+                    // Compile module
+                    var module = Wasmtime.Module.FromText(engine, "temp", scriptCode);
+
+                    // Create linker and store
+                    var linker = new Wasmtime.Linker(engine);
+                    var store = new Wasmtime.Store(engine);
+
+                    // Instantiate and invoke
+                    var instance = linker.Instantiate(store, module);
+                    var mainFunc = instance.GetFunction("_start") ?? instance.GetFunction("main");
+                    
+                    if (mainFunc != null)
+                    {
+                        mainFunc.Invoke();
+                        Console.WriteLine("[WASM] Execution complete");
+                    }
+                    else
+                    {
+                        Console.WriteLine("[WASM] No _start or main function found");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WASM] Error: {ex.Message}");
                 }
             });
             return;
