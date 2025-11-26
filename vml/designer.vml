@@ -136,14 +136,14 @@ Parent=MenuBar
 Text=Tools
 
 @MenuItem Help
+Parent=MenuBar
+Text=Help
 
 @MenuItem Preview
 Parent=MenuBar
 Text=▶ Preview
 Align=Right
 OnClick=TogglePreviewScript
-Parent=MenuBar
-Text=Help
 
 # FILE MENU
 @MenuItem FileNew
