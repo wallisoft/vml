@@ -541,13 +541,13 @@ Vml("FormOpenModal", "benchmark.vml")
 
 @Script TogglePreviewScript
 Interpreter=lua
-local mode = Vml("GetSetting", "designer_mode")
-if mode == "preview" then
-    Vml("SetSetting", "designer_mode", "edit")
-    Vml("SetProperty", "Preview", "Text", "▶ Preview")
-    Vml("InfoDialog", "Edit mode")
-else
-    Vml("SetSetting", "designer_mode", "preview")
-    Vml("SetProperty", "Preview", "Text", "✎ Edit")
-    Vml("InfoDialog", "Preview mode")
-end
+Vml("SetMenuItemEnabled", "ImportVB5", "false")
+Vml("SetMenuItemEnabled", "ImportHTML", "false")
+Vml("SetMenuItemText", "Preview", "✓ It Works!")
+Vml("InfoDialog", "Menu items updated!")
+
+@Script DesignerInitScript
+Interpreter=lua
+-- Gray out unimplemented menu items
+Vml("SetMenuItemEnabled", "ImportVB5", "false")
+Vml("SetMenuItemEnabled", "ImportHTML", "false")
