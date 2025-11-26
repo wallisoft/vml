@@ -148,16 +148,34 @@ public class TinyMenu : Border
             m.ParentId == null || 
             GetParentName(m.ParentId.Value) == "MenuBar").ToList();
         
+        // Separate left and right aligned items
+        var leftItems = topLevel.Where(m => m.Align != "Right").ToList();
+        var rightItems = topLevel.Where(m => m.Align == "Right").ToList();
+        
         _menuBar.ColumnDefinitions = new ColumnDefinitions(
-            string.Join(",", topLevel.Select(_ => "Auto")) + ",*"
+            string.Join(",", leftItems.Select(_ => "Auto")) + ",*"
         );
         
-        for (int i = 0; i < topLevel.Count; i++)
+        // Add left-aligned items
+        for (int i = 0; i < leftItems.Count; i++)
         {
-            var menuItem = topLevel[i];
+            var menuItem = leftItems[i];
             var button = CreateTopLevelButton(menuItem);
             Grid.SetColumn(button, i);
             _menuBar.Children.Add(button);
+        }
+        
+        // Add right-aligned items in the star column
+        if (rightItems.Any())
+        {
+            var rightPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            foreach (var menuItem in rightItems)
+            {
+                var button = CreateTopLevelButton(menuItem);
+                rightPanel.Children.Add(button);
+            }
+            Grid.SetColumn(rightPanel, leftItems.Count);
+            _menuBar.Children.Add(rightPanel);
         }
         
         Child = _menuBar;
