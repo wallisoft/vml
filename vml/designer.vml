@@ -264,27 +264,21 @@ OnClick=ImportGladeScript
 
 # HELP MENU
 @MenuItem HelpDocs
-
-@MenuItem Preview
-Parent=MenuBar
-Text=▶ Preview
-Align=Right
-OnClick=TogglePreviewScript
 Parent=Help
 Text=Documentation
 Shortcut=F1
 OnClick=HelpDocsScript
 
 @MenuItem HelpAbout
+Parent=Help
+Text=About Visualised
+OnClick=FormOpenModal about_dialog.vml
 
 @MenuItem Preview
 Parent=MenuBar
 Text=▶ Preview
 Align=Right
 OnClick=TogglePreviewScript
-Parent=Help
-Text=About Visualised
-OnClick=FormOpenModal about_dialog.vml
 
 # ========================================
 # CONTEXT MENU FOR DESIGN CANVAS
@@ -550,7 +544,6 @@ AddControlToCanvas("ListBox")
 @Script OpenTestVml
 Interpreter=lua
 Vml("FormOpenModal", "benchmark.vml")
-
 
 @Script TogglePreviewScript
 Interpreter=lua
