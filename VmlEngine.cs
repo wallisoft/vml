@@ -642,7 +642,7 @@ public class VmlEngine
     {
         return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
-            var control = DesignerWindow.CreateControlByType(null!, 0, controlType, name);
+            var control = ControlRegistry.Create(controlType, name);
             control.Name = name;
             
             if (parentName != null)
