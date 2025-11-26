@@ -555,24 +555,30 @@ public class TinyMenu : Border
 
     public static void SetMenuItemText(string name, string text)
     {
-        if (_instance == null) return;
-        var item = _instance._menuItems.FirstOrDefault(m => m.Name == name);
-        if (item != null)
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
-            item.Text = text;
-            _instance.RebuildUI();
-        }
+            if (_instance == null) return;
+            var item = _instance._menuItems.FirstOrDefault(m => m.Name == name);
+            if (item != null)
+            {
+                item.Text = text;
+                _instance.RebuildUI();
+            }
+        }).Wait();
     }
 
     public static void SetMenuItemEnabled(string name, bool enabled)
     {
-        if (_instance == null) return;
-        var item = _instance._menuItems.FirstOrDefault(m => m.Name == name);
-        if (item != null)
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
-            item.IsEnabled = enabled;
-            _instance.RebuildUI();
-        }
+            if (_instance == null) return;
+            var item = _instance._menuItems.FirstOrDefault(m => m.Name == name);
+            if (item != null)
+            {
+                item.IsEnabled = enabled;
+                _instance.RebuildUI();
+            }
+        }).Wait();
     }
 
     private void RebuildUI()
