@@ -303,7 +303,9 @@ public class TinyMenu : Border
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Padding = new Thickness(15, 8),
                 Cursor = new Cursor(StandardCursorType.Hand),
-                Tag = child  // Store menu item for nested lookup
+                Tag = child,  // Store menu item for nested lookup
+                IsEnabled = child.IsEnabled,
+                Opacity = child.IsEnabled ? 1.0 : 0.4
             };
 
             // Hover
