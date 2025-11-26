@@ -77,11 +77,39 @@ HorizontalAlignment=Center
 VerticalAlignment=Center
 
 @StackPanel SelectorRow
-Parent=FormBuilderStack
+
+@ComboBox ControlSelector
+Parent=SelectorRow
+Width=130
+Height=30
+SelectedIndex=0
+Background=White
+BorderBrush=#107C10
+BorderThickness=2
+OnSelectionChanged=ControlSelectorChanged
+
+@ComboBox ControlSelector
+Parent=SelectorRow
+Width=130
+Height=30
+SelectedIndex=0
+Background=White
+BorderBrush=#107C10
+BorderThickness=2
+OnSelectionChanged=ControlSelectorChanged
+
+@Button AddControlBtn
+Parent=SelectorRow
+Content=  Add  
+Width=70
+Height=32
+Background=#107C10
+Foreground=White
+BorderBrush=#0d6b0d
+BorderThickness=2
+CornerRadius=4
+OnClick=AddControlScript
 DockPanel.Dock=Top
-Orientation=Horizontal
-Spacing=5
-Margin=30,0,0,0
 
 @ScrollViewer PropsScroll
 Parent=FormBuilderStack
@@ -565,3 +593,30 @@ Vml("SetControlPosition", name, 150, 150)
 Vml("SetControlSize", name, 120, 40)
 Vml("SetProperty", name, "Content", "Dynamic " .. name)
 Vml("InfoDialog", "Created: " .. name)
+
+@Script ControlSelectorChanged
+Interpreter=lua
+local selected = Vml("GetProperty", "ControlSelector", "SelectedItem")
+if selected == "─────────" then
+    Vml("SetProperty", "ControlSelector", "SelectedIndex", "0")
+    return
+end
+Vml("SetSetting", "selected_control_type", selected)
+
+@Script AddControlScript
+Interpreter=lua
+local controlType = Vml("GetSetting", "selected_control_type")
+if controlType == "" or controlType == nil then
+    controlType = "Button"
+end
+local name = Vml("CreateControl", controlType, "", "DesignCanvas")
+Vml("SetControlPosition", name, 200, 200)
+Vml("InfoDialog", "Added: " .. name)
+
+@Script LoadControlTypes
+Interpreter=lua
+-- Load control types from database into selector
+local types = "Button,TextBox,TextBlock,CheckBox,ComboBox,ListBox,RadioButton,─────────,StackPanel,Grid,Border,Canvas"
+Vml("SetProperty", "ControlSelector", "Items", types)
+Vml("SetProperty", "ControlSelector", "SelectedIndex", "0")
+Vml("SetSetting", "selected_control_type", "Button")
