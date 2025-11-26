@@ -354,13 +354,13 @@ public class DesignerWindow
         Console.WriteLine($"[DB] Loading root: {rootType} ({rootName})");
 
         // Build tree recursively
-        return BuildControlFromDatabase(conn, rootId, rootType, rootName);
+        return CreateControlByType(conn, rootId, rootType, rootName);
     }
 
     // ========================================
     // BUILD CONTROL RECURSIVELY FROM DATABASE
     // ========================================
-    public static Control BuildControlFromDatabase(SqliteConnection conn, int id, string controlType, string? name)
+    public static Control CreateControlByType(SqliteConnection conn, int id, string controlType, string? name)
     {
         // Create control
         Control control = controlType switch
@@ -424,7 +424,7 @@ public class DesignerWindow
         // Recursively build children
         foreach (var (childId, childType, childName) in children)
         {
-            var child = BuildControlFromDatabase(conn, childId, childType, childName);
+            var child = CreateControlByType(conn, childId, childType, childName);
 
             if (control is Panel panel)
                 panel.Children.Add(child);
@@ -910,7 +910,7 @@ public class DesignerWindow
             // Build and add controls
             foreach (var (id, type, name) in controls)
             {
-                var control = BuildControlFromDatabase(conn, id, type, name);
+                var control = CreateControlByType(conn, id, type, name);
                 if (control != null)
                 {
                     designCanvas.Children.Add(control);

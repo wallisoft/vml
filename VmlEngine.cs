@@ -575,6 +575,22 @@ public class VmlEngine
                 case "SetMenuItemEnabled":
                     TinyMenu.SetMenuItemEnabled(args[0].ToString()!, bool.Parse(args[1].ToString()!));
                     return null;
+                // Dynamic Control Commands
+                case "CreateControl":
+                    return CreateDynamicControl(args[0].ToString()!, args[1].ToString()!, args.Length > 2 ? args[2].ToString()! : null);
+                case "DeleteControl":
+                    DeleteDynamicControl(args[0].ToString()!);
+                    return null;
+                case "SetControlPosition":
+                    SetControlPosition(args[0].ToString()!, Convert.ToDouble(args[1]), Convert.ToDouble(args[2]));
+                    return null;
+                case "SetControlSize":
+                    SetControlSize(args[0].ToString()!, Convert.ToDouble(args[1]), Convert.ToDouble(args[2]));
+                    return null;
+                case "GetControlChildren":
+                    return GetControlChildren(args[0].ToString()!);
+                case "GetControlParent":
+                    return GetControlParent(args[0].ToString()!);
                 case "SetProperty":
                     SetProperty(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);
                     return null;
@@ -617,6 +633,100 @@ public class VmlEngine
             return null;
         }
     }
+
+    // ========================================
+    // DYNAMIC CONTROL METHODS
+    // ========================================
+    
+    private string CreateDynamicControl(string controlType, string name, string? parentName)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = DesignerWindow.CreateControlByType(null!, 0, controlType, name);
+            control.Name = name;
+            
+            if (parentName != null)
+            {
+                var parent = FindControlInWindow(parentName);
+                if (parent is Canvas canvas)
+                {
+                    canvas.Children.Add(control);
+                    Canvas.SetLeft(control, 10);
+                    Canvas.SetTop(control, 10);
+                }
+                else if (parent is Panel panel)
+                {
+                    panel.Children.Add(control);
+                }
+                else if (parent is ContentControl cc)
+                {
+                    cc.Content = control;
+                }
+            }
+            Console.WriteLine($"[VMLENGINE] Created {controlType} '{name}' in {parentName ?? "orphan"}");
+            return name;
+        }).Result;
+    }
+    
+    private void DeleteDynamicControl(string name)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control?.Parent is Panel panel)
+            {
+                panel.Children.Remove(control);
+                Console.WriteLine($"[VMLENGINE] Deleted '{name}'");
+            }
+        }).Wait();
+    }
+    
+    private void SetControlPosition(string name, double x, double y)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control != null)
+            {
+                Canvas.SetLeft(control, x);
+                Canvas.SetTop(control, y);
+            }
+        }).Wait();
+    }
+    
+    private void SetControlSize(string name, double width, double height)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control != null)
+            {
+                control.Width = width;
+                control.Height = height;
+            }
+        }).Wait();
+    }
+    
+    private string[] GetControlChildren(string name)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control is Panel panel)
+                return panel.Children.Select(c => c.Name ?? "unnamed").ToArray();
+            return Array.Empty<string>();
+        }).Result;
+    }
+    
+    private string? GetControlParent(string name)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            return (control?.Parent as Control)?.Name;
+        }).Result;
+    }
+//
 }
 
 /// <summary>

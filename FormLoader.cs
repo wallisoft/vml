@@ -87,7 +87,7 @@ public static class FormLoader
         reader.Close();
         
         // Build control tree
-        var root = DesignerWindow.BuildControlFromDatabase(conn, id, controlType, name);
+        var root = DesignerWindow.CreateControlByType(conn, id, controlType, name);
         
         if (root == null)
         {
