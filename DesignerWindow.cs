@@ -174,6 +174,7 @@ public class DesignerWindow
             
             designCanvas = new Canvas
             {
+                Name = "DesignCanvas",
                 Width = 4000,
                 Height = 4000,
                 Background = new SolidColorBrush(Color.Parse("#e8f5e9")), 
