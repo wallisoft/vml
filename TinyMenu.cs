@@ -297,7 +297,6 @@ public class TinyMenu : Border
             {
                 Content = contentPanel,
                 Background = Brush.Parse(_theme.PopupBackground),
-                Foreground = Brushes.Black,
                 BorderThickness = new Thickness(0),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -305,7 +304,7 @@ public class TinyMenu : Border
                 Cursor = new Cursor(StandardCursorType.Hand),
                 Tag = child,  // Store menu item for nested lookup
                 IsEnabled = child.IsEnabled,
-                Opacity = child.IsEnabled ? 1.0 : 0.4
+                Foreground = child.IsEnabled ? Brushes.Black : Brushes.LightGray
             };
 
             // Hover
