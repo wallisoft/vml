@@ -639,29 +639,34 @@ public class VmlEngine
     // DYNAMIC CONTROL METHODS
     // ========================================
     
+    
     private string CreateDynamicControl(string controlType, string name, string? parentName)
     {
         return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
-            var control = ControlRegistry.Create(controlType, name);
-            control.Name = name;
+            var (dummy, real) = DesignerWindow.CreateControlPair(controlType, name);
+            if (dummy == null || real == null)
+            {
+                Console.WriteLine($"[VMLENGINE] Failed to create {controlType}");
+                return "";
+            }
             
             if (parentName != null)
             {
                 var parent = FindControlInWindow(parentName);
                 if (parent is Canvas canvas)
                 {
-                    canvas.Children.Add(control);
-                    Canvas.SetLeft(control, 10);
-                    Canvas.SetTop(control, 10);
+                    Canvas.SetLeft(dummy, 10);
+                    Canvas.SetTop(dummy, 10);
+                    Canvas.SetLeft(real, 10);
+                    Canvas.SetTop(real, 10);
+                    canvas.Children.Add(dummy);
+                    canvas.Children.Add(real);
                 }
                 else if (parent is Panel panel)
                 {
-                    panel.Children.Add(control);
-                }
-                else if (parent is ContentControl cc)
-                {
-                    cc.Content = control;
+                    panel.Children.Add(dummy);
+                    panel.Children.Add(real);
                 }
             }
             Console.WriteLine($"[VMLENGINE] Created {controlType} '{name}' in {parentName ?? "orphan"}");
