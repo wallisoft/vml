@@ -18,6 +18,7 @@ namespace VB;
 /// </summary>
 public class TinyMenu : Border
 {
+    private static TinyMenu? _instance;
     private readonly string _dbPath;
     private Grid _menuBar;
     private List<MenuItemData> _menuItems = new();
@@ -29,6 +30,7 @@ public class TinyMenu : Border
     
     public TinyMenu(string dbPath)
     {
+        _instance = this;
         _dbPath = dbPath;
         LoadTheme();
         LoadMenuStructure();
@@ -550,6 +552,34 @@ public class TinyMenu : Border
         return _activePopup.IsPointerOver;
     }
 
+
+    public static void SetMenuItemText(string name, string text)
+    {
+        if (_instance == null) return;
+        var item = _instance._menuItems.FirstOrDefault(m => m.Name == name);
+        if (item != null)
+        {
+            item.Text = text;
+            _instance.RebuildUI();
+        }
+    }
+
+    public static void SetMenuItemEnabled(string name, bool enabled)
+    {
+        if (_instance == null) return;
+        var item = _instance._menuItems.FirstOrDefault(m => m.Name == name);
+        if (item != null)
+        {
+            item.IsEnabled = enabled;
+            _instance.RebuildUI();
+        }
+    }
+
+    private void RebuildUI()
+    {
+        _menuBar.Children.Clear();
+        BuildUI();
+    }
 }
 
 public class MenuItemData
@@ -561,6 +591,7 @@ public class MenuItemData
     public string? Shortcut { get; set; }
     public string? OnClick { get; set; }
     public string? Align { get; set; }
+    public bool IsEnabled { get; set; } = true;
 }
 
 public class MenuTheme

@@ -569,6 +569,12 @@ public class VmlLuaEngine
                     return GetProperty(args[0].ToString()!, args[1].ToString()!);
                 case "GetSelectedControlName":
                     return DesignerWindow.GetSelectedControl()?.Name ?? "";
+                case "SetMenuItemText":
+                    TinyMenu.SetMenuItemText(args[0].ToString()!, args[1].ToString()!);
+                    return null;
+                case "SetMenuItemEnabled":
+                    TinyMenu.SetMenuItemEnabled(args[0].ToString()!, bool.Parse(args[1].ToString()!));
+                    return null;
                 case "SetProperty":
                     SetProperty(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);
                     return null;
