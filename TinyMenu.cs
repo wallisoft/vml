@@ -303,7 +303,7 @@ public class TinyMenu : Border
                 Padding = new Thickness(15, 8),
                 Cursor = new Cursor(StandardCursorType.Hand),
                 Tag = child,  // Store menu item for nested lookup
-                
+                IsHitTestVisible = child.IsEnabled,
                 Foreground = child.IsEnabled ? Brushes.Black : Brushes.LightGray
             };
 
