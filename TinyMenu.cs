@@ -228,19 +228,45 @@ public class TinyMenu : Border
         {
             // Check if this item has children (for nested menus)
             var hasChildren = _menuItems.Any(m => m.ParentId == child.Id);
-
+            var contentPanel = new Grid();
+            contentPanel.ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto");
+            
+            var textBlock = new TextBlock
+            {
+                Text = child.Text,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(textBlock, 0);
+            contentPanel.Children.Add(textBlock);
+            
+            if (child.Shortcut != null)
+            {
+                var shortcutBlock = new TextBlock
+                {
+                    Text = child.Shortcut,
+                    Foreground = Brushes.Gray,
+                    Margin = new Thickness(20, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(shortcutBlock, 1);
+                contentPanel.Children.Add(shortcutBlock);
+            }
+            
+            if (hasChildren)
+            {
+                var arrowBlock = new TextBlock
+                {
+                    Text = "▶",
+                    Margin = new Thickness(10, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(arrowBlock, 2);
+                contentPanel.Children.Add(arrowBlock);
+            }
+            
             var itemButton = new Button
             {
-                Content = child.Text +
-                   (child.Shortcut != null ? $"    {child.Shortcut}" : "") +
-                   (hasChildren ? "  ▶" : ""),  // Arrow indicator for nested
-                Background = Brushes.Transparent,
-                Foreground = Brushes.Black,
-                BorderThickness = new Thickness(0),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(15, 8),
-                Cursor = new Cursor(StandardCursorType.Hand),
+                Content = contentPanel,
                 Tag = child  // Store menu item for nested lookup
             };
 
