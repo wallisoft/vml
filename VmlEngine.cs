@@ -644,6 +644,14 @@ public class VmlEngine
     {
         return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
+            // Auto-generate name if not provided
+            if (string.IsNullOrEmpty(name))
+            {
+                if (!DesignerWindow.controlCounters.ContainsKey(controlType))
+                    DesignerWindow.controlCounters[controlType] = 0;
+                DesignerWindow.controlCounters[controlType]++;
+                name = $"{controlType}_{DesignerWindow.controlCounters[controlType]}";
+            }
             var (dummy, real) = DesignerWindow.CreateControlPair(controlType, name);
             if (dummy == null || real == null)
             {

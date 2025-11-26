@@ -27,7 +27,7 @@ public class DesignerWindow
     private static PropertiesPanel? propertiesPanel;
     private static TextBlock? statusText;
     private static Border? formBuilderBorder;
-    private static Dictionary<string, int> controlCounters = new();
+    public static Dictionary<string, int> controlCounters = new();
     
     // Public accessors for DesignerMouseHandler
     public static Control? GetSelectedControl() => selectedControl;
