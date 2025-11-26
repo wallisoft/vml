@@ -228,6 +228,11 @@ Parent=Tools
 Text=Grid Options...
 OnClick=ToolsGridScript
 
+@MenuItem TestDynamic
+Parent=Tools
+Text=Test Dynamic Controls
+OnClick=TestDynamicControls
+
 @MenuItem ToolsImport
 Parent=Tools
 Text=Import...
@@ -551,3 +556,13 @@ Interpreter=lua
 -- Gray out unimplemented menu items
 Vml("SetMenuItemEnabled", "ImportVB5", "false")
 Vml("SetMenuItemEnabled", "ImportHTML", "false")
+
+@Script TestDynamicControls
+Interpreter=lua
+-- Test dynamic control creation
+local name = "DynButton_" .. os.time()
+Vml("CreateControl", "Button", name, "DesignCanvas")
+Vml("SetControlPosition", name, 150, 150)
+Vml("SetControlSize", name, 120, 40)
+Vml("SetProperty", name, "Content", "I'm Dynamic!")
+Vml("InfoDialog", "Created: " .. name)
