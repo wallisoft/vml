@@ -303,7 +303,7 @@ public class TinyMenu : Border
                 Padding = new Thickness(15, 8),
                 Cursor = new Cursor(StandardCursorType.Hand),
                 Tag = child,  // Store menu item for nested lookup
-                IsEnabled = child.IsEnabled,
+                
                 Foreground = child.IsEnabled ? Brushes.Black : Brushes.LightGray
             };
 
@@ -343,6 +343,7 @@ public class TinyMenu : Border
             {
                 itemButton.Click += (s, e) =>
                 {
+                    if (!child.IsEnabled) return;
                     CloseAllPopups();
                     if (!string.IsNullOrEmpty(child.OnClick))
                     {
