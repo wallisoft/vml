@@ -416,6 +416,7 @@ public class VmlEngine
     
     private Control? FindControlRecursive(Control parent, string name)
     {
+        Console.WriteLine($"[FIND] Checking {parent.GetType().Name} '{parent.Name}'");
         if (parent.Name == name) return parent;
         
         if (parent is Window w)
