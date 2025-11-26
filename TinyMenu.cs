@@ -256,7 +256,8 @@ public class TinyMenu : Border
             {
                 var arrowBlock = new TextBlock
                 {
-                    Text = "▶",
+                    Text = ">",
+                    Foreground = Brushes.Gray,
                     Margin = new Thickness(10, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center
                 };

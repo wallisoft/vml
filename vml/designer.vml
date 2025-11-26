@@ -136,6 +136,12 @@ Parent=MenuBar
 Text=Tools
 
 @MenuItem Help
+
+@MenuItem Preview
+Parent=MenuBar
+Text=▶ Preview
+Align=Right
+OnClick=TogglePreviewScript
 Parent=MenuBar
 Text=Help
 
@@ -258,12 +264,24 @@ OnClick=ImportGladeScript
 
 # HELP MENU
 @MenuItem HelpDocs
+
+@MenuItem Preview
+Parent=MenuBar
+Text=▶ Preview
+Align=Right
+OnClick=TogglePreviewScript
 Parent=Help
 Text=Documentation
 Shortcut=F1
 OnClick=HelpDocsScript
 
 @MenuItem HelpAbout
+
+@MenuItem Preview
+Parent=MenuBar
+Text=▶ Preview
+Align=Right
+OnClick=TogglePreviewScript
 Parent=Help
 Text=About Visualised
 OnClick=FormOpenModal about_dialog.vml
@@ -533,3 +551,16 @@ AddControlToCanvas("ListBox")
 Interpreter=lua
 Vml("FormOpenModal", "benchmark.vml")
 
+
+@Script TogglePreviewScript
+Interpreter=lua
+local mode = Vml("GetSetting", "designer_mode")
+if mode == "preview" then
+    Vml("SetSetting", "designer_mode", "edit")
+    Vml("SetProperty", "Preview", "Text", "▶ Preview")
+    Vml("InfoDialog", "Edit mode")
+else
+    Vml("SetSetting", "designer_mode", "preview")
+    Vml("SetProperty", "Preview", "Text", "✎ Edit")
+    Vml("InfoDialog", "Preview mode")
+end
