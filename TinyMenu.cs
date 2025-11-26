@@ -194,10 +194,18 @@ public class TinyMenu : Border
             Cursor = new Cursor(StandardCursorType.Hand)
         };
 
+        var hasChildren = _menuItems.Any(m => m.ParentId == menuItem.Id);
         
         button.Click += (s, e) =>
         {
-            ShowPopup(menuItem, button);
+            if (hasChildren)
+            {
+                ShowPopup(menuItem, button);
+            }
+            else if (!string.IsNullOrEmpty(menuItem.OnClick))
+            {
+                ExecuteMenuAction(menuItem.OnClick);
+            }
         };
 
 
