@@ -7,11 +7,11 @@ using Avalonia.Controls;
 
 namespace VB;
 
-public class VmlLuaEngine
+public class VmlEngine
 {
     private Lua _lua;
     
-    public VmlLuaEngine()
+    public VmlEngine()
     {
         _lua = new Lua();
         _lua.State.Encoding = System.Text.Encoding.UTF8;
@@ -624,11 +624,11 @@ public class VmlLuaEngine
 /// </summary>
 public class VmlScriptGlobals
 {
-    private readonly VmlLuaEngine _engine;
+    private readonly VmlEngine _engine;
     
     public VmlScriptGlobals()
     {
-        _engine = new VmlLuaEngine();
+        _engine = new VmlEngine();
     }
     
     /// <summary>

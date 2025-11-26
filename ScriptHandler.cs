@@ -23,7 +23,7 @@ public static class ScriptHandler
     };
 
     // Named interpreter instances for state persistence
-    private static readonly Dictionary<string, VmlLuaEngine> LuaInstances = new();
+    private static readonly Dictionary<string, VmlEngine> LuaInstances = new();
     private static readonly Dictionary<string, Microsoft.CodeAnalysis.Scripting.ScriptState<object>> CSharpInstances = new();
     private static readonly Dictionary<string, Wasmtime.Engine> WasmEngines = new();
     
@@ -72,11 +72,11 @@ public static class ScriptHandler
                 {
                     var instanceName = interpreter.Contains(" ") ? interpreter.Split(" ")[1] : "";
                     Console.WriteLine($"[LUA] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={LuaInstances.ContainsKey(instanceName)}");
-                    VmlLuaEngine engine;
+                    VmlEngine engine;
                     if (string.IsNullOrEmpty(instanceName))
-                        engine = new VmlLuaEngine();
+                        engine = new VmlEngine();
                     else if (!LuaInstances.TryGetValue(instanceName, out engine!))
-                        LuaInstances[instanceName] = engine = new VmlLuaEngine();
+                        LuaInstances[instanceName] = engine = new VmlEngine();
                     engine.Execute(scriptCode);
                 }
                 catch (Exception ex)
@@ -98,7 +98,7 @@ public static class ScriptHandler
                     
                     var globals = new VmlScriptGlobals();
                     var options = ScriptOptions.Default
-                        .WithReferences(typeof(VmlLuaEngine).Assembly)
+                        .WithReferences(typeof(VmlEngine).Assembly)
                         .WithImports("System", "VB");
                     
                     if (string.IsNullOrEmpty(instanceName))
