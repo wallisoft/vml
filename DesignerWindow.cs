@@ -664,7 +664,7 @@ public class DesignerWindow
     // ========================================
     // CREATE CONTROL PAIR
     // ========================================
-    private static (Control? dummy, Control? real) CreateControlPair(string controlType, string name)
+    public static (Control? dummy, Control? real) CreateControlPair(string controlType, string name)
     {
             Console.WriteLine($"[CREATE] Creating {controlType} named {name}");
         Control? dummy = controlType switch 
