@@ -331,6 +331,7 @@ public class TinyMenu : Border
                 Background = Brush.Parse(_theme.PopupBackground),
                 BorderBrush = Brush.Parse(_theme.PopupBorder),
                 BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(3),
                 BoxShadow = new BoxShadows(new BoxShadow { Blur = 3, Color = Color.Parse("#107C10"), OffsetY = 0 }),
                 Child = stack,
                 Tag = menuItem
