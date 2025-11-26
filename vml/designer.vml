@@ -52,7 +52,7 @@ ColumnDefinitions=*,Auto
 @TextBlock FormTitle
 Parent=TitleGrid
 Grid.Column=0
-Text=Control Attributes
+Text=Properties Panel
 FontSize=17
 FontWeight=Bold
 Foreground=#424242
