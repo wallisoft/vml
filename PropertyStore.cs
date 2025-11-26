@@ -257,6 +257,41 @@ public static class PropertyStore
                     ('ToggleSwitch','OnUnchecked','IsCheckedChanged',2),
                     ('RadioButton','OnChecked','IsCheckedChanged',1)";
             cmd.ExecuteNonQuery();
+            // Create control_types table
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS control_types (
+                    name TEXT PRIMARY KEY,
+                    dotnet_type TEXT NOT NULL,
+                    category TEXT DEFAULT 'Common',
+                    icon TEXT,
+                    default_width REAL DEFAULT 100,
+                    default_height REAL DEFAULT 30,
+                    default_props TEXT,
+                    is_container INTEGER DEFAULT 0,
+                    is_user_defined INTEGER DEFAULT 0
+                )";
+            cmd.ExecuteNonQuery();
+            // Populate default control types
+            cmd.CommandText = @"
+                INSERT OR IGNORE INTO control_types VALUES
+                    ('Button','Avalonia.Controls.Button','Common','🔘',100,30,'Content=Button',0,0),
+                    ('TextBox','Avalonia.Controls.TextBox','Input','📝',150,30,null,0,0),
+                    ('TextBlock','Avalonia.Controls.TextBlock','Common','📄',100,20,'Text=TextBlock',0,0),
+                    ('CheckBox','Avalonia.Controls.CheckBox','Input','☑️',100,20,'Content=CheckBox',0,0),
+                    ('ComboBox','Avalonia.Controls.ComboBox','Input','📋',120,30,null,0,0),
+                    ('ListBox','Avalonia.Controls.ListBox','Input','📃',150,100,null,0,0),
+                    ('StackPanel','Avalonia.Controls.StackPanel','Layout','📦',200,200,null,1,0),
+                    ('Grid','Avalonia.Controls.Grid','Layout','🔲',200,200,null,1,0),
+                    ('Border','Avalonia.Controls.Border','Layout','🖼️',150,100,null,1,0),
+                    ('Canvas','Avalonia.Controls.Canvas','Layout','🎨',300,200,null,1,0),
+                    ('ScrollViewer','Avalonia.Controls.ScrollViewer','Layout','📜',200,150,null,1,0),
+                    ('DockPanel','Avalonia.Controls.DockPanel','Layout','🔳',200,200,null,1,0),
+                    ('Slider','Avalonia.Controls.Slider','Input','🎚️',150,20,null,0,0),
+                    ('ProgressBar','Avalonia.Controls.ProgressBar','Display','📊',150,20,null,0,0),
+                    ('Image','Avalonia.Controls.Image','Display','🖼️',100,100,null,0,0),
+                    ('RadioButton','Avalonia.Controls.RadioButton','Input','🔘',100,20,'Content=Option',0,0),
+                    ('ToggleSwitch','Avalonia.Controls.ToggleSwitch','Input','🔀',60,30,null,0,0)";
+            cmd.ExecuteNonQuery();
 
             Console.WriteLine($"[PROPERTY STORE] Initialized at {dbPath}");
         }
