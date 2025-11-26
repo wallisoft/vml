@@ -558,8 +558,7 @@ Vml("SetMenuItemEnabled", "ImportVB5", "false")
 Vml("SetMenuItemEnabled", "ImportHTML", "false")
 
 @Script TestDynamicControls
-@Script TestDynamicControls\
-Interpreter=lua\
+Interpreter=lua
 -- Test dynamic control creation - name auto-generated
 local name = Vml("CreateControl", "Button", "", "DesignCanvas")
 Vml("SetControlPosition", name, 150, 150)
