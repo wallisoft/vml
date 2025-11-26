@@ -127,6 +127,7 @@ public class TinyMenu : Border
                 ParentId = parentId,
                 Text = GetPropertyById(id, "Text") ?? name,
                 Shortcut = GetPropertyById(id, "Shortcut"),
+                Align = GetPropertyById(id, "Align"),
                 OnClick = GetPropertyById(id, "OnClick")
             };
             
@@ -498,6 +499,7 @@ public class MenuItemData
     public string Text { get; set; } = "";
     public string? Shortcut { get; set; }
     public string? OnClick { get; set; }
+    public string? Align { get; set; }
 }
 
 public class MenuTheme
