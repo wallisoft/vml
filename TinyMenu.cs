@@ -267,6 +267,13 @@ public class TinyMenu : Border
             var itemButton = new Button
             {
                 Content = contentPanel,
+                Background = Brush.Parse(_theme.PopupBackground),
+                Foreground = Brushes.Black,
+                BorderThickness = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(15, 8),
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Tag = child  // Store menu item for nested lookup
             };
 
