@@ -314,7 +314,7 @@ OnClick=AddTextBlockScript
 
 @MenuItem AddCheckBox
 Parent=CtxAddControl
-Text=☑️  CheckBox
+Text=☑️ CheckBox
 OnClick=AddCheckBoxScript
 
 @MenuItem AddComboBox
