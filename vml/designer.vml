@@ -356,8 +356,8 @@ Parent=CanvasContextMenu
 IsSeparator=true
 
 @MenuItem Cut
-Parent=
-Text=Cut 
+Parent=CanvasContextMenu
+Text=Cut
 
 @MenuItem Copy
 Parent=CanvasContextMenu
