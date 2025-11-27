@@ -295,6 +295,11 @@ OnClick=FormOpenModal about_dialog.vml
 # CONTEXT MENU FOR DESIGN CANVAS
 # ========================================
 
+@MenuItem CtxTestMouse
+Parent=CanvasContextMenu
+Text=Test Mouse API
+OnClick=TestMouseAPI
+
 @ContextMenu CanvasContextMenu
 AttachTo=designCanvas
 
@@ -658,14 +663,3 @@ Vml("SetControlSize", name, 120, 40)
 Vml("SetProperty", name, "Content", "Dynamic " .. name)
 Vml("InfoDialog", "Created: " .. name)
 
-@Script TestMouseAPI
-Interpreter=lua
-local x = tonumber(Vml("GetSetting", "pointer_x")) or 0
-local y = tonumber(Vml("GetSetting", "pointer_y")) or 0
-local ctrl = Vml("GetControlAt", x, y)
-if ctrl then
-    Vml("SelectControl", ctrl)
-    Vml("InfoDialog", "Selected: " .. ctrl .. " at " .. x .. "," .. y)
-else
-    Vml("InfoDialog", "No control at " .. x .. "," .. y)
-end
