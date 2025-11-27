@@ -638,12 +638,11 @@ Vml("SetMenuItemEnabled", "ImportHTML", "false")
 
 @Script AddControlScript
 Interpreter=lua
-local controlType = args[1] 
+local controlType = args[1] or "Button"
+local x = tonumber(Vml("GetSetting", "click_x")) or 200
+local y = tonumber(Vml("GetSetting", "click_y")) or 200
 local name = Vml("CreateControl", controlType, "", "DesignCanvas")
-Vml("SetControlPosition", name, 150, 150)
-Vml("SetControlSize", name, 120, 40)
-Vml("SetProperty", name, "Content", "Dynamic " .. name)
-Vml("InfoDialog", "Created: " .. name)
+Vml("SetControlPosition", name, x, y)
 
 @Script TestDynamicControls
 Interpreter=lua
