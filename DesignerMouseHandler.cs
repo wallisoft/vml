@@ -58,6 +58,9 @@ public static class DesignerMouseHandler
             // Right click - context menu (check for VML menu first)
             if (point.Properties.IsRightButtonPressed)
             {
+                // Store click position for scripts
+                Settings.Set("click_x", canvasPos.X.ToString());
+                Settings.Set("click_y", canvasPos.Y.ToString());
                 var hit = designCanvas.InputHitTest(canvasPos);
                 
                 // Walk up visual tree to find canvas child
