@@ -596,6 +596,9 @@ public class VmlEngine
                     SetProperty(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);
                     return null;
                 // Settings
+                case "SelectControl":
+                    SelectControlByName(args[0].ToString()!);
+                    return null;
                 case "GetControlAt":
                     return GetControlAt(Convert.ToDouble(args[0]), Convert.ToDouble(args[1]));
                 case "GetSetting":
@@ -642,6 +645,20 @@ public class VmlEngine
     // ========================================
     
     
+    private void SelectControlByName(string name)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control != null)
+            {
+                DesignerWindow.SelectControl(control);
+                Console.WriteLine($"[VMLENGINE] Selected: {name}");
+            }
+        }).Wait();
+    }
+
+
     private string? GetControlAt(double x, double y)
     {
         return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
