@@ -240,6 +240,7 @@ OnClick=ToolsGridScript
 Parent=Tools
 Text=Test Mouse API
 OnClick=TestMouseAPI
+@MenuItem TestDynamic
 Parent=Tools
 Text=Test Dynamic Controls
 OnClick=TestDynamicControls
