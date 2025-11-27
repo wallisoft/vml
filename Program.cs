@@ -152,6 +152,24 @@ class Program
             return;
         }
 
+        // Direct .vml file: Run as form
+        if (args[0].EndsWith(".vml"))
+        {
+            var vmlPath = args[0];
+            Console.WriteLine($"Mode: Running {vmlPath}");
+            Console.WriteLine("═══════════════════════════════════\n");
+            PropertyStore.Initialize();
+            BuildAvaloniaApp().Start((Application app, string[] startArgs) =>
+            {
+                if (app.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+                {
+                    FormLoader.Open(vmlPath, false);
+                }
+            }, args);
+            return;
+        }
+
+
         // --help: Show usage
         if (args[0] == "--help" || args[0] == "-h")
         {

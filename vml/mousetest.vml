@@ -1,0 +1,34 @@
+@Window MouseTest
+Title=Mouse Test
+Width=600
+Height=400
+
+@Canvas TestCanvas
+Parent=MouseTest
+Background=#e8f5e9
+OnPointerPressed=CanvasDown
+OnPointerMoved=CanvasMove
+OnPointerReleased=CanvasUp
+
+@TextBlock StatusLabel
+Parent=MouseTest
+Text=Move mouse over canvas
+Margin=10
+
+@Script CanvasDown
+Interpreter=lua
+local x = Vml("GetSetting", "event_x")
+local y = Vml("GetSetting", "event_y")
+Vml("SetProperty", "StatusLabel", "Text", "DOWN at " .. x .. ", " .. y)
+
+@Script CanvasMove
+Interpreter=lua
+local x = Vml("GetSetting", "event_x")
+local y = Vml("GetSetting", "event_y")
+Vml("SetProperty", "StatusLabel", "Text", "MOVE at " .. x .. ", " .. y)
+
+@Script CanvasUp
+Interpreter=lua
+local x = Vml("GetSetting", "event_x")
+local y = Vml("GetSetting", "event_y")
+Vml("SetProperty", "StatusLabel", "Text", "UP at " .. x .. ", " .. y)
