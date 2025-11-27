@@ -11,7 +11,7 @@ OnPointerMoved=CanvasMove
 OnPointerReleased=CanvasUp
 
 @TextBlock StatusLabel
-Parent=MouseTest
+Parent=TestCanvas
 Text=Move mouse over canvas
 Margin=10
 

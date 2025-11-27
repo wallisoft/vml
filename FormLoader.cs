@@ -9,7 +9,7 @@ namespace VB;
 
 public static class FormLoader
 {
-    public static void Open(string vmlPath, bool modal = false)
+    public static Window Open(string vmlPath, bool modal = false)
     {
         Console.WriteLine($"[FORMLOADER] Opening {vmlPath} (modal={modal})");
         
@@ -20,7 +20,7 @@ public static class FormLoader
             if (string.IsNullOrEmpty(vmlDir))
             {
                 Console.WriteLine($"[FORMLOADER] Error: vml_dir not set in database");
-                return;
+                return null;
             }
             vmlPath = Path.Combine(vmlDir, vmlPath);
         }
@@ -28,7 +28,7 @@ public static class FormLoader
         if (!File.Exists(vmlPath))
         {
             Console.WriteLine($"[FORMLOADER] Error: File not found: {vmlPath}");
-            return;
+            return null;
         }
         
         // Import using parser (handles timestamp checking internally now)
@@ -38,10 +38,10 @@ public static class FormLoader
         LoadScriptsIntoRegistry(PropertyStore.GetDbPath());
 
         // Load and display form
-        ShowFormFromDatabase(vmlPath, modal);
+        return ShowFormFromDatabase(vmlPath, modal);
     }
 
-    private static void ShowFormFromDatabase(string vmlPath, bool modal)
+    private static Window ShowFormFromDatabase(string vmlPath, bool modal)
     {
 
     Console.WriteLine($"[FORMLOADER] ShowFormFromDatabase: {vmlPath}, modal={modal}");
@@ -78,7 +78,7 @@ public static class FormLoader
 
             Console.WriteLine($"  - {debugReader.GetString(0)}");
 
-            return;
+            return null;
         }
         
         var id = reader.GetInt32(0);
@@ -92,7 +92,7 @@ public static class FormLoader
         if (root == null)
         {
             Console.WriteLine($"[FORMLOADER] Error: Failed to build control tree");
-            return;
+            return null;
         }
         
         // Create window
@@ -130,6 +130,7 @@ public static class FormLoader
         }
         
         Console.WriteLine($"[FORMLOADER] ✓ Displayed {Path.GetFileName(vmlPath)}");
+        return window;
     }
 
     private static void WireEvents(Control control, Window window)
