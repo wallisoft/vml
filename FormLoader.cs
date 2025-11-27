@@ -204,8 +204,8 @@ public static class FormLoader
             case "LostFocus": control.LostFocus += (s, e) => action(); break;
             case "PointerEntered": control.PointerEntered += (s, e) => action(); break;
             case "PointerExited": control.PointerExited += (s, e) => action(); break;
-            case "PointerPressed": control.PointerPressed += (s, e) => action(); break;
-            case "PointerReleased": control.PointerReleased += (s, e) => action(); break;
+            case "PointerPressed": control.PointerPressed += (s, e) => { var pos = e.GetPosition(control); Settings.Set("event_x", pos.X.ToString()); Settings.Set("event_y", pos.Y.ToString()); action(); }; break;
+            case "PointerReleased": control.PointerReleased += (s, e) => { var pos = e.GetPosition(control); Settings.Set("event_x", pos.X.ToString()); Settings.Set("event_y", pos.Y.ToString()); action(); }; break;
             case "Opened" when control is Window w: w.Opened += (s, e) => action(); break;
             case "Closing" when control is Window w2: w2.Closing += (s, e) => action(); break;
             case "DoubleTapped": control.DoubleTapped += (s, e) => action(); break;
