@@ -2,7 +2,9 @@ using Avalonia;
 using static VB.Settings;
 using Avalonia.Controls;
 using System;
+using System.IO;
 using System.Linq;
+
 
 namespace VB;
 
@@ -163,6 +165,22 @@ class Program
             {
                 if (app.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
                 {
+                    // Create hidden window for dialog parent
+                    var hiddenWindow = new Window
+                    {
+                        Width = 1,
+                        Height = 1,
+                        IsVisible = false,
+                        ShowInTaskbar = false
+                    };
+                    desktop.MainWindow = hiddenWindow;
+                    DesignerWindow.mainWindow = hiddenWindow;
+                    
+                    // Set vml_dir based on file location
+                    var vmlDir = Path.GetDirectoryName(Path.GetFullPath(vmlPath));
+                    Settings.Set("vml_dir", vmlDir);
+                    Console.WriteLine($"[PROGRAM] vml_dir set to: {vmlDir}");
+                    
                     FormLoader.Open(vmlPath, false);
                 }
             }, args);
