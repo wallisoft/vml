@@ -154,39 +154,6 @@ class Program
             return;
         }
 
-        // Direct .vml file: Run as form
-        if (args[0].EndsWith(".vml"))
-        {
-            var vmlPath = args[0];
-            Console.WriteLine($"Mode: Running {vmlPath}");
-            Console.WriteLine("═══════════════════════════════════\n");
-            PropertyStore.Initialize();
-            BuildAvaloniaApp().Start((Application app, string[] startArgs) =>
-            {
-                if (app.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-                {
-                    // Create hidden window for dialog parent
-                    var hiddenWindow = new Window
-                    {
-                        Width = 1,
-                        Height = 1,
-                        IsVisible = false,
-                        ShowInTaskbar = false
-                    };
-                    desktop.MainWindow = hiddenWindow;
-                    DesignerWindow.mainWindow = hiddenWindow;
-                    
-                    // Set vml_dir based on file location
-                    var vmlDir = Path.GetDirectoryName(Path.GetFullPath(vmlPath));
-                    Settings.Set("vml_dir", vmlDir);
-                    Console.WriteLine($"[PROGRAM] vml_dir set to: {vmlDir}");
-                    
-                    FormLoader.Open(vmlPath, false);
-                }
-            }, args);
-            return;
-        }
-
 
         // --help: Show usage
         if (args[0] == "--help" || args[0] == "-h")
