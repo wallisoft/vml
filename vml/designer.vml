@@ -314,7 +314,7 @@ OnClick=AddTextBlockScript
 
 @MenuItem AddCheckBox
 Parent=CtxAddControl
-Text=☑️ CheckBox
+Text=☑️  CheckBox
 OnClick=AddCheckBoxScript
 
 @MenuItem AddComboBox
@@ -350,10 +350,13 @@ OnClick=AddGridScript
 Parent=CtxAddControl
 Text=🖼️ Border
 OnClick=AddBorderScript
+
+@MenuItem CtrlSep2
 Parent=CanvasContextMenu
+IsSeparator=true
 
 @MenuItem Cut
-Parent=CanvasContextMenu
+Parent=
 Text=Cut 
 
 @MenuItem Copy
