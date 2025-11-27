@@ -235,11 +235,11 @@ Parent=Tools
 Text=Grid Options...
 OnClick=ToolsGridScript
 
-@MenuItem TestDynamic
 @MenuItem TestMouseAPI
 Parent=Tools
 Text=Test Mouse API
 OnClick=TestMouseAPI
+
 @MenuItem TestDynamic
 Parent=Tools
 Text=Test Dynamic Controls
@@ -657,8 +657,6 @@ Vml("SetControlPosition", name, 150, 150)
 Vml("SetControlSize", name, 120, 40)
 Vml("SetProperty", name, "Content", "Dynamic " .. name)
 Vml("InfoDialog", "Created: " .. name)
-
-
 
 @Script TestMouseAPI
 Interpreter=lua
