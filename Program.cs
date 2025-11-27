@@ -170,6 +170,10 @@ class Program
             Console.WriteLine();
             return;
         }
+        // Default: pass to App.axaml.cs (handles .vml files)
+        Console.WriteLine($"Mode: Running {args[0]}");
+        Console.WriteLine("═══════════════════════════════════\n");
+        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
     public static AppBuilder BuildAvaloniaApp()
