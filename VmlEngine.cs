@@ -749,6 +749,7 @@ public class VmlEngine
 public class VmlScriptGlobals
 {
     private readonly VmlEngine _engine;
+    public string[] Args { get; set; } = Array.Empty<string>();
     
     public VmlScriptGlobals()
     {

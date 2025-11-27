@@ -59,7 +59,7 @@ public static class ScriptHandler
         }
     }
     
-    public static void Execute(string scriptCode, string interpreter, Dictionary<string, string>? args = null)
+    public static void Execute(string scriptCode, string interpreter, Dictionary<string, string>? args = null, string[]? positionalArgs = null)
     {
         var cleanInterp = interpreter.Split(' ')[0].ToLower();
 
@@ -77,7 +77,17 @@ public static class ScriptHandler
                         engine = new VmlEngine();
                     else if (!LuaInstances.TryGetValue(instanceName, out engine!))
                         LuaInstances[instanceName] = engine = new VmlEngine();
-                    engine.Execute(scriptCode);
+                    // Inject positional args as Lua table
+                    var argsCode = "args = {";
+                    if (positionalArgs != null && positionalArgs.Length > 0)
+                    {
+                        var parts = new List<string>();
+                        foreach (var arg in positionalArgs)
+                            parts.Add("\"" + arg.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
+                        argsCode += string.Join(",", parts);
+                    }
+                    argsCode += "}\n";
+                    engine.Execute(argsCode + scriptCode);
                 }
                 catch (Exception ex)
                 {
@@ -97,6 +107,7 @@ public static class ScriptHandler
                     Console.WriteLine($"[CSHARP] Instance check: interpreter='{interpreter}', instanceName='{instanceName}', exists={CSharpInstances.ContainsKey(instanceName)}");
                     
                     var globals = new VmlScriptGlobals();
+                    globals.Args = positionalArgs ?? Array.Empty<string>();
                     var options = ScriptOptions.Default
                         .WithReferences(typeof(VmlEngine).Assembly)
                         .WithImports("System", "VB");
@@ -225,6 +236,14 @@ public static class ScriptHandler
                     env[$"VML_{kvp.Key.ToUpper()}"] = kvp.Value;
             }
             
+
+            // Add positional args
+            if (positionalArgs != null)
+            {
+                for (int i = 0; i < positionalArgs.Length; i++)
+                    env[$"VML_ARG{i + 1}"] = positionalArgs[i];
+                env["VML_ARGC"] = positionalArgs.Length.ToString();
+            }
             Console.WriteLine($"[SCRIPT] Executing with {cleanInterp}...");
             
             process.Start();

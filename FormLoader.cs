@@ -220,32 +220,46 @@ public static class FormLoader
     private static void ExecuteHandler(string handler, Window window)
     {
         Console.WriteLine($"[FORMLOADER] Executing: {handler}");
-
+        
+        // Parse args from handler: ScriptName(arg1,arg2) -> name + args[]
+        string handlerName = handler;
+        string[]? handlerArgs = null;
+        
+        if (handler.Contains("(") && handler.EndsWith(")"))
+        {
+            var parenStart = handler.IndexOf("(");
+            handlerName = handler.Substring(0, parenStart);
+            var argsStr = handler.Substring(parenStart + 1, handler.Length - parenStart - 2);
+            if (!string.IsNullOrEmpty(argsStr))
+                handlerArgs = argsStr.Split(",").Select(a => a.Trim()).ToArray();
+            Console.WriteLine($"[FORMLOADER] Parsed: {handlerName} with args: {string.Join(", ", handlerArgs ?? Array.Empty<string>())}");
+        }
+        
         // Direct commands
-        if (handler == "FormClose()" || handler == "Close()")
+        if (handlerName == "FormClose" || handlerName == "Close" || handler == "FormClose()" || handler == "Close()")
         {
             window.Close();
             return;
         }
-        if (handler.StartsWith("FormOpen ") || handler.StartsWith("FormOpenModal "))
+        if (handlerName.StartsWith("FormOpen") || handlerName.StartsWith("FormOpenModal"))
         {
-            var modal = handler.StartsWith("FormOpenModal");
-            var vmlPath = handler.Substring(modal ? 14 : 9).Trim();
+            var modal = handlerName.StartsWith("FormOpenModal");
+            var vmlPath = handlerArgs?[0] ?? handlerName.Substring(modal ? 13 : 8).Trim();
             Open(vmlPath, modal);
             return;
         }
-
+        
         // Script lookup
-        var script = ScriptRegistry.Get(handler);
+        var script = ScriptRegistry.Get(handlerName);
         Console.WriteLine($"[FORMLOADER] Script: {script?.Name ?? "null"}, Interp: {script?.Interpreter ?? "null"}, Instance: {script?.Instance ?? "null"}");
         if (script != null)
         {
             var interpreter = script.Instance != "" ? $"{script.Interpreter} {script.Instance}" : script.Interpreter;
-            ScriptHandler.Execute(script.Content, interpreter);
+            ScriptHandler.Execute(script.Content, interpreter, null, handlerArgs);
         }
         else
         {
-            Console.WriteLine($"[FORMLOADER] No handler found: {handler}");
+            Console.WriteLine($"[FORMLOADER] No handler found: {handlerName}");
         }
     }
 
