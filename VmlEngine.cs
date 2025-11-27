@@ -596,6 +596,8 @@ public class VmlEngine
                     SetProperty(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);
                     return null;
                 // Settings
+                case "GetControlAt":
+                    return GetControlAt(Convert.ToDouble(args[0]), Convert.ToDouble(args[1]));
                 case "GetSetting":
                     return Settings.Get(args[0].ToString()!);
                 case "SetSetting":
@@ -640,6 +642,27 @@ public class VmlEngine
     // ========================================
     
     
+    private string? GetControlAt(double x, double y)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var canvas = FindControlInWindow("DesignCanvas") as Canvas;
+            if (canvas == null) return null;
+            
+            foreach (var child in canvas.Children.OfType<Control>().Reverse())
+            {
+                if (child.Name == "SelectionBorder" || child.Name == "DesignOverlay") continue;
+                var left = Canvas.GetLeft(child);
+                var top = Canvas.GetTop(child);
+                var bounds = new Avalonia.Rect(left, top, child.Bounds.Width, child.Bounds.Height);
+                if (bounds.Contains(new Avalonia.Point(x, y)))
+                    return child.Name;
+            }
+            return null;
+        }).Result;
+    }
+
+
     private string CreateDynamicControl(string controlType, string name, string? parentName)
     {
         return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
