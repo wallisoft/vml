@@ -164,15 +164,29 @@ public static class VmlContextMenu
             menuItem.Click += (s, e) =>
             {
                 var target = GetContextMenuTarget();
-                Console.WriteLine($"[CONTEXTMENU] Executing script: {vmlItem.OnClick} for {target?.Name ?? "none"}");
-                var script = ScriptRegistry.Get(vmlItem.OnClick);
+                var onClickHandler = vmlItem.OnClick;
+                string handlerName = onClickHandler;
+                string[]? handlerArgs = null;
+                
+                // Parse args: ScriptName(arg1,arg2)
+                if (onClickHandler.Contains("(") && onClickHandler.EndsWith(")"))
+                {
+                    var parenStart = onClickHandler.IndexOf("(");
+                    handlerName = onClickHandler.Substring(0, parenStart);
+                    var argsStr = onClickHandler.Substring(parenStart + 1, onClickHandler.Length - parenStart - 2);
+                    if (!string.IsNullOrEmpty(argsStr))
+                        handlerArgs = argsStr.Split(",").Select(a => a.Trim()).ToArray();
+                }
+                
+                Console.WriteLine($"[CONTEXTMENU] Executing: {handlerName} with args: {string.Join(", ", handlerArgs ?? Array.Empty<string>())} for {target?.Name ?? "none"}");
+                var script = ScriptRegistry.Get(handlerName);
                 if (script != null)
                 {
-                    ScriptHandler.Execute(script.Content, script.Interpreter);
+                    ScriptHandler.Execute(script.Content, script.Interpreter, null, handlerArgs);
                 }
                 else
                 {
-                    Console.WriteLine($"[CONTEXTMENU] Script not found: {vmlItem.OnClick}");
+                    Console.WriteLine($"[CONTEXTMENU] Script not found: {handlerName}");
                 }
             };
         }
