@@ -144,8 +144,8 @@ public static class FormLoader
     private static void WireControlEvents(SqliteConnection conn, Control control, Window window)
     {
         if (control.Name != null)
-            Console.WriteLine($"[WIREEVENTS] Checking control: {control.Name} ({control.GetType().Name})");
         {
+            Console.WriteLine($"[WIREEVENTS] Checking control: {control.Name} ({control.GetType().Name})");
             // Query On* properties for this control
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
