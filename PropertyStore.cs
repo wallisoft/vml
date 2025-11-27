@@ -255,7 +255,7 @@ public static class PropertyStore
                     ('Expander','OnCollapsed','IsExpandedChanged',2),
                     ('ToggleSwitch','OnChecked','IsCheckedChanged',1),
                     ('ToggleSwitch','OnUnchecked','IsCheckedChanged',2),
-                    ('RadioButton','OnChecked','IsCheckedChanged',1)";
+('RadioButton','OnChecked','IsCheckedChanged',1),                    ('Canvas','OnPointerPressed','PointerPressed',1),                    ('Canvas','OnPointerMoved','PointerMoved',2),                    ('Canvas','OnPointerReleased','PointerReleased',3)";
             cmd.ExecuteNonQuery();
             // Create control_types table
             cmd.CommandText = @"

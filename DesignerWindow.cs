@@ -378,6 +378,7 @@ public class DesignerWindow
             "ComboBox" => new ComboBox(),
             "ListBox" => new ListBox(),
             "ScrollViewer" => new ScrollViewer(),
+            "Canvas" => new Canvas(),
             "TinyMenu" => new TinyMenu(PropertyStore.GetDbPath()),
             //"TinyCombo" => new TinyCombo(),
             //"TinyButton" => new TinyButton(),
