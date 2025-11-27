@@ -295,11 +295,6 @@ OnClick=FormOpenModal about_dialog.vml
 # CONTEXT MENU FOR DESIGN CANVAS
 # ========================================
 
-@MenuItem CtxTestMouse
-Parent=CanvasContextMenu
-Text=Test Mouse API
-OnClick=TestMouseAPI
-
 @ContextMenu CanvasContextMenu
 AttachTo=designCanvas
 
@@ -380,6 +375,11 @@ Text=Paste
 @MenuItem Delete
 Parent=CanvasContextMenu
 Text=Delete
+
+@MenuItem CtxTestMouse
+Parent=CanvasContextMenu
+Text=Test Mouse API
+OnClick=TestMouseAPI
 
 # ========================================
 # CONTEXT MENU FOR CONTROLS
