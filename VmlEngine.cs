@@ -612,6 +612,10 @@ public class VmlEngine
                 case "GetControlType":
                     return GetControlType(args[0].ToString()!);
                 case "SetControlVisible":
+                case "GetPropertyGroups":
+                    return GetPropertyGroups();
+                case "GetGroupProperties":
+                    return GetGroupProperties(Convert.ToInt32(args[0]), args.Length > 1 ? args[1].ToString()! : "*");
                     SetControlVisible(args[0].ToString()!, bool.Parse(args[1].ToString()!));
                     return null;
                     return GetControlHeight(args[0].ToString()!);
@@ -754,6 +758,42 @@ public class VmlEngine
             if (control != null)
                 control.IsVisible = visible;
         }).Wait();
+    }
+
+    private string GetPropertyGroups()
+    {
+        var dbPath = PropertyStore.GetDbPath();
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, name, display_name, icon, is_expanded FROM property_groups ORDER BY display_order";
+        var results = new System.Collections.Generic.List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            results.Add($"{reader.GetInt32(0)}|{reader.GetString(1)}|{reader.GetString(2)}|{reader.GetString(3)}|{reader.GetInt32(4)}");
+        return string.Join("\n", results);
+    }
+
+    private string GetGroupProperties(int groupId, string controlType)
+    {
+        var dbPath = PropertyStore.GetDbPath();
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT property_name, display_name, editor_type, options 
+            FROM control_properties 
+            WHERE group_id = @gid AND (applies_to = * OR applies_to LIKE % || @ctype || %) 
+            ORDER BY display_order";
+        cmd.Parameters.AddWithValue("@gid", groupId);
+        cmd.Parameters.AddWithValue("@ctype", controlType);
+        var results = new System.Collections.Generic.List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var opts = reader.IsDBNull(3) ? "" : reader.GetString(3);
+            results.Add($"{reader.GetString(0)}|{reader.GetString(1)}|{reader.GetString(2)}|{opts}");
+        }
+        return string.Join("\n", results);
     }
 
     private double GetControlX(string name)
