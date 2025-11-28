@@ -75,21 +75,6 @@ BorderThickness=2
 CornerRadius=2
 HorizontalAlignment=Center
 VerticalAlignment=Center
-
-@StackPanel SelectorRow
-
-Parent=SelectorRow
-Content=  Add  
-Width=70
-Height=32
-Background=#107C10
-Foreground=White
-BorderBrush=#0d6b0d
-BorderThickness=2
-CornerRadius=4
-OnClick=AddControlScript
-DockPanel.Dock=Top
-
 @ScrollViewer PropsScroll
 Parent=FormBuilderStack
 VerticalScrollBarVisibility=Visible

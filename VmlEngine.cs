@@ -867,32 +867,57 @@ public class VmlEngine
                 DesignerWindow.controlCounters[controlType]++;
                 name = $"{controlType}_{DesignerWindow.controlCounters[controlType]}";
             }
-            var (dummy, real) = DesignerWindow.CreateControlPair(controlType, name);
-            if (dummy == null || real == null)
+            
+            var parent = parentName != null ? FindControlInWindow(parentName) : null;
+            bool isDesignCanvas = parent is Canvas c && c.Name == "DesignCanvas";
+            
+            // Design pairs only for DesignCanvas
+            if (isDesignCanvas)
             {
-                Console.WriteLine($"[VMLENGINE] Failed to create {controlType}");
-                return "";
+                var (dummy, real) = DesignerWindow.CreateControlPair(controlType, name);
+                if (dummy == null || real == null)
+                {
+                    Console.WriteLine($"[VMLENGINE] Failed to create {controlType}");
+                    return "";
+                }
+                Canvas.SetLeft(dummy, 10);
+                Canvas.SetTop(dummy, 10);
+                Canvas.SetLeft(real, 10);
+                Canvas.SetTop(real, 10);
+                ((Canvas)parent).Children.Add(dummy);
+                ((Canvas)parent).Children.Add(real);
+                Console.WriteLine($"[VMLENGINE] Created design {controlType} '{name}' in {parentName}");
+                return name;
             }
             
-            if (parentName != null)
+            // Real controls for UI panels (properties panel etc)
+            Control control = controlType switch
             {
-                var parent = FindControlInWindow(parentName);
-                if (parent is Canvas canvas)
-                {
-                    Canvas.SetLeft(dummy, 10);
-                    Canvas.SetTop(dummy, 10);
-                    Canvas.SetLeft(real, 10);
-                    Canvas.SetTop(real, 10);
-                    canvas.Children.Add(dummy);
-                    canvas.Children.Add(real);
-                }
-                else if (parent is Panel panel)
-                {
-                    panel.Children.Add(dummy);
-                    panel.Children.Add(real);
-                }
+                "Button" => new Button { Name = name },
+                "TextBox" => new TextBox { Name = name },
+                "TextBlock" => new TextBlock { Name = name },
+                "CheckBox" => new CheckBox { Name = name },
+                "Border" => new Border { Name = name },
+                "StackPanel" => new StackPanel { Name = name },
+                "Grid" => new Grid { Name = name },
+                "ComboBox" => new ComboBox { Name = name },
+                _ => new Border { Name = name }
+            };
+            
+            if (parent is Panel panel)
+            {
+                panel.Children.Add(control);
             }
-            Console.WriteLine($"[VMLENGINE] Created {controlType} '{name}' in {parentName ?? "orphan"}");
+            else if (parent is Border border)
+            {
+                border.Child = control;
+            }
+            else if (parent is ContentControl cc)
+            {
+                cc.Content = control;
+            }
+            
+            Console.WriteLine($"[VMLENGINE] Created real {controlType} '{name}' in {parentName ?? "orphan"}");
             return name;
         }).Result;
     }
