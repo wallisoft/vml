@@ -153,56 +153,72 @@ public static class PropertyStore
                 )";
             cmd.ExecuteNonQuery();
 
-            // Create property_groups table (for composite controls like Font picker)
+// Create property_groups table (collapsible categories)
             cmd.CommandText = @"
                 CREATE TABLE IF NOT EXISTS property_groups (
-                    control_type TEXT NOT NULL,
-                    group_name TEXT NOT NULL,
-                    display_name TEXT,
-                    component_properties TEXT,
-                    picker_type TEXT,
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    display_name TEXT NOT NULL,
+                    icon TEXT,
                     display_order INTEGER DEFAULT 0,
-                    is_expanded INTEGER DEFAULT 1,
-                    PRIMARY KEY (control_type, group_name)
+                    is_expanded INTEGER DEFAULT 1
                 )";
             cmd.ExecuteNonQuery();
 
-            // Add property display ordering - common properties first
+            // Create control_properties table
             cmd.CommandText = @"
-                INSERT OR IGNORE INTO property_display (control_type, property_name, display_order, is_hidden) VALUES
-                -- Font group properties (hidden individually, shown in Font picker)
-                ('*', 'FontFamily', 0, 1),
-                ('*', 'FontSize', 0, 1),
-                ('*', 'FontWeight', 0, 1),
-                ('*', 'FontStyle', 0, 1),
-                -- Common properties
-                ('*', 'Name', 10, 0),
-                ('*', 'Width', 20, 0),
-                ('*', 'Height', 30, 0),
-                ('*', 'X', 40, 0),
-                ('*', 'Y', 50, 0),
-                -- Content properties
-                ('Button', 'Content', 60, 0),
-                ('TextBox', 'Text', 60, 0),
-                ('TextBlock', 'Text', 60, 0),
-                ('Label', 'Content', 60, 0),
-                -- Appearance
-                ('*', 'Background', 70, 0),
-                ('*', 'Foreground', 80, 0),
-                ('*', 'BorderBrush', 90, 0),
-                ('*', 'BorderThickness', 100, 0),
-                ('*', 'Padding', 110, 0),
-                ('*', 'Margin', 120, 0),
-                -- Behavior
-                ('*', 'IsVisible', 200, 0),
-                ('*', 'IsEnabled', 210, 0),
-                ('*', 'Opacity', 220, 0)";
+                CREATE TABLE IF NOT EXISTS control_properties (
+                    id INTEGER PRIMARY KEY,
+                    group_id INTEGER REFERENCES property_groups(id),
+                    property_name TEXT NOT NULL,
+                    display_name TEXT,
+                    editor_type TEXT DEFAULT 'text',
+                    options TEXT,
+                    display_order INTEGER DEFAULT 0,
+                    applies_to TEXT DEFAULT '*'
+                )";
             cmd.ExecuteNonQuery();
 
-            // Add Font group (composite picker)
+            // Seed property groups
             cmd.CommandText = @"
-                INSERT OR IGNORE INTO property_groups (control_type, group_name, display_name, component_properties, picker_type, display_order) VALUES
-                ('*', 'Font', 'Font', 'FontFamily,FontSize,FontWeight,FontStyle', 'TinyFontPicker', 5)";
+                INSERT OR IGNORE INTO property_groups (id, name, display_name, icon, display_order, is_expanded) VALUES
+                (1, 'Common', 'Common', '⭐', 1, 1),
+                (2, 'Layout', 'Layout', '📐', 2, 1),
+                (3, 'Appearance', 'Appearance', '🎨', 3, 0),
+                (4, 'Text', 'Text & Font', '🔤', 4, 0),
+                (5, 'Behavior', 'Behavior', '⚙️', 5, 0),
+                (6, 'Events', 'Events', '⚡', 6, 0)";
+            cmd.ExecuteNonQuery();
+
+            // Seed control properties
+            cmd.CommandText = @"
+                INSERT OR IGNORE INTO control_properties (group_id, property_name, display_name, editor_type, display_order, applies_to) VALUES
+                (1, 'Name', 'Name', 'text', 1, '*'),
+                (1, 'Content', 'Content', 'text', 2, 'Button,CheckBox,RadioButton'),
+                (1, 'Text', 'Text', 'text', 2, 'TextBox,TextBlock'),
+                (1, 'IsEnabled', 'Enabled', 'check', 3, '*'),
+                (1, 'IsVisible', 'Visible', 'check', 4, '*'),
+                (1, 'FontSize', 'Font Size', 'number', 5, '*'),
+                (2, 'X', 'X', 'number', 1, '*'),
+                (2, 'Y', 'Y', 'number', 2, '*'),
+                (2, 'Width', 'Width', 'number', 3, '*'),
+                (2, 'Height', 'Height', 'number', 4, '*'),
+                (2, 'Margin', 'Margin', 'text', 5, '*'),
+                (2, 'Padding', 'Padding', 'text', 6, '*'),
+                (3, 'Background', 'Background', 'color', 1, '*'),
+                (3, 'Foreground', 'Foreground', 'color', 2, '*'),
+                (3, 'BorderBrush', 'Border Color', 'color', 3, '*'),
+                (3, 'BorderThickness', 'Border Width', 'text', 4, '*'),
+                (3, 'CornerRadius', 'Corner Radius', 'number', 5, '*'),
+                (3, 'Opacity', 'Opacity', 'number', 6, '*'),
+                (4, 'FontFamily', 'Font', 'text', 1, '*'),
+                (4, 'FontWeight', 'Weight', 'combo', 2, '*'),
+                (4, 'TextAlignment', 'Align', 'combo', 4, '*'),
+                (5, 'Focusable', 'Focusable', 'check', 1, '*'),
+                (5, 'IsHitTestVisible', 'Hit Test', 'check', 2, '*'),
+                (5, 'TabIndex', 'Tab Index', 'number', 4, '*'),
+                (6, 'OnClick', 'On Click', 'text', 1, 'Button'),
+                (6, 'OnTextChanged', 'On Text Changed', 'text', 1, 'TextBox')";
             cmd.ExecuteNonQuery();
 
             // Create scripts table
