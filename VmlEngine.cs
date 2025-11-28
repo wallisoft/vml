@@ -606,6 +606,14 @@ public class VmlEngine
                 case "GetControlWidth":
                     return GetControlWidth(args[0].ToString()!);
                 case "GetControlHeight":
+                case "ClearChildren":
+                    ClearChildren(args[0].ToString()!);
+                    return null;
+                case "GetControlType":
+                    return GetControlType(args[0].ToString()!);
+                case "SetControlVisible":
+                    SetControlVisible(args[0].ToString()!, bool.Parse(args[1].ToString()!));
+                    return null;
                     return GetControlHeight(args[0].ToString()!);
                 case "GetControlY":
                     return GetControlY(args[0].ToString()!);
@@ -715,6 +723,38 @@ public class VmlEngine
         }).Result;
     }
 
+    private void ClearChildren(string name)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control is Panel panel)
+                panel.Children.Clear();
+        }).Wait();
+    }
+
+    private string GetControlType(string name)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control == null) return "";
+            var typeName = control.GetType().Name;
+            if (typeName.StartsWith("Design"))
+                return typeName.Substring(6);
+            return typeName;
+        }).Result;
+    }
+
+    private void SetControlVisible(string name, bool visible)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control != null)
+                control.IsVisible = visible;
+        }).Wait();
+    }
 
     private double GetControlX(string name)
     {
