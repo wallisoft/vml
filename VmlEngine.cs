@@ -612,6 +612,9 @@ public class VmlEngine
                 case "GetControlType":
                     return GetControlType(args[0].ToString()!);
                 case "SetControlVisible":
+                case "SetEvent":
+                    SetControlEvent(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);
+                    return null;
                 case "RunScript":
                     RunScript(args[0].ToString()!);
                     return null;
@@ -683,8 +686,11 @@ public class VmlEngine
                 DesignerWindow.SelectControl(control);
                 Vml("RunScript", "RefreshProperties");
                 Console.WriteLine($"[VMLENGINE] Selected: {name}");
+                Console.WriteLine($"[VMLENGINE] Selected: {name}");
             }
         }).Wait();
+        // Run RefreshProperties after selection
+        RunScript("RefreshProperties");
     }
 
 
@@ -763,6 +769,33 @@ public class VmlEngine
                 control.IsVisible = visible;
         }).Wait();
     }
+
+    private void SetControlEvent(string name, string eventName, string handler)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control == null) return;
+            
+            switch (eventName)
+            {
+                case "OnPointerPressed":
+                    control.PointerPressed += (s, e) =>
+                    {
+                        var pos = e.GetPosition(control);
+                        Settings.Set("event_x", pos.X.ToString());
+                        Settings.Set("event_y", pos.Y.ToString());
+                        FormLoader.ExecuteHandler(handler, null);
+                    };
+                    break;
+                case "OnClick" when control is Button btn:
+                    btn.Click += (s, e) => FormLoader.ExecuteHandler(handler, null);
+                    break;
+            }
+            Console.WriteLine($"[VMLENGINE] Wired {name}.{eventName} -> {handler}");
+        }).Wait();
+    }
+
 
     private void RunScript(string scriptName)
     {

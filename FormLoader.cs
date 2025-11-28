@@ -219,7 +219,7 @@ public static class FormLoader
         }
     }
 
-    private static void ExecuteHandler(string handler, Window window)
+    public static void ExecuteHandler(string handler, Window window)
     {
         Console.WriteLine($"[FORMLOADER] Executing: {handler}");
         

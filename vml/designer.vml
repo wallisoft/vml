@@ -779,6 +779,7 @@ for line in groups:gmatch("[^\n]+") do
     Vml("SetProperty", headerName, "Margin", "0,2,0,0")
     Vml("SetProperty", headerName, "CornerRadius", "3")
     Vml("SetProperty", headerName, "Tag", name)
+    Vml("SetEvent", headerName, "OnPointerPressed", "TogglePropertyGroup(" .. name .. ")")
     
     -- Header text
     local labelName = "PropLabel_" .. name
