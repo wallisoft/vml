@@ -162,24 +162,35 @@ public class DesignerWindow
         
         // ========================================
         // ADD CANVAS WITH OVERLAY (Code-only)
-        // ========================================
         if (workspace != null)
         {
-            var canvasScroll = new ScrollViewer
-            {
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-            };
-            Grid.SetColumn(canvasScroll, 1);
+            // Find VML-created canvas instead of creating new one
+            var canvasScroll = mainWindow.FindControl<ScrollViewer>("CanvasScroll");
+            designCanvas = mainWindow.FindControl<Canvas>("DesignCanvas");
             
-            designCanvas = new Canvas
+            if (designCanvas == null)
             {
-                Name = "DesignCanvas",
-                Width = 4000,
-                Height = 4000,
-                Background = new SolidColorBrush(Color.Parse("#e8f5e9")), 
-                Focusable = true  
-            };
+                Console.WriteLine("[DESIGNER] Warning: DesignCanvas not found in VML, creating fallback");
+                canvasScroll = new ScrollViewer
+                {
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                };
+                Grid.SetColumn(canvasScroll, 1);
+                designCanvas = new Canvas
+                {
+                    Name = "DesignCanvas",
+                    Width = 4000,
+                    Height = 4000,
+                    Background = new SolidColorBrush(Color.Parse("#e8f5e9")),
+                    Focusable = true
+                };
+                canvasScroll.Content = designCanvas;
+                workspace.Children.Add(canvasScroll);
+            }
+            
+            // Initialize mouse handlers
+            DesignerMouseHandler.InitializeHandlers(designCanvas, mainWindow, statusText);
 
             // Initialize mouse handlers using the new DesignerMouseHandler class
             DesignerMouseHandler.InitializeHandlers(designCanvas, mainWindow, statusText);
