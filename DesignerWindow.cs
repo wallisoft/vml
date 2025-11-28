@@ -267,6 +267,13 @@ public class DesignerWindow
         {
             designCanvas?.Focus();
             Console.WriteLine($"[FOCUS] Canvas focused, IsHitTestVisible={designCanvas?.IsHitTestVisible}");
+            // Initialize property panel via VML script
+            var buildScript = ScriptRegistry.Get("BuildPropertyPanel");
+            if (buildScript != null)
+                ScriptHandler.Execute(buildScript.Content, buildScript.Interpreter);
+            var refreshScript = ScriptRegistry.Get("RefreshProperties");
+            if (refreshScript != null)
+                ScriptHandler.Execute(refreshScript.Content, refreshScript.Interpreter);
         };
         
         // Load controls from PropertyStore

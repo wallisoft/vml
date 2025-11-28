@@ -769,3 +769,129 @@ Vml("SetSetting", "dragging", "false")
 Vml("SetSetting", "resizing", "false")
 Vml("SetSetting", "active_control", "")
 Vml("SetSetting", "resize_edge", "")
+
+# ========================================
+# PROPERTY PANEL SCRIPTS
+# ========================================
+@Script BuildPropertyPanel
+Interpreter=lua
+-- Build collapsible property groups on startup
+local groups = Vml("GetPropertyGroups")
+if not groups or groups == "" then return end
+
+Vml("ClearChildren", "propertiesStack")
+
+for line in groups:gmatch("[^\n]+") do
+    local id, name, display, icon, expanded = line:match("([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)")
+    
+    -- Group header (clickable)
+    local headerName = "PropHeader_" .. name
+    Vml("CreateControl", "Border", headerName, "propertiesStack")
+    Vml("SetProperty", headerName, "Background", "#e0e0e0")
+    Vml("SetProperty", headerName, "Padding", "5,3")
+    Vml("SetProperty", headerName, "Margin", "0,2,0,0")
+    Vml("SetProperty", headerName, "CornerRadius", "3")
+    Vml("SetProperty", headerName, "Tag", name)
+    
+    -- Header text
+    local labelName = "PropLabel_" .. name
+    Vml("CreateControl", "TextBlock", labelName, headerName)
+    Vml("SetProperty", labelName, "Text", icon .. " " .. display)
+    Vml("SetProperty", labelName, "FontWeight", "Bold")
+    Vml("SetProperty", labelName, "FontSize", "13")
+    
+    -- Content panel
+    local contentName = "PropContent_" .. name
+    Vml("CreateControl", "StackPanel", contentName, "propertiesStack")
+    Vml("SetProperty", contentName, "Spacing", "2")
+    Vml("SetProperty", contentName, "Margin", "5,0,0,5")
+    
+    -- Collapse non-Common groups
+    if name ~= "Common" then
+        Vml("SetControlVisible", contentName, false)
+    end
+end
+
+-- Store that we built it
+Vml("SetSetting", "props_built", "true")
+
+@Script RefreshProperties
+Interpreter=lua
+-- Called when control selected
+local ctrl = Vml("GetSetting", "selected_control")
+if not ctrl or ctrl == "" then
+    ctrl = "MainWindow"
+end
+
+local ctrlType = Vml("GetControlType", ctrl)
+if ctrlType == "" then ctrlType = "Window" end
+
+-- Update title
+Vml("SetProperty", "FormTitle", "Text", ctrlType .. ": " .. ctrl)
+
+-- Get groups and populate
+local groups = Vml("GetPropertyGroups")
+if not groups or groups == "" then return end
+
+for line in groups:gmatch("[^\n]+") do
+    local id, name, display, icon, expanded = line:match("([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)")
+    local contentName = "PropContent_" .. name
+    
+    -- Clear old property editors
+    Vml("ClearChildren", contentName)
+    
+    -- Get properties for this group
+    local props = Vml("GetGroupProperties", tonumber(id), ctrlType)
+    if props and props ~= "" then
+        for propLine in props:gmatch("[^\n]+") do
+            local propName, displayName, editorType, options = propLine:match("([^|]+)|([^|]+)|([^|]+)|([^|]*)")
+            
+            -- Create row
+            local rowName = "PropRow_" .. propName
+            Vml("CreateControl", "Grid", rowName, contentName)
+            Vml("SetProperty", rowName, "ColumnDefinitions", "70,*")
+            Vml("SetProperty", rowName, "Margin", "0,1")
+            
+            -- Label
+            local lblName = "PropLbl_" .. propName
+            Vml("CreateControl", "TextBlock", lblName, rowName)
+            Vml("SetProperty", lblName, "Text", displayName)
+            Vml("SetProperty", lblName, "FontSize", "11")
+            Vml("SetProperty", lblName, "VerticalAlignment", "Center")
+            Vml("SetProperty", lblName, "Grid.Column", "0")
+            
+            -- Editor
+            local editName = "PropEdit_" .. propName
+            if editorType == "check" then
+                Vml("CreateControl", "CheckBox", editName, rowName)
+            else
+                Vml("CreateControl", "TextBox", editName, rowName)
+                Vml("SetProperty", editName, "FontSize", "11")
+                Vml("SetProperty", editName, "Height", "22")
+            end
+            Vml("SetProperty", editName, "Grid.Column", "1")
+            Vml("SetProperty", editName, "Tag", ctrl .. "|" .. propName)
+            
+            -- Get current value
+            local val = Vml("GetProperty", ctrl, propName)
+            if val and val ~= "" then
+                if editorType == "check" then
+                    Vml("SetProperty", editName, "IsChecked", val)
+                else
+                    Vml("SetProperty", editName, "Text", val)
+                end
+            end
+        end
+    end
+end
+
+@Script TogglePropertyGroup
+Interpreter=lua
+local groupName = args[1]
+local contentName = "PropContent_" .. groupName
+local current = Vml("GetProperty", contentName, "IsVisible")
+if current == "True" then
+    Vml("SetControlVisible", contentName, false)
+else
+    Vml("SetControlVisible", contentName, true)
+end
