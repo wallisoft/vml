@@ -612,6 +612,8 @@ public class VmlEngine
                 case "GetControlType":
                     return GetControlType(args[0].ToString()!);
                 case "SetControlVisible":
+                    SetControlVisible(args[0].ToString()!, bool.Parse(args[1].ToString()!));
+                    return null;
                 case "SetEvent":
                     SetControlEvent(args[0].ToString()!, args[1].ToString()!, args[2].ToString()!);
                     return null;
