@@ -828,7 +828,7 @@ public class VmlEngine
         var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT property_name, display_name, editor_type, options 
             FROM control_properties 
-            WHERE group_id = @gid AND (applies_to = * OR applies_to LIKE % || @ctype || %) 
+            WHERE group_id = @gid AND (applies_to = '*' OR applies_to LIKE '%' || @ctype || '%') 
             ORDER BY display_order";
         cmd.Parameters.AddWithValue("@gid", groupId);
         cmd.Parameters.AddWithValue("@ctype", controlType);
