@@ -14,7 +14,7 @@ using Microsoft.Data.Sqlite;
 
 namespace VB;
 
-public class DesignerWindow
+public class VmlBootstrap
 {
     // ========================================
     // CORE FIELDS

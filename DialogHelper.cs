@@ -30,7 +30,7 @@ public static class DialogHelper
                 };
             }
             
-            var result = await dialog.ShowAsync(DesignerWindow.mainWindow);
+            var result = await dialog.ShowAsync(VmlBootstrap.mainWindow);
             tcs.SetResult(result?.Length > 0 ? result[0] : null);
         });
         
@@ -61,7 +61,7 @@ public static class DialogHelper
                 };
             }
             
-            var result = await dialog.ShowAsync(DesignerWindow.mainWindow);
+            var result = await dialog.ShowAsync(VmlBootstrap.mainWindow);
             tcs.SetResult(result);
         });
         

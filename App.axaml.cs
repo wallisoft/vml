@@ -36,7 +36,7 @@ public partial class App : Application
                 // Create hidden main window
                 var hiddenWindow = new MainWindow { IsVisible = false, ShowInTaskbar = false };
                 desktop.MainWindow = hiddenWindow;
-                DesignerWindow.mainWindow = hiddenWindow;
+                VmlBootstrap.mainWindow = hiddenWindow;
                 
                 // Open the form
                 FormLoader.Open(vmlPath, false);
@@ -61,7 +61,7 @@ public partial class App : Application
                     if (count > 0)
                     {
                         Console.WriteLine($"[APP] ✓ Using cached designer ({count} controls)");
-                        DesignerWindow.BuildUI(mainWindow, designerVml);
+                        VmlBootstrap.BuildUI(mainWindow, designerVml);
                     }
                     else
                     {
@@ -70,7 +70,7 @@ public partial class App : Application
                 }
                 else
                 {
-                    DesignerWindow.LoadAndApply(mainWindow, designerVml);
+                    VmlBootstrap.LoadAndApply(mainWindow, designerVml);
                 }
                 
                 desktop.MainWindow = mainWindow;

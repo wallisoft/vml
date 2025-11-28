@@ -257,7 +257,7 @@ public static class VmlContextMenu
         _currentTarget = target;
         if (target != null)
         {
-            DesignerWindow.SelectControl(target);
+            VmlBootstrap.SelectControl(target);
         }
     }
     

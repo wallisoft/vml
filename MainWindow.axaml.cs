@@ -81,7 +81,7 @@ public partial class MainWindow : Window
             ProjectManager.AddProject(name, path);
             
             // Load the VML into the designer
-            DesignerWindow.LoadAndApply(this, path);
+            VmlBootstrap.LoadAndApply(this, path);
         }
         catch (Exception ex)
         {

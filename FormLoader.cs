@@ -87,7 +87,7 @@ public static class FormLoader
         reader.Close();
         
         // Build control tree
-        var root = DesignerWindow.CreateControlByType(conn, id, controlType, name);
+        var root = VmlBootstrap.CreateControlByType(conn, id, controlType, name);
         
         if (root == null)
         {
@@ -120,9 +120,9 @@ public static class FormLoader
         WireEvents(window, window);
 
         // Show window
-        if (modal && DesignerWindow.mainWindow != null)
+        if (modal && VmlBootstrap.mainWindow != null)
         {
-            window.ShowDialog(DesignerWindow.mainWindow);
+            window.ShowDialog(VmlBootstrap.mainWindow);
         }
         else
         {

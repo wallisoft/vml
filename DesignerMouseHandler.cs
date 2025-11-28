@@ -109,7 +109,7 @@ public static class DesignerMouseHandler
             
             // Find which control was clicked
             foreach (var child in designCanvas.Children.OfType<Control>()
-                .Where(c => c != DesignerWindow.GetSelectionBorder() && c != DesignerWindow.GetDesignOverlay()))
+                .Where(c => c != VmlBootstrap.GetSelectionBorder() && c != VmlBootstrap.GetDesignOverlay()))
             {
                 var bounds = new Rect(Canvas.GetLeft(child), Canvas.GetTop(child), 
                     child.Bounds.Width, child.Bounds.Height);
@@ -137,7 +137,7 @@ public static class DesignerMouseHandler
                     activeState.StartWidth = child.Width; 
                     activeState.StartHeight = child.Height;   
                     
-                    DesignerWindow.SelectControl(child);
+                    VmlBootstrap.SelectControl(child);
                     e.Handled = true;
                     break;
                 }
@@ -154,7 +154,7 @@ public static class DesignerMouseHandler
                 // Resize active
                 HandleResize(activeControl, activeState.ResizeEdge, canvasPos, 
                     activeState.StartX, activeState.StartY, activeState.StartWidth, activeState.StartHeight);
-                DesignerWindow.UpdateSelectionBorder();
+                VmlBootstrap.UpdateSelectionBorder();
             }
             else if (activeControl != null && activeState.IsDragging)
             {
@@ -169,11 +169,11 @@ public static class DesignerMouseHandler
                     Canvas.SetLeft(real, activeState.StartX + deltaX);
                     Canvas.SetTop(real, activeState.StartY + deltaY);
                 }
-                DesignerWindow.UpdateSelectionBorder();
+                VmlBootstrap.UpdateSelectionBorder();
             }
-            else if (DesignerWindow.GetSelectedControl() != null)
+            else if (VmlBootstrap.GetSelectedControl() != null)
             {
-                var selectedControl = DesignerWindow.GetSelectedControl();
+                var selectedControl = VmlBootstrap.GetSelectedControl();
                 // Hovering over selected control - show resize cursor
                 var bounds = new Rect(Canvas.GetLeft(selectedControl), Canvas.GetTop(selectedControl),
                     selectedControl.Bounds.Width, selectedControl.Bounds.Height);
@@ -195,7 +195,7 @@ public static class DesignerMouseHandler
             var offsetY = (int)canvasPos.Y - 100;
             if (statusText != null && mainWindow != null)
             {
-                var controlName = DesignerWindow.GetSelectedControl()?.Name ?? "None";
+                var controlName = VmlBootstrap.GetSelectedControl()?.Name ?? "None";
                 var winW = (int)mainWindow.ClientSize.Width;
                 var winH = (int)mainWindow.ClientSize.Height;
                 statusText.Text = $"Selected: {controlName} | Window: {winW}x{winH} | Mouse: {offsetX},{offsetY}";

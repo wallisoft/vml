@@ -68,7 +68,7 @@ public class VmlEngine
                 };
             }
             
-            var files = await dialog.ShowAsync(DesignerWindow.mainWindow);
+            var files = await dialog.ShowAsync(VmlBootstrap.mainWindow);
             tcs.SetResult(files?.Length > 0 ? files[0] : "");
         });
         
@@ -100,7 +100,7 @@ public class VmlEngine
                 };
             }
             
-            var result = await dialog.ShowAsync(DesignerWindow.mainWindow);
+            var result = await dialog.ShowAsync(VmlBootstrap.mainWindow);
             tcs.SetResult(result ?? "");
         });
         
@@ -118,7 +118,7 @@ public class VmlEngine
                 Title = title
             };
             
-            var result = await dialog.ShowAsync(DesignerWindow.mainWindow);
+            var result = await dialog.ShowAsync(VmlBootstrap.mainWindow);
             tcs.SetResult(result ?? "");
         });
         
@@ -161,7 +161,7 @@ public class VmlEngine
             var button = (Avalonia.Controls.Button)((Avalonia.Controls.StackPanel)msgBox.Content).Children[1];
             button.Click += (s, e) => msgBox.Close();
             
-            await msgBox.ShowDialog(DesignerWindow.mainWindow);
+            await msgBox.ShowDialog(VmlBootstrap.mainWindow);
         }).Wait();
     }
 
@@ -201,7 +201,7 @@ public class VmlEngine
             var button = (Avalonia.Controls.Button)((Avalonia.Controls.StackPanel)msgBox.Content).Children[1];
             button.Click += (s, e) => msgBox.Close();
             
-            await msgBox.ShowDialog(DesignerWindow.mainWindow);
+            await msgBox.ShowDialog(VmlBootstrap.mainWindow);
         }).Wait();
     }
 
@@ -249,7 +249,7 @@ public class VmlEngine
             ((Avalonia.Controls.Button)buttons.Children[0]).Click += (s, e) => { result = true; msgBox.Close(); };
             ((Avalonia.Controls.Button)buttons.Children[1]).Click += (s, e) => { msgBox.Close(); };
             
-            await msgBox.ShowDialog(DesignerWindow.mainWindow);
+            await msgBox.ShowDialog(VmlBootstrap.mainWindow);
             tcs.SetResult(result);
         });
         
@@ -307,7 +307,7 @@ public class VmlEngine
             ((Avalonia.Controls.Button)buttons.Children[0]).Click += (s, e) => { inputValue = textBox.Text ?? ""; msgBox.Close(); };
             ((Avalonia.Controls.Button)buttons.Children[1]).Click += (s, e) => { msgBox.Close(); };
             
-            await msgBox.ShowDialog(DesignerWindow.mainWindow);
+            await msgBox.ShowDialog(VmlBootstrap.mainWindow);
             tcs.SetResult(inputValue);
         });
         
@@ -474,7 +474,7 @@ public class VmlEngine
     
     public void ReloadCanvas()
     {
-        DesignerWindow.RefreshCanvas();
+        VmlBootstrap.RefreshCanvas();
     }
     
     public void FormOpen(string vmlPath)
@@ -569,7 +569,7 @@ public class VmlEngine
                 case "GetProperty":
                     return GetProperty(args[0].ToString()!, args[1].ToString()!);
                 case "GetSelectedControlName":
-                    return DesignerWindow.GetSelectedControl()?.Name ?? "";
+                    return VmlBootstrap.GetSelectedControl()?.Name ?? "";
                 case "SetMenuItemText":
                     TinyMenu.SetMenuItemText(args[0].ToString()!, args[1].ToString()!);
                     return null;
@@ -685,7 +685,7 @@ public class VmlEngine
             var control = FindControlInWindow(name);
             if (control != null)
             {
-                DesignerWindow.SelectControl(control);
+                VmlBootstrap.SelectControl(control);
                 Vml("RunScript", "RefreshProperties");
                 Console.WriteLine($"[VMLENGINE] Selected: {name}");
                 Console.WriteLine($"[VMLENGINE] Selected: {name}");
@@ -864,7 +864,7 @@ public class VmlEngine
     {
         Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
-            DesignerWindow.UpdateSelectionBorder();
+            VmlBootstrap.UpdateSelectionBorder();
         }).Wait();
     }
 
@@ -897,10 +897,10 @@ public class VmlEngine
             // Auto-generate name if not provided
             if (string.IsNullOrEmpty(name))
             {
-                if (!DesignerWindow.controlCounters.ContainsKey(controlType))
-                    DesignerWindow.controlCounters[controlType] = 0;
-                DesignerWindow.controlCounters[controlType]++;
-                name = $"{controlType}_{DesignerWindow.controlCounters[controlType]}";
+                if (!VmlBootstrap.controlCounters.ContainsKey(controlType))
+                    VmlBootstrap.controlCounters[controlType] = 0;
+                VmlBootstrap.controlCounters[controlType]++;
+                name = $"{controlType}_{VmlBootstrap.controlCounters[controlType]}";
             }
             
             var parent = parentName != null ? FindControlInWindow(parentName) : null;
@@ -909,7 +909,7 @@ public class VmlEngine
             // Design pairs only for DesignCanvas
             if (isDesignCanvas)
             {
-                var (dummy, real) = DesignerWindow.CreateControlPair(controlType, name);
+                var (dummy, real) = VmlBootstrap.CreateControlPair(controlType, name);
                 if (dummy == null || real == null)
                 {
                     Console.WriteLine($"[VMLENGINE] Failed to create {controlType}");

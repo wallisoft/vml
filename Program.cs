@@ -66,7 +66,7 @@ class Program
                         ShowInTaskbar = false
                     };
                     desktop.MainWindow = hiddenWindow;
-                    DesignerWindow.mainWindow = hiddenWindow;
+                    VmlBootstrap.mainWindow = hiddenWindow;
 
                     // Show dialog and wait for result
                     var result = DialogHelper.ShowOpenDialog(title, filter).Result;
@@ -102,7 +102,7 @@ class Program
                         ShowInTaskbar = false
                     };
                     desktop.MainWindow = hiddenWindow;
-                    DesignerWindow.mainWindow = hiddenWindow;
+                    VmlBootstrap.mainWindow = hiddenWindow;
 
                     // Show dialog and wait for result
                     var result = DialogHelper.ShowSaveDialog(title, defaultName, filter).Result;
@@ -141,7 +141,7 @@ class Program
                         ShowInTaskbar = false
                     };
                     desktop.MainWindow = hiddenWindow;
-                    DesignerWindow.mainWindow = hiddenWindow;
+                    VmlBootstrap.mainWindow = hiddenWindow;
                     
                     // Execute VML command (will block for dialogs)
                     ScriptHandler.ExecuteVmlCommands(args[1]);

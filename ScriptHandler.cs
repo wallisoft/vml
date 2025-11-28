@@ -324,7 +324,7 @@ public static class ScriptHandler
                                 };
                             }
                             
-                            var result = await dialog.ShowAsync(DesignerWindow.mainWindow);
+                            var result = await dialog.ShowAsync(VmlBootstrap.mainWindow);
                             return result?.Length > 0 ? result[0] : "";
                         });
                         
@@ -363,7 +363,7 @@ public static class ScriptHandler
                                 };
                             }
                             
-                            var result = await dialog.ShowAsync(DesignerWindow.mainWindow);
+                            var result = await dialog.ShowAsync(VmlBootstrap.mainWindow);
                             return result ?? "";
                         });
                         
@@ -385,7 +385,7 @@ public static class ScriptHandler
                                 Title = title
                             };
                             
-                            var result = await dialog.ShowAsync(DesignerWindow.mainWindow);
+                            var result = await dialog.ShowAsync(VmlBootstrap.mainWindow);
                             return result ?? "";
                         });
                         
@@ -433,8 +433,8 @@ public static class ScriptHandler
                         var button = (Avalonia.Controls.Button)((Avalonia.Controls.StackPanel)msgBox.Content).Children[1];
                         button.Click += (s, e) => msgBox.Close();
 
-                        if (DesignerWindow.mainWindow != null)
-                            await msgBox.ShowDialog(DesignerWindow.mainWindow);
+                        if (VmlBootstrap.mainWindow != null)
+                            await msgBox.ShowDialog(VmlBootstrap.mainWindow);
                         else
                             msgBox.Show();
                     });
@@ -476,7 +476,7 @@ public static class ScriptHandler
                         var button = (Avalonia.Controls.Button)((Avalonia.Controls.StackPanel)msgBox.Content).Children[1];
                         button.Click += (s, e) => msgBox.Close();
                         
-                        await msgBox.ShowDialog(DesignerWindow.mainWindow);
+                        await msgBox.ShowDialog(VmlBootstrap.mainWindow);
                     });
                     // NO .Wait() - just continue
                     break; 
@@ -524,7 +524,7 @@ public static class ScriptHandler
                             ((Avalonia.Controls.Button)buttons.Children[0]).Click += (s, e) => { result = true; msgBox.Close(); };
                             ((Avalonia.Controls.Button)buttons.Children[1]).Click += (s, e) => { msgBox.Close(); };
                             
-                            await msgBox.ShowDialog(DesignerWindow.mainWindow);
+                            await msgBox.ShowDialog(VmlBootstrap.mainWindow);
                             return result;
                         });
                         
@@ -588,7 +588,7 @@ public static class ScriptHandler
                             ((Avalonia.Controls.Button)buttons.Children[0]).Click += (s, e) => { inputValue = textBox.Text ?? ""; msgBox.Close(); };
                             ((Avalonia.Controls.Button)buttons.Children[1]).Click += (s, e) => { msgBox.Close(); };
                             
-                            await msgBox.ShowDialog(DesignerWindow.mainWindow);
+                            await msgBox.ShowDialog(VmlBootstrap.mainWindow);
                             return inputValue;
                         });
                         
@@ -642,7 +642,7 @@ public static class ScriptHandler
                 // ===== CANVAS/CONTROL COMMANDS =====
                 case "ReloadCanvas":
                     Console.WriteLine("[VML] Reloading canvas...");
-                    DesignerWindow.RefreshCanvas();
+                    VmlBootstrap.RefreshCanvas();
                     break;
                 
                 case "GetProperty":
