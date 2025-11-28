@@ -29,6 +29,8 @@ Background=#e8f5e9
 @Border formBuilderBorder
 Parent=Workspace
 Grid.Column=0
+MinWidth=280
+MinHeight=400
 Background=#e8f5e9
 BorderBrush=#107C10
 BorderThickness=2
