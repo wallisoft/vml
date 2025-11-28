@@ -806,6 +806,7 @@ Vml("SetSetting", "props_built", "true")
 @Script RefreshProperties
 Interpreter=lua
 -- Called when control selected
+Vml("InfoDialog", "RefreshProperties running for: " .. (ctrl or "nil"))
 local ctrl = Vml("GetSetting", "selected_control")
 if not ctrl or ctrl == "" then
     ctrl = "MainWindow"
