@@ -228,8 +228,6 @@ public class DesignerWindow
             };
             designCanvas.Children.Add(selectionBorder);
             
-            canvasScroll.Content = designCanvas;
-            workspace.Children.Add(canvasScroll);
         }
         
         // ========================================
