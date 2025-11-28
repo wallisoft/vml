@@ -235,8 +235,8 @@ public class DesignerWindow
         // ========================================
         if (propertiesStack != null)
         {
-            propertiesPanel = new PropertiesPanel(propertiesStack);
-            propertiesPanel.PanelCloseRequested += (s, e) => 
+            // propertiesPanel = new PropertiesPanel(propertiesStack);
+            // propertiesPanel.PanelCloseRequested += (s, e) => 
             {
                 if (formBuilderBorder != null)
                     formBuilderBorder.IsVisible = false;
@@ -766,7 +766,7 @@ public class DesignerWindow
     public static void SelectControl(Control control)
     {
         selectedControl = control;
-        propertiesPanel?.ShowPropertiesFor(control);
+        // propertiesPanel?.ShowPropertiesFor(control); // Now VML-driven
         UpdateSelectionBorder();
         UpdateStatusBar();
     }

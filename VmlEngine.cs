@@ -612,6 +612,9 @@ public class VmlEngine
                 case "GetControlType":
                     return GetControlType(args[0].ToString()!);
                 case "SetControlVisible":
+                case "RunScript":
+                    RunScript(args[0].ToString()!);
+                    return null;
                 case "GetPropertyGroups":
                     return GetPropertyGroups();
                 case "GetGroupProperties":
@@ -678,6 +681,7 @@ public class VmlEngine
             if (control != null)
             {
                 DesignerWindow.SelectControl(control);
+                Vml("RunScript", "RefreshProperties");
                 Console.WriteLine($"[VMLENGINE] Selected: {name}");
             }
         }).Wait();
@@ -758,6 +762,13 @@ public class VmlEngine
             if (control != null)
                 control.IsVisible = visible;
         }).Wait();
+    }
+
+    private void RunScript(string scriptName)
+    {
+        var script = ScriptRegistry.Get(scriptName);
+        if (script != null)
+            ScriptHandler.Execute(script.Content, script.Interpreter);
     }
 
     private string GetPropertyGroups()
