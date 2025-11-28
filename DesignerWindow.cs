@@ -233,15 +233,15 @@ public class DesignerWindow
         // ========================================
         // INITIALIZE PROPERTIES PANEL
         // ========================================
-        if (propertiesStack != null)
-        {
+        //if (propertiesStack != null)
+        //{
             // propertiesPanel = new PropertiesPanel(propertiesStack);
             // propertiesPanel.PanelCloseRequested += (s, e) => 
-            {
-                if (formBuilderBorder != null)
-                    formBuilderBorder.IsVisible = false;
-            };
-        }
+         //   {
+         //       if (formBuilderBorder != null)
+         //           formBuilderBorder.IsVisible = false;
+         //   };
+       // }
         
         // ========================================
         // WIRE CLOSE BUTTON
