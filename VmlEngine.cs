@@ -601,6 +601,12 @@ public class VmlEngine
                     return null;
                 case "GetControlX":
                     return GetControlX(args[0].ToString()!);
+                case "GetResizeZone":
+                    return GetResizeZone(args[0].ToString()!, Convert.ToDouble(args[1]), Convert.ToDouble(args[2]));
+                case "GetControlWidth":
+                    return GetControlWidth(args[0].ToString()!);
+                case "GetControlHeight":
+                    return GetControlHeight(args[0].ToString()!);
                 case "GetControlY":
                     return GetControlY(args[0].ToString()!);
                 case "UpdateSelectionBorder":
@@ -663,6 +669,50 @@ public class VmlEngine
                 Console.WriteLine($"[VMLENGINE] Selected: {name}");
             }
         }).Wait();
+    }
+
+
+    private string? GetResizeZone(string name, double localX, double localY)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            if (control == null) return null;
+            const double edgeSize = 8;
+            var w = control.Bounds.Width;
+            var h = control.Bounds.Height;
+            bool onLeft = localX <= edgeSize;
+            bool onRight = localX >= w - edgeSize;
+            bool onTop = localY <= edgeSize;
+            bool onBottom = localY >= h - edgeSize;
+            if (onTop && onLeft) return "NW";
+            if (onTop && onRight) return "NE";
+            if (onBottom && onLeft) return "SW";
+            if (onBottom && onRight) return "SE";
+            if (onTop) return "N";
+            if (onBottom) return "S";
+            if (onLeft) return "W";
+            if (onRight) return "E";
+            return null;
+        }).Result;
+    }
+
+    private double GetControlWidth(string name)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            return control?.Bounds.Width ?? 0;
+        }).Result;
+    }
+
+    private double GetControlHeight(string name)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            return control?.Bounds.Height ?? 0;
+        }).Result;
     }
 
 

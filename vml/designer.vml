@@ -691,6 +691,9 @@ end
 
 
 # ========================================
+Interpreter=lua
+
+# ========================================
 # DESIGNER MOUSE SCRIPTS
 # ========================================
 @Script DesignCanvasDown
@@ -700,33 +703,69 @@ local y = tonumber(Vml("GetSetting", "event_y")) or 0
 local ctrl = Vml("GetControlAt", x, y)
 if ctrl and ctrl ~= "" then
     Vml("SelectControl", ctrl)
-    Vml("SetSetting", "dragging", "true")
-    Vml("SetSetting", "drag_control", ctrl)
+    -- Check for resize zone
+    local cx = Vml("GetControlX", ctrl)
+    local cy = Vml("GetControlY", ctrl)
+    local localX = x - cx
+    local localY = y - cy
+    local zone = Vml("GetResizeZone", ctrl, localX, localY)
+    if zone then
+        Vml("SetSetting", "resizing", "true")
+        Vml("SetSetting", "resize_edge", zone)
+    else
+        Vml("SetSetting", "dragging", "true")
+    end
+    Vml("SetSetting", "active_control", ctrl)
     Vml("SetSetting", "drag_start_x", tostring(x))
     Vml("SetSetting", "drag_start_y", tostring(y))
-    local cx = Vml("GetControlX", ctrl) or x
-    local cy = Vml("GetControlY", ctrl) or y
     Vml("SetSetting", "control_start_x", tostring(cx))
     Vml("SetSetting", "control_start_y", tostring(cy))
+    Vml("SetSetting", "control_start_w", tostring(Vml("GetControlWidth", ctrl)))
+    Vml("SetSetting", "control_start_h", tostring(Vml("GetControlHeight", ctrl)))
 end
 
 @Script DesignCanvasMove
 Interpreter=lua
-if Vml("GetSetting", "dragging") == "true" then
-    local x = tonumber(Vml("GetSetting", "event_x")) or 0
-    local y = tonumber(Vml("GetSetting", "event_y")) or 0
-    local startX = tonumber(Vml("GetSetting", "drag_start_x")) or 0
-    local startY = tonumber(Vml("GetSetting", "drag_start_y")) or 0
-    local ctrlStartX = tonumber(Vml("GetSetting", "control_start_x")) or 0
-    local ctrlStartY = tonumber(Vml("GetSetting", "control_start_y")) or 0
+local ctrl = Vml("GetSetting", "active_control")
+if ctrl == "" then return end
+local x = tonumber(Vml("GetSetting", "event_x")) or 0
+local y = tonumber(Vml("GetSetting", "event_y")) or 0
+local startX = tonumber(Vml("GetSetting", "drag_start_x")) or 0
+local startY = tonumber(Vml("GetSetting", "drag_start_y")) or 0
+local ctrlX = tonumber(Vml("GetSetting", "control_start_x")) or 0
+local ctrlY = tonumber(Vml("GetSetting", "control_start_y")) or 0
+local ctrlW = tonumber(Vml("GetSetting", "control_start_w")) or 100
+local ctrlH = tonumber(Vml("GetSetting", "control_start_h")) or 30
+if Vml("GetSetting", "resizing") == "true" then
+    local edge = Vml("GetSetting", "resize_edge")
+    local newX, newY, newW, newH = ctrlX, ctrlY, ctrlW, ctrlH
+    if edge == "E" or edge == "NE" or edge == "SE" then
+        newW = math.max(20, ctrlW + (x - startX))
+    end
+    if edge == "W" or edge == "NW" or edge == "SW" then
+        newW = math.max(20, ctrlW - (x - startX))
+        newX = ctrlX + (x - startX)
+    end
+    if edge == "S" or edge == "SE" or edge == "SW" then
+        newH = math.max(20, ctrlH + (y - startY))
+    end
+    if edge == "N" or edge == "NE" or edge == "NW" then
+        newH = math.max(20, ctrlH - (y - startY))
+        newY = ctrlY + (y - startY)
+    end
+    Vml("SetControlPosition", ctrl, newX, newY)
+    Vml("SetControlSize", ctrl, newW, newH)
+    Vml("UpdateSelectionBorder")
+elseif Vml("GetSetting", "dragging") == "true" then
     local deltaX = x - startX
     local deltaY = y - startY
-    local ctrl = Vml("GetSetting", "drag_control")
-    Vml("SetControlPosition", ctrl, ctrlStartX + deltaX, ctrlStartY + deltaY)
+    Vml("SetControlPosition", ctrl, ctrlX + deltaX, ctrlY + deltaY)
     Vml("UpdateSelectionBorder")
 end
 
 @Script DesignCanvasUp
 Interpreter=lua
 Vml("SetSetting", "dragging", "false")
-Vml("SetSetting", "drag_control", "")
+Vml("SetSetting", "resizing", "false")
+Vml("SetSetting", "active_control", "")
+Vml("SetSetting", "resize_edge", "")
