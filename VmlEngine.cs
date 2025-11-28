@@ -599,6 +599,13 @@ public class VmlEngine
                 case "SelectControl":
                     SelectControlByName(args[0].ToString()!);
                     return null;
+                case "GetControlX":
+                    return GetControlX(args[0].ToString()!);
+                case "GetControlY":
+                    return GetControlY(args[0].ToString()!);
+                case "UpdateSelectionBorder":
+                    UpdateSelectionBorder();
+                    return null;
                 case "GetControlAt":
                     return GetControlAt(Convert.ToDouble(args[0]), Convert.ToDouble(args[1]));
                 case "GetSetting":
@@ -655,6 +662,33 @@ public class VmlEngine
                 DesignerWindow.SelectControl(control);
                 Console.WriteLine($"[VMLENGINE] Selected: {name}");
             }
+        }).Wait();
+    }
+
+
+    private double GetControlX(string name)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            return control != null ? Canvas.GetLeft(control) : 0;
+        }).Result;
+    }
+
+    private double GetControlY(string name)
+    {
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var control = FindControlInWindow(name);
+            return control != null ? Canvas.GetTop(control) : 0;
+        }).Result;
+    }
+
+    private void UpdateSelectionBorder()
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            DesignerWindow.UpdateSelectionBorder();
         }).Wait();
     }
 

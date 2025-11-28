@@ -99,6 +99,25 @@ Padding=3,4
 Parent=PropsScroll
 Spacing=5
 
+
+# ========================================
+# DESIGN CANVAS
+# ========================================
+@ScrollViewer CanvasScroll
+Parent=Workspace
+Grid.Column=1
+HorizontalScrollBarVisibility=Auto
+VerticalScrollBarVisibility=Auto
+
+@Canvas DesignCanvas
+Parent=CanvasScroll
+Width=4000
+Height=4000
+Background=#e8f5e9
+Focusable=true
+OnPointerPressed=DesignCanvasDown
+OnPointerMoved=DesignCanvasMove
+OnPointerReleased=DesignCanvasUp
 @Border StatusBar
 Parent=MainGrid
 Grid.Row=2
@@ -670,3 +689,44 @@ else
     Vml("InfoDialog", "No control at " .. x .. "," .. y)
 end
 
+
+# ========================================
+# DESIGNER MOUSE SCRIPTS
+# ========================================
+@Script DesignCanvasDown
+Interpreter=lua
+local x = tonumber(Vml("GetSetting", "event_x")) or 0
+local y = tonumber(Vml("GetSetting", "event_y")) or 0
+local ctrl = Vml("GetControlAt", x, y)
+if ctrl and ctrl ~= "" then
+    Vml("SelectControl", ctrl)
+    Vml("SetSetting", "dragging", "true")
+    Vml("SetSetting", "drag_control", ctrl)
+    Vml("SetSetting", "drag_start_x", tostring(x))
+    Vml("SetSetting", "drag_start_y", tostring(y))
+    local cx = Vml("GetControlX", ctrl) or x
+    local cy = Vml("GetControlY", ctrl) or y
+    Vml("SetSetting", "control_start_x", tostring(cx))
+    Vml("SetSetting", "control_start_y", tostring(cy))
+end
+
+@Script DesignCanvasMove
+Interpreter=lua
+if Vml("GetSetting", "dragging") == "true" then
+    local x = tonumber(Vml("GetSetting", "event_x")) or 0
+    local y = tonumber(Vml("GetSetting", "event_y")) or 0
+    local startX = tonumber(Vml("GetSetting", "drag_start_x")) or 0
+    local startY = tonumber(Vml("GetSetting", "drag_start_y")) or 0
+    local ctrlStartX = tonumber(Vml("GetSetting", "control_start_x")) or 0
+    local ctrlStartY = tonumber(Vml("GetSetting", "control_start_y")) or 0
+    local deltaX = x - startX
+    local deltaY = y - startY
+    local ctrl = Vml("GetSetting", "drag_control")
+    Vml("SetControlPosition", ctrl, ctrlStartX + deltaX, ctrlStartY + deltaY)
+    Vml("UpdateSelectionBorder")
+end
+
+@Script DesignCanvasUp
+Interpreter=lua
+Vml("SetSetting", "dragging", "false")
+Vml("SetSetting", "drag_control", "")
