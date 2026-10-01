@@ -1,0 +1,384 @@
+# ============================================================================
+# VML Designer: the designer, designed in VML.
+#
+#   Right-click the form to add controls. Drag to move, drag the handles to
+#   resize (hold Alt to ignore the grid), arrow keys nudge (Shift = a grid
+#   step), Delete removes. The panel on the right edits whatever is selected;
+#   click the empty form to edit the form itself.
+# ============================================================================
+
+@Window Designer
+Title=VML Designer
+Width=1180
+Height=760
+OnOpened=DesignerInit
+
+@DockPanel Root
+Parent=Designer
+
+@TinyMenu Menu
+Parent=Root
+DockPanel.Dock=Top
+
+@Border StatusBar
+Parent=Root
+DockPanel.Dock=Bottom
+Height=26
+Background=#1E3A8A
+Padding=10,0
+
+@TextBlock statusText
+Parent=StatusBar
+Text=Ready
+Foreground=#DBEAFE
+FontSize=11
+VerticalAlignment=Center
+
+@Border PropsPane
+Parent=Root
+DockPanel.Dock=Right
+Width=320
+Background=#F9FAFB
+BorderBrush=#E5E7EB
+BorderThickness=1,0,0,0
+
+@PropertyGrid Props
+Parent=PropsPane
+
+@DesignSurface Surface
+Parent=Root
+OnSelectionChanged=SelectionChanged
+OnContextMenu=ShowSurfaceMenu
+OnChanged=DesignChanged
+OnDoubleClick=EditScriptOnClick
+
+# ---------------------------------------------------------------- menus
+
+@MenuTheme Theme
+Background=#1E3A8A
+Foreground=White
+HoverBackground=#2563EB
+HoverForeground=White
+PopupBackground=White
+PopupBorder=#1E3A8A
+Height=28
+
+@MenuItem File
+Parent=MenuBar
+Text=File
+
+@MenuItem FileNew
+Parent=File
+Text=New
+Shortcut=Ctrl+N
+OnClick=FileNew
+
+@MenuItem FileOpen
+Parent=File
+Text=Open...
+Shortcut=Ctrl+O
+OnClick=FileOpen
+
+@MenuItem FileSave
+Parent=File
+Text=Save
+Shortcut=Ctrl+S
+OnClick=FileSave
+
+@MenuItem FileSaveAs
+Parent=File
+Text=Save As...
+Shortcut=Ctrl+Shift+S
+OnClick=FileSaveAs
+
+@MenuItem FileSep
+Parent=File
+IsSeparator=true
+
+@MenuItem FileExit
+Parent=File
+Text=Exit
+Shortcut=Ctrl+Q
+OnClick=AppExit
+
+@MenuItem Edit
+Parent=MenuBar
+Text=Edit
+
+@MenuItem EditScript
+Parent=Edit
+Text=Edit Script...
+Shortcut=Ctrl+E
+OnClick=EditScript
+
+@MenuItem EditDuplicate
+Parent=Edit
+Text=Duplicate
+Shortcut=Ctrl+D
+OnClick=DuplicateSelected
+
+@MenuItem EditDelete
+Parent=Edit
+Text=Delete
+Shortcut=Del
+OnClick=DeleteSelected
+
+@MenuItem EditSep
+Parent=Edit
+IsSeparator=true
+
+@MenuItem EditFront
+Parent=Edit
+Text=Bring to Front
+OnClick=BringSelectedToFront
+
+@MenuItem EditBack
+Parent=Edit
+Text=Send to Back
+OnClick=SendSelectedToBack
+
+@MenuItem View
+Parent=MenuBar
+Text=View
+
+@MenuItem ViewPreview
+Parent=View
+Text=Preview
+Shortcut=F5
+OnClick=Preview
+
+@MenuItem ViewGrid
+Parent=View
+Text=Show Grid
+OnClick=ToggleGrid
+
+@MenuItem Help
+Parent=MenuBar
+Text=Help
+
+@MenuItem HelpAbout
+Parent=Help
+Text=About
+OnClick=About
+
+# ---------------------------------------------------------------- right-click menu (Add is filled in from the registry)
+
+@ContextMenu SurfaceMenu
+
+@MenuItem CtxAdd
+Parent=SurfaceMenu
+Text=Add
+
+@MenuItem CtxSep
+Parent=SurfaceMenu
+IsSeparator=true
+
+@MenuItem CtxEditScript
+Parent=SurfaceMenu
+Text=Edit Script...
+OnClick=EditScript
+
+@MenuItem CtxDuplicate
+Parent=SurfaceMenu
+Text=Duplicate
+OnClick=DuplicateSelected
+
+@MenuItem CtxFront
+Parent=SurfaceMenu
+Text=Bring to Front
+OnClick=BringSelectedToFront
+
+@MenuItem CtxBack
+Parent=SurfaceMenu
+Text=Send to Back
+OnClick=SendSelectedToBack
+
+@MenuItem CtxDelete
+Parent=SurfaceMenu
+Text=Delete
+OnClick=DeleteSelected
+
+# ============================================================================ scripts
+
+@Script DesignerInit
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+local category = ""
+for _, t in ipairs(json.decode(Vml("GetControlTypes"))) do
+    if t.category ~= category and category ~= "" then
+        local sep = "AddSep_" .. t.category
+        Vml("CreateControl", "MenuItem", sep, "CtxAdd")
+        Vml("SetProperty", sep, "IsSeparator", "true")
+    end
+    category = t.category
+    local item = "Add_" .. t.name
+    Vml("CreateControl", "MenuItem", item, "CtxAdd")
+    Vml("SetProperty", item, "Text", t.name)
+    Vml("SetEvent", item, "OnClick", "AddControl(" .. t.name .. ")")
+end
+Vml("SetSetting", "current_file", "")
+Vml("SetSetting", "dirty", "false")
+Vml("SetProperty", "Props", "Target", "Surface")
+Vml("SetStatusText", "Right-click the form to add a control")
+LUA
+
+@Script AddControl
+Interpreter=lua
+<<LUA
+local name = Vml("AddDesignControl", args[1], Vml("GetSetting", "click_x"), Vml("GetSetting", "click_y"))
+if name ~= "" then Vml("SetStatusText", "Added " .. name) end
+LUA
+
+@Script ShowSurfaceMenu
+Interpreter=lua
+<<LUA
+local selected = Vml("GetProperty", "Surface", "Selected") ~= ""
+for _, item in ipairs({"CtxEditScript", "CtxDuplicate", "CtxFront", "CtxBack", "CtxDelete"}) do
+    Vml("SetMenuItemEnabled", item, selected)
+end
+Vml("ShowContextMenu", "SurfaceMenu")
+LUA
+
+@Script SelectionChanged
+Interpreter=lua
+<<LUA
+local sel = Vml("GetProperty", "Surface", "Selected")
+Vml("SetProperty", "Props", "Target", sel ~= "" and sel or "Surface")
+Vml("SetStatusText", sel ~= "" and ("Selected " .. sel .. "  (" .. Vml("GetControlType", sel) .. ")") or "The form")
+LUA
+
+@Script DesignChanged
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "dirty", "true")
+Vml("RunScript", "UpdateTitle")
+LUA
+
+@Script UpdateTitle
+Interpreter=lua
+<<LUA
+local file = Vml("GetSetting", "current_file")
+local name = file ~= "" and file:match("([^/\\]+)$") or "Untitled"
+local star = Vml("GetSetting", "dirty") == "true" and " *" or ""
+Vml("SetProperty", "Designer", "Title", "VML Designer - " .. name .. star)
+LUA
+
+@Script EditScript
+Interpreter=lua
+<<LUA
+-- open the script editor (itself a VML form) for the selected control
+local sel = Vml("GetProperty", "Surface", "Selected")
+if sel == "" then return Vml("SetStatusText", "Select a control first") end
+Vml("SetSetting", "editor_control", sel)
+Vml("SetSetting", "editor_event", args[1] or "")
+Vml("FormOpenModal", "script-editor.vml")
+Vml("RunScript", "SelectionChanged")
+LUA
+
+@Script EditScriptOnClick
+Interpreter=lua
+<<LUA
+-- double-click: straight to the control's click script, as in VB
+Vml("RunScript", "EditScript", "OnClick")
+LUA
+
+@Script DeleteSelected
+Interpreter=lua
+<<LUA
+local sel = Vml("GetProperty", "Surface", "Selected")
+if sel == "" then return end
+Vml("DeleteControl", sel)
+Vml("SetProperty", "Surface", "Selected", "")
+Vml("RunScript", "SelectionChanged")
+Vml("RunScript", "DesignChanged")
+Vml("SetStatusText", "Deleted " .. sel)
+LUA
+
+@Script DuplicateSelected
+Interpreter=lua
+<<LUA
+local sel = Vml("GetProperty", "Surface", "Selected")
+if sel ~= "" then Vml("DuplicateControl", sel) end
+LUA
+
+@Script BringSelectedToFront
+Interpreter=lua
+<<LUA
+local sel = Vml("GetProperty", "Surface", "Selected")
+if sel ~= "" then Vml("BringToFront", sel) end
+LUA
+
+@Script SendSelectedToBack
+Interpreter=lua
+<<LUA
+local sel = Vml("GetProperty", "Surface", "Selected")
+if sel ~= "" then Vml("SendToBack", sel) end
+LUA
+
+@Script FileNew
+Interpreter=lua
+<<LUA
+if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the current form?") ~= "true" then return end
+Vml("ClearDesign", "Surface")
+Vml("SetSetting", "current_file", "")
+Vml("SetSetting", "dirty", "false")
+Vml("RunScript", "SelectionChanged")
+Vml("RunScript", "UpdateTitle")
+LUA
+
+@Script FileOpen
+Interpreter=lua
+<<LUA
+local path = Vml("FileOpenDialog", "Open a VML form", "vml")
+if path == "" then return end
+if Vml("ImportVml", path, "Surface") == "true" then
+    Vml("SetSetting", "current_file", path)
+    Vml("SetSetting", "dirty", "false")
+    Vml("RunScript", "SelectionChanged")
+    Vml("RunScript", "UpdateTitle")
+    Vml("SetStatusText", "Opened " .. path)
+else
+    Vml("InfoDialog", "That form is laid out with panels rather than on a canvas, so it can't be edited here yet.")
+end
+LUA
+
+@Script FileSave
+Interpreter=lua
+<<LUA
+local path = Vml("GetSetting", "current_file")
+if path == "" then return Vml("RunScript", "FileSaveAs") end
+Vml("ExportVml", "Surface", path)
+Vml("SetSetting", "dirty", "false")
+Vml("RunScript", "UpdateTitle")
+Vml("SetStatusText", "Saved " .. path)
+LUA
+
+@Script FileSaveAs
+Interpreter=lua
+<<LUA
+local path = Vml("FileSaveDialog", "Save the form as", Vml("GetProperty", "Surface", "FormName"), "vml")
+if path == "" then return end
+Vml("SetSetting", "current_file", path)
+Vml("RunScript", "FileSave")
+LUA
+
+@Script Preview
+Interpreter=lua
+<<LUA
+Vml("PreviewDesign", "Surface")
+Vml("SetStatusText", "Previewing " .. Vml("GetProperty", "Surface", "FormName"))
+LUA
+
+@Script ToggleGrid
+Interpreter=lua
+<<LUA
+local on = Vml("GetProperty", "Surface", "ShowGrid") ~= "false"
+Vml("SetProperty", "Surface", "ShowGrid", on and "false" or "true")
+LUA
+
+@Script About
+Interpreter=lua
+<<LUA
+Vml("InfoDialog", "VML Designer\n\nThe designer is itself a VML form: designer.vml.\nEngine: VML for Qt.", "About")
+LUA

@@ -1,0 +1,131 @@
+# Engine step 1: events, Lua scripts, settings, RunScript, SqlQuery + dkjson, dynamic controls, Bash
+
+@Window TestWindow
+Title=VML engine - step 1
+Width=460
+Height=420
+Background=#f4f6fb
+OnOpened=WindowOpened
+
+@StackPanel Main
+Parent=TestWindow
+Margin=16
+Spacing=8
+
+@TextBlock lblTitle
+Parent=Main
+Text=Engine step 1
+FontSize=20
+FontWeight=Bold
+Foreground=#1e3a8a
+
+@TextBlock lblCount
+Parent=Main
+Text=Not clicked yet
+
+@Button btnClick
+Parent=Main
+Content=Click me
+Background=#2563eb
+Foreground=White
+Padding=10,6
+OnClick=ClickScript
+
+@TextBox txtName
+Parent=Main
+Watermark=Type your name
+TextChanged=NameChanged
+
+@TextBlock lblHello
+Parent=Main
+Text=Hello, stranger
+
+@CheckBox chkShout
+Parent=Main
+Content=Shout
+OnClick=NameChanged
+
+@ComboBox cboColour
+Parent=Main
+Items=Blue,Green,Red
+SelectedIndex=0
+SelectionChanged=ColourChanged
+
+@StackPanel Dynamic
+Parent=Main
+Orientation=Horizontal
+Spacing=6
+
+@Button btnBash
+Parent=Main
+Content=Ask the shell
+OnClick=AskShell
+
+@TextBlock lblShell
+Parent=Main
+Text=(shell says...)
+Foreground=#6b7280
+
+@Script WindowOpened
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "clicks", "0")
+for i, colour in ipairs({"#ef4444", "#22c55e", "#3b82f6"}) do
+    local n = "chip" .. i
+    Vml("CreateControl", "Border", n, "Dynamic")
+    Vml("SetProperty", n, "Background", colour)
+    Vml("SetProperty", n, "Width", "28")
+    Vml("SetProperty", n, "Height", "18")
+    Vml("SetProperty", n, "CornerRadius", "4")
+end
+print("opened: " .. Vml("GetChildControls", "Dynamic"))
+LUA
+
+@Script ClickScript
+Interpreter=lua
+<<LUA
+local n = (tonumber(Vml("GetSetting", "clicks")) or 0) + 1
+Vml("SetSetting", "clicks", tostring(n))
+Vml("RunScript", "ShowCount", n, "time")
+LUA
+
+@Script ShowCount
+Interpreter=lua
+<<LUA
+local n, word = ...
+Vml("SetProperty", "lblCount", "Text", "Clicked " .. n .. " " .. word .. (n == 1 and "" or "s"))
+LUA
+
+@Script NameChanged
+Interpreter=lua
+<<LUA
+local name = Vml("GetProperty", "txtName", "Text")
+if name == "" then name = "stranger" end
+local msg = "Hello, " .. name
+if Vml("GetProperty", "chkShout", "IsChecked") == "true" then msg = msg:upper() .. "!" end
+Vml("SetProperty", "lblHello", "Text", msg)
+LUA
+
+@Script ColourChanged
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+local c = Vml("GetProperty", "cboColour", "SelectedItem")
+local hex = ({Blue = "#1e3a8a", Green = "#166534", Red = "#991b1b"})[c] or "#000000"
+Vml("SetProperty", "lblTitle", "Foreground", hex)
+local rows = json.decode(Vml("SqlQuery", "SELECT name FROM ui_tree WHERE control_type = 'Button' ORDER BY name"))
+print("buttons in the form: " .. #rows .. " (" .. rows[1].name .. ", " .. rows[2].name .. ")")
+LUA
+
+@Script AskShell
+Interpreter=lua
+<<LUA
+local out = Vml("Shell", "echo \"$(uname -s) / db: $(basename $VML_DB_PATH | cut -c1-4)... / parser: $(command -v vml-parse >/dev/null && echo yes)\"")
+Vml("SetProperty", "lblShell", "Text", out)
+Vml("RunScript", "BashHello", "from-lua")
+LUA
+
+@Script BashHello
+Interpreter=bash
+#!/bin/bash
+echo "bash got argument: $1; rows in ui_tree: $(sqlite3 "$VML_DB_PATH" 'SELECT COUNT(*) FROM ui_tree' 2>/dev/null || echo '(no sqlite3 cli)')"

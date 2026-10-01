@@ -1,13 +1,21 @@
 # VML (Visualised Markup Language)
 
-**A revolutionary cross-platform RAD IDE that designs itself**
+**A cross-platform RAD IDE that designs itself**
 
-VML is a lightweight, patent-pending application development system combining simple markup with multi-language scripting (Lua, C#, Bash, Python) to create desktop applications with unprecedented simplicity.
+VML is a lightweight, patent-pending application development system: simple flat markup, scripted in Lua or the
+operating system's own shell, running as real native desktop applications on Linux, Windows and macOS. Think Visual
+Basic 5, rebuilt for 2026: draw a form, double-click a button, write what it does, press F5.
 
-## What Makes VML Unique
+The designer is itself a VML form. So is its script editor. VML builds VML.
 
-### The Parent= Innovation
-Unlike traditional nested UI markup (XML, XAML, HTML), VML uses a **flat structure with named parent references**:
+![The VML designer](docs/designer.png)
+
+## What makes VML unique
+
+### The Parent= innovation
+
+Unlike nested UI markup (XML, XAML, HTML), VML uses a **flat structure with named parent references**:
+
 ```vml
 @Window MainWindow
 Title=My Application
@@ -25,230 +33,133 @@ OnClick=SaveScript
 
 @Script SaveScript
 Interpreter=lua
--- Your code here
+<<LUA
 Vml("InfoDialog", "Saved!")
+LUA
 ```
 
-**Advantages:**
-- No closing tags or nesting hell
-- Grep/sed/awk friendly (200-line parser!)
-- Easy refactoring - change one Parent= line
-- Order independent
+- No closing tags, no nesting hell
+- grep, sed and awk friendly
+- Refactor by changing one `Parent=` line
 - Human readable, machine parseable
 
 ### Architecture
+
 ```
-VML File (.vml)
+VML file (.vml)
     ↓
-AWK Parser (3KB!)
+Lua parser (vml-parser.lua, ~300 lines)
     ↓
-SQLite Database
+SQLite (controls, properties, scripts)
     ↓
-.NET Reflection Runtime
+Control registry → Qt widgets (PySide6)
     ↓
-Avalonia UI + Multi-interpreter Scripts
+Scripts: Lua (embedded) · Bash · PowerShell
 ```
 
-**Key Components:**
+Every script talks to the running application through one function:
 
-1. **vml-parse** - 200-line AWK script converts .vml → SQL
-2. **SQLite Database** - stores UI tree, properties, scripts, events
-3. **Reflection Engine** - dynamically creates controls from database
-4. **Event System** - soft-coded via control_events table
-5. **Multi-interpreter** - Lua, C#, Bash, Python with named persistent sessions
-6. **Self-hosting** - the designer itself is built in VML
-
-### Supported Interpreters
-
-- **Lua** - Lightweight, embedded, perfect for game logic
-- **C#** - Full .NET access via Roslyn scripting
-- **Bash/PowerShell** - System automation
-- **Python** - Coming soon
-
-**Named instances** allow scripts to maintain state:
-```vml
-@Script InitGame
-Interpreter=lua mygame
-player_health = 100
-
-@Script DamagePlayer
-Interpreter=lua mygame
-player_health = player_health - 10
-```
-
-### Control Events
-
-Events are defined in database, not hardcoded:
-```vml
-@Button MyButton
-OnClick=MyScript
-OnPointerEnter=HoverScript
-OnLostFocus=ValidateScript
-```
-
-Supported events: Click, TextChanged, SelectionChanged, GotFocus, LostFocus, PointerEnter, PointerLeave, KeyDown, and more.
-
-## Installation
-
-### Linux (Ubuntu/Debian)
-```bash
-# Install .NET 8
-wget https://dot.net/v1/dotnet-install.sh
-bash dotnet-install.sh --channel 8.0
-
-# Clone and build
-git clone https://github.com/wallisoft/vml.git
-cd vml
-dotnet build
-dotnet run
-```
-
-### Windows 11
-```bash
-# Install .NET 8 from https://dotnet.microsoft.com/download
-
-# Clone and build
-git clone https://github.com/wallisoft/vml.git
-cd vml
-dotnet build
-dotnet run
-```
-
-### Android
-*Coming soon*
-
-## Quick Start
-
-Create `hello.vml`:
-```vml
-@Window HelloWindow
-Title=Hello VML
-Width=400
-Height=300
-
-@StackPanel Main
-Parent=HelloWindow
-Margin=20
-Spacing=10
-
-@TextBlock Greeting
-Parent=Main
-Text=Hello, World!
-FontSize=24
-
-@Button ClickMe
-Parent=Main
-Content=Click Me
-OnClick=GreetScript
-
-@Script GreetScript
-Interpreter=lua
-Vml("InfoDialog", "Hello from VML!")
-```
-
-Run:
-```bash
-vml-parse hello.vml | sqlite3 ~/.vml/vml.db
-dotnet run
-```
-
-## Available VML Functions
-
-### Lua/C# Scripts
 ```lua
--- Dialogs
-Vml("InfoDialog", "message")
-Vml("ErrorDialog", "error")
-result = Vml("ConfirmDialog", "question?")
-text = Vml("InputDialog", "prompt", "default")
-file = Vml("FileOpenDialog", "title", "filter")
-
--- Properties
-value = Vml("GetProperty", "ControlName", "PropertyName")
-Vml("SetProperty", "ControlName", "PropertyName", value)
-
--- Database
-results = Vml("SqlQuery", "SELECT * FROM table")
-Vml("SqlExecute", "UPDATE table SET x=1")
-
--- Forms
-Vml("FormOpen", "other-form.vml")
-Vml("FormOpenModal", "dialog.vml")
-
--- System
-Vml("Shell", "ls -la")
-Vml("AppExit")
-
--- Settings
-value = Vml("GetSetting", "key")
-Vml("SetSetting", "key", "value")
+local name = Vml("GetProperty", "txtName", "Text")
+Vml("SetProperty", "lblHello", "Text", "Hello, " .. name)
 ```
 
-## Project Structure
-```
-vml/
-├── VB.csproj              # Project file
-├── vml-parse              # AWK parser (the magic!)
-├── Program.cs             # Entry point
-├── FormLoader.cs          # Runtime form loader + event wiring
-├── DesignerWindow.cs      # Design-time canvas
-├── VmlLuaEngine.cs        # Lua interpreter integration
-├── ScriptHandler.cs       # Multi-interpreter executor
-├── PropertyStore.cs       # Database initialization
-└── vml/                   # VML forms
-    ├── designer.vml       # The IDE itself!
-    ├── script-editor.vml  # Script editor
-    ├── about_dialog.vml   # About dialog
-    └── ...
+The **control registry** is the single source of truth: each control type is declared once, with every property
+(its kind, editor, group, how to set it and read it back) and its events. Rendering, the `Vml()` API and the
+designer's property panel are all driven from it, so a property added once appears everywhere.
+
+## Quick start
+
+Requires Python 3.10+.
+
+```bash
+pip install -r requirements.txt
+python3 -m vml designer/designer.vml        # the designer
+python3 -m vml path/to/any-form.vml         # run any VML form
 ```
 
-## The Self-Hosting Magic
+## The designer
 
-The designer that creates VML apps is **itself built in VML**. The `designer.vml` file defines the IDE's UI, menus, canvas, properties panel - all parsed by the same system it creates apps with. This recursive, self-hosting design is part of what makes VML unique.
+- **Right-click the form to add a control.** The list comes from the registry, so new control types appear automatically.
+- **Drag to move, drag the handles to resize.** Snaps to the grid; hold Alt for free movement. Arrow keys nudge
+  (Shift for a grid step).
+- **Bring to Front / Send to Back, Duplicate (Ctrl+D), Delete.**
+- **The property grid** edits whatever is selected: grouped, with checkboxes, dropdowns and colour pickers, and
+  live, so it never goes stale. Click the empty form to edit the form itself.
+- **Double-click a control to script it.** Choose the event and the language (Lua, or the OS shell), and write.
+  Scripts are saved into the form as ordinary `@Script` blocks.
+- **F5 previews** the form running for real. **Ctrl+S** saves plain VML; **Ctrl+O** opens it again.
 
-## License
+## Scripting
 
-**Dual License:**
+| Language | How it runs |
+|---|---|
+| **Lua** | Embedded (Lua 5.4 via `lupa`), in-process and fast. Shares state between scripts. `require("dkjson")` available. |
+| **Bash** | As a subprocess, with `$VML_DB_PATH` pointing at the form's database and `vml-parse` on the `PATH`. |
+| **PowerShell** | As a subprocess, on Windows (or anywhere `pwsh` is installed). |
 
-### Open Source (MIT License)
-Free for personal, educational, and open source projects.
+Event handlers can name a script (`OnClick=SaveScript`), pass it arguments (`OnClick=AddItem(Button)`), call an
+engine command (`OnClick=FormOpenModal about.vml`), or be a line of Lua.
 
-### Commercial License
-Required for commercial/proprietary applications. Contact: wallisoft@gmail.com
+Commonly used `Vml()` commands:
 
-**UK Patent Applications Filed** - VML markup language and system architecture are patent-pending in the United Kingdom.
+| | |
+|---|---|
+| Properties | `SetProperty` · `GetProperty` · `GetControlPropertiesJson` |
+| Controls | `CreateControl` · `DeleteControl` · `ControlExists` · `GetChildControls` · `ClearChildren` |
+| Shared state | `GetSetting` · `SetSetting` |
+| Scripts | `RunScript` · `ExecuteScript` · `Shell` |
+| Data | `SqlQuery` (JSON) · `SqlExecute` |
+| Forms and dialogs | `FormOpen` · `FormOpenModal` · `CloseSelf` · `InfoDialog` · `ConfirmDialog` · `FileOpenDialog` · `FileSaveDialog` |
+| Menus | `ShowContextMenu` · `SetMenuItemEnabled` · `SetMenuItemText` |
+
+## Controls
+
+Window, StackPanel, Grid, DockPanel, Canvas, Border, ScrollViewer, TextBlock, TextBox, Button, CheckBox, ComboBox,
+ListBox, Rectangle, menus (TinyMenu, MenuItem, ContextMenu, MenuTheme), and **composite controls** defined in VML
+itself with `@ControlTemplate` and `@PropertyMap`. Layout follows Avalonia's rules (DockPanel docking order, Grid
+star sizing, Margin outside and Padding inside), so existing forms look the same.
+
+The designer's own building blocks, `DesignSurface` and `PropertyGrid`, are ordinary registered controls, available
+to any VML application.
+
+## Project layout
+
+```
+vml/            the engine
+  registry.py   every control type, property and event
+  engine.py     rendering, the Vml() API, the script host
+  design.py     DesignSurface and PropertyGrid
+  store.py      SQLite, and the Lua parser runner
+  lua/          vml-parser.lua, dkjson.lua
+designer/       the designer and script editor (VML + Lua)
+tests/          tests that drive forms like a user does
+```
+
+## Tests
+
+```bash
+python3 tests/run_step1.py      # events, Lua, settings, shell, reflection
+python3 tests/run_designer.py   # the designer: add, drag, resize, edit, script, save, reopen, preview
+```
+
+`tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.
 
 ## Roadmap
 
-- [ ] Android support (Q1 2025)
-- [ ] Python interpreter integration
-- [ ] WebAssembly scripting
-- [ ] Visual theme designer
-- [ ] Plugin system
-- [ ] Package manager for VML components
-- [ ] VS Code extension
+- Named interpreter instances (`Interpreter=lua mygame`): scripts sharing a name share their state
+- Nesting controls inside containers in the designer, and designing layout-based forms
+- Undo and redo
+- Packaged releases (Linux, Windows installer, Microsoft Store)
 
-## Contributing
+## History
 
-We welcome contributions! Please read CONTRIBUTING.md first.
+VML began as Visual Bash Designer, a YAML-driven form builder, and grew into a .NET/Avalonia engine. In October 2026
+it was rebuilt on Python and Qt, keeping the parser and the SQLite model. The Avalonia version is preserved in this
+repository's history at the tag `avalonia-final`.
 
-Areas needing help:
-- Documentation and tutorials
-- Example applications
-- Bug reports and testing
-- Platform-specific installers
+## Licence
 
-## Credits
+Dual-licensed: see [LICENSE-MIT.md](LICENSE-MIT.md) and [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md).
 
-**Created by:** Steve Wallis (Wallisoft)  
-**AI Assistant:** Claude (Anthropic)  
-**Year:** 2024-2025
-
-## Contact
-
-- Email: wallisoft@gmail.com
-- GitHub: https://github.com/wallisoft/vml
-
----
-
-*VML - Write less code, build more apps*
+Built by Wallisoft with Claude.

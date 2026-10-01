@@ -1,9 +1,7 @@
-bin/
-obj/
-*.user
-*.suo
-.vs/
-.vscode/
+__pycache__/
+*.pyc
 *.db
-*.db-shm
-*.db-wal
+.*.vmlfix
+*.egg-info/
+build/
+dist/

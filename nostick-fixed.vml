@@ -1,0 +1,206 @@
+# No-Stick Boot Manager — v1.0
+# Two clear paths: try a live ISO (no changes), or install to a
+# bare-metal-fast virtual disk. Deliberately no tabs — TabControl
+# isn't in the current control registry, and a step-by-step flow
+# suits the actual risk difference between the two actions better
+# than a flat tab switch would anyway.
+
+@Window MainWindow
+Title=No-Stick Boot Manager
+Width=820
+Height=560
+Background=#1a1a2e
+
+@DockPanel MainLayout
+LastChildFill=true
+Parent=MainWindow
+
+# ── Header ──────────────────────────────────────────
+@Border HeaderBorder
+DockPanel.Dock=Top
+Height=90
+Background=#16213e
+Parent=MainLayout
+
+@StackPanel HeaderStack
+Orientation=Vertical
+VerticalAlignment=Center
+Margin=24,0,0,0
+Parent=HeaderBorder
+
+@TextBlock AppTitle
+Text=No-Stick
+FontSize=26
+FontWeight=Bold
+Foreground=#e94560
+Parent=HeaderStack
+
+@TextBlock AppSubtitle
+Text=Boot any ISO, or install real Linux to a virtual disk — no USB stick, ever.
+FontSize=13
+Foreground=#a0a0c0
+Margin=0,4,0,0
+Parent=HeaderStack
+
+# ── Footer: existing installs / status ───────────────
+@Border FooterBorder
+DockPanel.Dock=Bottom
+Height=140
+Background=#16213e
+Parent=MainLayout
+
+@StackPanel FooterStack
+Margin=24,12,24,12
+Parent=FooterBorder
+
+@TextBlock FooterLabel
+Text=Existing installs:
+FontSize=13
+FontWeight=SemiBold
+Foreground=#a0a0c0
+Margin=0,0,0,6
+Parent=FooterStack
+
+@ListBox lstExistingVhds
+Height=80
+Background=#0f3460
+Foreground=White
+Parent=FooterStack
+
+# ── Body: two paths side by side ─────────────────────
+@Grid PathGrid
+Margin=24
+ColumnDefinitions=*,20,*
+Parent=MainLayout
+
+# ── LEFT: Try a live ISO ──────────────────────────────
+@Border LiveCard
+Grid.Column=0
+Background=#0f3460
+CornerRadius=10
+Padding=24
+Parent=PathGrid
+
+@StackPanel LiveStack
+Parent=LiveCard
+
+@TextBlock LiveIcon
+Text=🔴
+FontSize=32
+Parent=LiveStack
+
+@TextBlock LiveTitle
+Text=Try it live
+FontSize=20
+FontWeight=Bold
+Foreground=White
+Margin=0,8,0,4
+Parent=LiveStack
+
+@TextBlock LiveDesc
+Text=Boot an ISO temporarily. Nothing is installed, nothing changes on your system. Reboot to go back to normal.
+FontSize=13
+Foreground=#c0c0e0
+TextWrapping=Wrap
+Margin=0,0,0,16
+Parent=LiveStack
+
+@TextBlock LiveIsoLabel
+Text=ISO file:
+FontSize=12
+Foreground=#a0a0c0
+Parent=LiveStack
+
+@TextBox txtLiveIsoPath
+Watermark=/path/to/distro.iso
+Margin=0,4,0,16
+Parent=LiveStack
+
+@Button btnBrowseLiveIso
+Content=Browse for ISO...
+Background=#233554
+Foreground=White
+Padding=12,8
+Margin=0,0,0,10
+Parent=LiveStack
+
+@Button btnBootLive
+Content=🔴 Boot Now
+Background=#e94560
+Foreground=White
+FontWeight=Bold
+Padding=12,10
+Parent=LiveStack
+
+# ── RIGHT: Install to virtual disk ────────────────────
+@Border InstallCard
+Grid.Column=2
+Background=#0f3460
+CornerRadius=10
+Padding=24
+Parent=PathGrid
+
+@StackPanel InstallStack
+Parent=InstallCard
+
+@TextBlock InstallIcon
+Text=💾
+FontSize=32
+Parent=InstallStack
+
+@TextBlock InstallTitle
+Text=Install for real
+FontSize=20
+FontWeight=Bold
+Foreground=White
+Margin=0,8,0,4
+Parent=InstallStack
+
+@TextBlock InstallDesc
+Text=A real, persistent OS in a single file. Bare-metal speed, virtual-machine convenience — delete the file anytime.
+FontSize=13
+Foreground=#c0c0e0
+TextWrapping=Wrap
+Margin=0,0,0,16
+Parent=InstallStack
+
+@TextBlock InstallIsoLabel
+Text=ISO file:
+FontSize=12
+Foreground=#a0a0c0
+Parent=InstallStack
+
+@TextBox txtInstallIsoPath
+Watermark=/path/to/distro.iso
+Margin=0,4,0,10
+Parent=InstallStack
+
+@TextBlock InstallNameLabel
+Text=Name this install:
+FontSize=12
+Foreground=#a0a0c0
+Parent=InstallStack
+
+@TextBox txtVhdName
+Watermark=e.g. ubuntu-work
+Margin=0,4,0,10
+Parent=InstallStack
+
+@TextBlock InstallSizeLabel
+Text=Disk size (GB):
+FontSize=12
+Foreground=#a0a0c0
+Parent=InstallStack
+
+@TextBox txtVhdSize
+Text=20
+Margin=0,4,0,16
+Parent=InstallStack
+
+@Button btnStartInstall
+Content=💾 Install
+Background=#e94560
+Foreground=White
+FontWeight=Bold
+Padding=12,10
+Parent=InstallStack

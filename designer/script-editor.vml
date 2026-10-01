@@ -1,0 +1,195 @@
+# ============================================================================
+# Script editor: opened by the designer (double-click a control, or
+# right-click > Edit Script...). Pick an event, pick Lua or the OS shell,
+# write the script. Switching event keeps what you wrote for the last one.
+# ============================================================================
+
+@Window ScriptEditor
+Title=Edit Script
+Width=760
+Height=540
+OnOpened=EditorLoad
+
+@DockPanel EdRoot
+Parent=ScriptEditor
+
+@Border EdHeader
+Parent=EdRoot
+DockPanel.Dock=Top
+Background=#1E3A8A
+Padding=12,8
+
+@Grid EdHeaderGrid
+Parent=EdHeader
+ColumnDefinitions=Auto,*,Auto,140,Auto,180
+
+@TextBlock lblControl
+Parent=EdHeaderGrid
+Grid.Column=0
+Text=Control
+FontSize=14
+FontWeight=Bold
+Foreground=White
+VerticalAlignment=Center
+
+@TextBlock lblEvent
+Parent=EdHeaderGrid
+Grid.Column=2
+Text=Event
+Foreground=#DBEAFE
+VerticalAlignment=Center
+Margin=0,0,8,0
+
+@ComboBox cboEvent
+Parent=EdHeaderGrid
+Grid.Column=3
+SelectionChanged=EditorEventChanged
+
+@TextBlock lblLang
+Parent=EdHeaderGrid
+Grid.Column=4
+Text=Language
+Foreground=#DBEAFE
+VerticalAlignment=Center
+Margin=16,0,8,0
+
+@ComboBox cboLang
+Parent=EdHeaderGrid
+Grid.Column=5
+SelectionChanged=EditorLangChanged
+
+@Border EdFooter
+Parent=EdRoot
+DockPanel.Dock=Bottom
+Background=#F3F4F6
+BorderBrush=#E5E7EB
+BorderThickness=0,1,0,0
+Padding=12,8
+
+@StackPanel EdButtons
+Parent=EdFooter
+Orientation=Horizontal
+Spacing=8
+
+@TextBlock lblHint
+Parent=EdButtons
+Text=Lua scripts can call Vml("Command", ...) to work with the form.
+Foreground=#6B7280
+FontSize=11
+VerticalAlignment=Center
+
+@Button btnRemove
+Parent=EdButtons
+Content=Remove Script
+Padding=10,5
+OnClick=EditorRemove
+
+@Button btnCancel
+Parent=EdButtons
+Content=Cancel
+Padding=14,5
+OnClick=CloseSelf
+
+@Button btnSave
+Parent=EdButtons
+Content=Save
+Background=#2563EB
+Foreground=White
+Padding=18,5
+OnClick=EditorSave
+
+@TextBox txtCode
+Parent=EdRoot
+AcceptsReturn=true
+FontFamily=monospace
+FontSize=13
+Background=#FFFFFF
+Padding=8
+
+# ============================================================================ scripts
+
+@Script EditorLoad
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+local ctrl = Vml("GetSetting", "editor_control")
+Vml("SetProperty", "ScriptEditor", "Title", "Edit Script - " .. ctrl)
+Vml("SetProperty", "lblControl", "Text", ctrl .. "  (" .. Vml("GetControlType", ctrl) .. ")")
+local names = {}
+for _, e in ipairs(json.decode(Vml("GetControlEvents", ctrl))) do
+    names[#names + 1] = e.name
+end
+Vml("SetProperty", "cboEvent", "Items", table.concat(names, ","))
+Vml("SetProperty", "cboLang", "Items", "Lua,Shell (" .. Vml("GetShellName") .. ")")
+local wanted, chosen = Vml("GetSetting", "editor_event"), names[1]
+for _, n in ipairs(names) do if n == wanted then chosen = n end end
+Vml("SetProperty", "cboEvent", "SelectedItem", chosen)
+Vml("SetSetting", "editor_loaded_event", "")
+Vml("RunScript", "EditorEventChanged")
+LUA
+
+@Script EditorEventChanged
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+local ctrl = Vml("GetSetting", "editor_control")
+-- keep what was typed for the event we're leaving
+local previous = Vml("GetSetting", "editor_loaded_event")
+if previous ~= "" then Vml("RunScript", "EditorStore", previous) end
+local event = Vml("GetProperty", "cboEvent", "SelectedItem")
+local s = json.decode(Vml("GetDesignScript", ctrl, event))
+local shell = s.language == "Shell"
+Vml("SetProperty", "cboLang", "SelectedIndex", shell and "1" or "0")
+local code = s.code
+if code == "" then
+    code = shell and "#!/bin/sh\n# " .. ctrl .. " " .. event .. "\n\n"
+                 or "-- " .. ctrl .. " " .. event .. "\n\n"
+end
+Vml("SetProperty", "txtCode", "Text", code)
+Vml("SetProperty", "btnRemove", "IsEnabled", s.code ~= "" and "true" or "false")
+Vml("SetSetting", "editor_loaded_event", event)
+Vml("SetSetting", "editor_original", code)
+LUA
+
+@Script EditorLangChanged
+Interpreter=lua
+<<LUA
+-- swap the starter comment if nothing has been written yet
+local code = Vml("GetProperty", "txtCode", "Text")
+if code == Vml("GetSetting", "editor_original") then
+    local ctrl, event = Vml("GetSetting", "editor_control"), Vml("GetProperty", "cboEvent", "SelectedItem")
+    local shell = Vml("GetProperty", "cboLang", "SelectedIndex") == 1
+    code = shell and "#!/bin/sh\n# " .. ctrl .. " " .. event .. "\n\n" or "-- " .. ctrl .. " " .. event .. "\n\n"
+    Vml("SetProperty", "txtCode", "Text", code)
+    Vml("SetSetting", "editor_original", code)
+end
+LUA
+
+@Script EditorStore
+Interpreter=lua
+<<LUA
+-- save the editor's text as the script for one event, unless it's still just the starter comment
+local event = args[1]
+local code = Vml("GetProperty", "txtCode", "Text")
+if code == Vml("GetSetting", "editor_original") then return end
+local lang = Vml("GetProperty", "cboLang", "SelectedIndex") == 1 and "Shell" or "Lua"
+Vml("SetDesignScript", Vml("GetSetting", "editor_control"), event, lang, code)
+LUA
+
+@Script EditorSave
+Interpreter=lua
+<<LUA
+Vml("RunScript", "EditorStore", Vml("GetProperty", "cboEvent", "SelectedItem"))
+Vml("CloseSelf")
+LUA
+
+@Script EditorRemove
+Interpreter=lua
+<<LUA
+local ctrl, event = Vml("GetSetting", "editor_control"), Vml("GetProperty", "cboEvent", "SelectedItem")
+if Vml("ConfirmDialog", "Remove the " .. event .. " script from " .. ctrl .. "?") == "true" then
+    Vml("SetDesignScript", ctrl, event, "Lua", "")
+    Vml("SetSetting", "editor_loaded_event", "")
+    Vml("RunScript", "EditorEventChanged")
+end
+LUA
