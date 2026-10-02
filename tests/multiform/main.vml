@@ -1,0 +1,50 @@
+@Window Main
+Title=Main form
+Width=420
+Height=260
+OnOpened=MainOpened
+
+@StackPanel MainStack
+Parent=Main
+Margin=12
+Spacing=6
+
+@TextBox txtName
+Parent=MainStack
+Text=Steve
+
+@Button btnAsk
+Parent=MainStack
+Content=Ask
+OnClick=AskChild
+
+@Button btnOK
+Parent=MainStack
+Content=OK on main
+
+@TextBlock lblResult
+Parent=MainStack
+Text=(no answer)
+
+@TextBlock lblStatus
+Parent=MainStack
+Text=
+
+@Script MainOpened
+Interpreter=lua
+<<LUA
+secret = "main's own"
+LUA
+
+@Script AskChild
+Interpreter=lua
+<<LUA
+local r = Vml("FormOpenModal", "child.vml")
+Vml("SetProperty", "lblStatus", "Text", "dialog returned: " .. r)
+LUA
+
+@Script SharedWrite
+Interpreter=lua lobby
+<<LUA
+visitors = (visitors or 0) + 1
+LUA

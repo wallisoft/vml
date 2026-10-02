@@ -107,13 +107,36 @@ pip install -r requirements.txt
 
 | Language | How it runs |
 |---|---|
-| **Lua** | Embedded (Lua 5.4 via `lupa`), in-process and fast. Shares state between scripts. `require("dkjson")` available. |
+| **Lua** | Embedded (Lua 5.4 via `lupa`), in-process and fast. One state per form, or shared by named instance. `require("dkjson")` available. |
 | **Bash** | As a subprocess, with `$VML_DB_PATH` pointing at the form's database and `vml-parse` on the `PATH`. |
 | **PowerShell** | As a subprocess, on Windows (or anywhere `pwsh` is installed). |
 
 Events include clicks, text changes, selection, pointer, focus and keys (`OnKeyDown` and `OnKeyUp` receive
 the key, its text and the Ctrl/Shift/Alt modifiers). Event handlers can name a script (`OnClick=SaveScript`), pass it arguments (`OnClick=AddItem(Button)`), call an
 engine command (`OnClick=FormOpenModal about.vml`), or be a line of Lua.
+
+**Each form has its own Lua state**, so its globals are its own. To share state deliberately, give scripts the same
+**named instance**: `Interpreter=lua mygame` (or `Instance=mygame`). Every script in that instance, in any form, sees
+the same globals.
+
+### Multiple forms
+
+```lua
+-- open a form (paths are relative to this one); if it's already open it comes to the front
+Vml("FormOpen", "settings.vml")
+
+-- open one and wait for it to close; it hands back whatever it passed to SetDialogResult
+local answer = Vml("FormOpenModal", "confirm.vml")
+
+-- in the child: read and write the parent's controls by Form.Control
+local name = Vml("GetProperty", "Main.txtName", "Text")
+Vml("SetProperty", "Main.lblStatus", "Text", "Saved")
+Vml("SetDialogResult", "ok")
+Vml("CloseSelf")
+```
+
+Plain control names always mean "my own form", so two forms can both have a `btnOK`. `ShowForm`, `HideForm` and
+`CloseForm` manage open forms by name. Previewing a saved form in the designer finds its child forms next to the file.
 
 Commonly used `Vml()` commands:
 
@@ -124,7 +147,7 @@ Commonly used `Vml()` commands:
 | Shared state | `GetSetting` · `SetSetting` |
 | Scripts | `RunScript` · `ExecuteScript` · `Shell` |
 | Data | `SqlQuery` (JSON) · `SqlExecute` |
-| Forms and dialogs | `FormOpen` · `FormOpenModal` · `CloseSelf` · `InfoDialog` · `ConfirmDialog` · `FileOpenDialog` · `FileSaveDialog` |
+| Forms and dialogs | `FormOpen` · `FormOpenModal` · `SetDialogResult` · `ShowForm` · `HideForm` · `CloseForm` · `CloseSelf` · `InfoDialog` · `ConfirmDialog` · `FileOpenDialog` · `FileSaveDialog` |
 | Menus | `ShowContextMenu` · `SetMenuItemEnabled` · `SetMenuItemText` |
 
 ## Controls
@@ -157,14 +180,15 @@ python3 tests/run_step1.py      # events, Lua, settings, shell, reflection
 python3 tests/run_designer.py   # the designer: add, drag, resize, edit, script, save, reopen, preview
 python3 tests/run_anchors.py    # anchors, in the designer and at runtime
 python3 tests/run_frames.py     # frames, nesting, keys, live geometry, window options
-python3 tests/run_menus.py      # the Menu Editor, menus saved, reopened and run
+python3 tests/run_menus.py      # menus: editor, menu bar and items as controls, saved, reopened and run
+python3 tests/run_multiform.py  # forms opening forms, Form.Control names, dialog results, Lua states
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.
 
 ## Roadmap
 
-- Named interpreter instances (`Interpreter=lua mygame`): scripts sharing a name share their state
+- A local API and `vml` command, so any language (C#, Python, Node...) can drive a running form
 - Designing layout-based forms
 - Undo and redo
 - Packaged releases (Linux, Windows installer, Microsoft Store)

@@ -105,6 +105,13 @@ class Engine:
 
     def find(self, name, scope=None):
         name = str(name)
+        if "." in name:                                     # "Main.lblStatus": a control on another form
+            form, ctrl = name.split(".", 1)
+            for sc, nodes in self.scopes.items():
+                win = nodes.get(form)
+                if win is not None and win.type.name == "Window" and win.parent is None:
+                    return nodes.get(ctrl)
+            return None
         scope = scope or self.active_scope()
         if name in self.scopes.get(scope, {}):
             return self.scopes[scope][name]
@@ -396,23 +403,51 @@ class Engine:
     # ================================================================ scripts
 
     def _init_lua(self, extra_paths):
-        self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
-        g = self.lua.globals()
-        g.Vml = self.vml
-        g.print = lambda *a: log("[lua] " + "\t".join("nil" if x is None else str(x) for x in a))
-        self._lua_paths_add(str(LUA_DIR), str(SYSTEM_DIR / "lua"), *extra_paths)
+        """Lua states are made on demand: one per form, plus one per named instance (Interpreter=lua mygame),
+        so each form's globals are its own unless scripts deliberately share an instance."""
+        self.luas = {}
+        self.lua_paths = [str(LUA_DIR), str(SYSTEM_DIR / "lua"), *extra_paths]
+        self.lua = self.lua_state("")                       # the engine's own, for code with no form
+
+    def lua_state(self, key):
+        rt = self.luas.get(key)
+        if rt is None:
+            rt = lua54.LuaRuntime(unpack_returned_tuples=True)
+            g = rt.globals()
+            g.Vml = self.vml
+            g.print = lambda *a: log("[lua] " + "\t".join("nil" if x is None else str(x) for x in a))
+            for d in reversed(self.lua_paths):
+                rt.execute("local d = ...; package.path = d .. '/?.lua;' .. package.path", d)
+            self.luas[key] = rt
+        return rt
 
     def _lua_paths_add(self, *dirs):
         for d in dirs:
-            self.lua.execute("local d = ...; package.path = d .. '/?.lua;' .. package.path", d)
+            if d not in self.lua_paths:
+                self.lua_paths.append(d)
+                for rt in self.luas.values():
+                    rt.execute("local d = ...; package.path = d .. '/?.lua;' .. package.path", d)
 
-    def lua_exec(self, code, args=(), label="lua", origin=None):
+    def lua_key(self, script=None, origin=None):
+        """Which Lua state code runs in: a named instance if the script has one, else its form's own."""
+        if script:
+            instance, source = self.store.script_home(script)
+            if instance:
+                return "instance:" + instance
+            if source:
+                return str(source)
+        if origin is not None:
+            return origin.scope
+        return self.active_scope() or ""
+
+    def lua_exec(self, code, args=(), label="lua", origin=None, key=None):
         self._script_stack.append(origin)
-        g = self.lua.globals()
+        rt = self.lua_state(self.lua_key(origin=origin) if key is None else key)
+        g = rt.globals()
         saved = (g.arg, g.args)
         try:
-            g.arg = g.args = self.lua.table_from(list(args))
-            return self.lua.execute(code, *args)
+            g.arg = g.args = rt.table_from(list(args))
+            return rt.execute(code, *args)
         except Exception as exc:
             log(f"script error in {label}: {exc}")
             return None
@@ -435,9 +470,9 @@ class Engine:
         if not found:
             log(f"RunScript: no script called '{name}'")
             return ""
-        interp, content = (found[0] or "lua").lower(), found[1] or ""
+        interp, content = (found[0] or "lua").lower().split()[0] if (found[0] or "").strip() else "lua", found[1] or ""
         if interp == "lua":
-            r = self.lua_exec(content, args, label=name, origin=origin)
+            r = self.lua_exec(content, args, label=name, origin=origin, key=self.lua_key(script=name))
             return "" if r is None else r
         if interp in ("bash", "sh"):
             return self.shell(["bash", "-c", content, name, *map(str, args)], name)
@@ -1299,6 +1334,10 @@ class Engine:
             w.widget.close()
             self.windows.remove(w)
         self.cmd_ExportVml(surf.name, str(path))
+        saved = self.store.get_setting("current_file")
+        self.form_dirs = getattr(self, "form_dirs", {})
+        self.form_dirs[str(path.resolve())] = str(Path(saved).parent) if saved else os.getcwd()
+        self.luas.pop(str(path.resolve()), None)              # a fresh Lua state for each preview
         self.load(path)
         return str(path)
 
@@ -1306,14 +1345,61 @@ class Engine:
     def _form_path(self, path):
         p = Path(os.path.expanduser(path))
         if not p.is_absolute():
-            p = Path(self.active_scope() or ".").parent / p
+            scope = self.active_scope() or "."
+            base = getattr(self, "form_dirs", {}).get(scope) or Path(scope).parent
+            p = Path(base) / p
         return p
 
+    def _window_of_scope(self, scope):
+        return next((w for w in self.windows if w.scope == scope and w.widget.isVisible()), None)
+
     def cmd_FormOpen(self, path):
-        self.load(self._form_path(path))
+        """Open another form (relative paths are next to this one). If it's already open, bring it forward."""
+        p = self._form_path(path)
+        open_already = self._window_of_scope(str(p.resolve()))
+        if open_already is not None:
+            open_already.widget.raise_()
+            open_already.widget.activateWindow()
+            return open_already.name
+        before = len(self.windows)
+        self.load(p)
+        return self.windows[before].name if len(self.windows) > before else ""
+
+    def _form_window(self, name):
+        """The newest window with this name, preferring one that's on screen."""
+        matches = [w for w in reversed(self.windows) if w.name == name]
+        return next((w for w in matches if w.widget.isVisible()), matches[0] if matches else None)
+
+    def cmd_ShowForm(self, name):
+        w = self._form_window(name)
+        if w is not None:
+            w.widget.show()
+            w.widget.raise_()
+            return True
+        return False
+
+    def cmd_HideForm(self, name):
+        w = self._form_window(name)
+        if w is not None:
+            w.widget.hide()
+            return True
+        return False
+
+    def cmd_CloseForm(self, name):
+        w = self._form_window(name)
+        if w is not None:
+            w.widget.close()
+            return True
+        return False
+
+    def cmd_SetDialogResult(self, value=""):
+        """A form opened with FormOpenModal hands this back to whoever opened it."""
+        self.store.set_setting("dialog_result", value)
 
     def cmd_FormOpenModal(self, path):
+        """Open a form and wait until it closes; returns whatever it passed to SetDialogResult."""
         p = self._form_path(path)
+        self.store.set_setting("dialog_result", "")
         before = len(self.windows)
         self.load(p, modal=True)
         opened = self.windows[before:]
@@ -1333,6 +1419,7 @@ class Engine:
             if node is not None and node.parent is None:
                 self.delete(name, scope)
         self.scopes.pop(scope, None)
+        self.luas.pop(scope, None)                           # its own Lua state goes with it
         return self.store.get_setting("dialog_result")
 
     def _closer(self, loop):

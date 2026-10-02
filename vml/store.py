@@ -150,6 +150,15 @@ class Store:
     def script(self, name):
         return self.db.execute("SELECT interpreter, content FROM scripts WHERE name=?", (name,)).fetchone()
 
+    def script_home(self, name):
+        """(instance, source_file) for a script: which Lua state it belongs to."""
+        r = self.db.execute("SELECT interpreter, instance, source_file FROM scripts WHERE name=?", (name,)).fetchone()
+        if not r:
+            return "", ""
+        interp, instance, source = r
+        parts = str(interp or "").split()                  # "Interpreter=lua mygame" names an instance too
+        return (instance or (parts[1] if len(parts) > 1 else "")), (source or "")
+
     def query_json(self, sql, *args):
         cur = self.db.execute(sql, args)
         cols = [d[0] for d in cur.description] if cur.description else []

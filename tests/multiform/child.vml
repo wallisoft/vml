@@ -1,0 +1,46 @@
+@Window Child
+Title=Child form
+Width=320
+Height=200
+OnOpened=ChildOpened
+
+@StackPanel ChildStack
+Parent=Child
+Margin=12
+Spacing=6
+
+@TextBlock lblGreeting
+Parent=ChildStack
+Text=
+
+@TextBox txtAnswer
+Parent=ChildStack
+Text=42
+
+@Button btnOK
+Parent=ChildStack
+Content=OK
+OnClick=ChildOK
+
+@Script ChildOpened
+Interpreter=lua
+<<LUA
+-- read the parent's text box by form name, and check we can't see main's globals
+Vml("SetProperty", "lblGreeting", "Text", "Hello " .. Vml("GetProperty", "Main.txtName", "Text") ..
+    " / main's secret seen here: " .. tostring(secret))
+LUA
+
+@Script ChildOK
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "Main.lblResult", "Text", "answer: " .. Vml("GetProperty", "txtAnswer", "Text"))
+Vml("SetDialogResult", "ok")
+Vml("CloseSelf")
+LUA
+
+@Script SharedRead
+Interpreter=lua
+Instance=lobby
+<<LUA
+Vml("SetSetting", "visitors_seen", tostring(visitors))
+LUA
