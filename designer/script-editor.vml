@@ -113,8 +113,9 @@ Interpreter=lua
 <<LUA
 local json = require("dkjson")
 local ctrl = Vml("GetSetting", "editor_control")
-Vml("SetProperty", "ScriptEditor", "Title", "Edit Script - " .. ctrl)
-Vml("SetProperty", "lblControl", "Text", ctrl .. "  (" .. Vml("GetControlType", ctrl) .. ")")
+local shown = ctrl == "Surface" and "Form" or ctrl
+Vml("SetProperty", "ScriptEditor", "Title", "Edit Script - " .. shown)
+Vml("SetProperty", "lblControl", "Text", ctrl == "Surface" and "Form  (the window itself)" or (ctrl .. "  (" .. Vml("GetControlType", ctrl) .. ")"))
 local names = {}
 for _, e in ipairs(json.decode(Vml("GetControlEvents", ctrl))) do
     names[#names + 1] = e.name

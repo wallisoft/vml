@@ -53,6 +53,24 @@ jobs:
             --company-name=Wallisoft --product-name=Visualised `
             --file-version=${{ needs.check.outputs.version }} --product-version=${{ needs.check.outputs.version }} `
             --output-filename=vml.exe --output-dir=build vml.py
+      - name: Smoke test the compiled program
+        shell: pwsh
+        run: |
+          # a GUI program: Start-Process -Wait so PowerShell waits for it, with its output captured
+          $env:QT_QPA_PLATFORM = "offscreen"
+          Start-Process build\vml.dist\vml.exe -ArgumentList "parse", "tests\step1.vml" -Wait -NoNewWindow -RedirectStandardOutput parse.txt
+          if (-not (Select-String -Path parse.txt -Pattern "INSERT INTO ui_tree" -Quiet)) { Get-Content parse.txt; throw "parse failed" }
+          Start-Process build\vml.dist\vml.exe -ArgumentList "tests\step1.vml", "--shot", "shot.png" -Wait -NoNewWindow -RedirectStandardError form.log
+          if (-not (Test-Path shot.png)) { Get-Content form.log; throw "the compiled program didn't open a form" }
+          "the compiled program opens a form"
+          # an exported app: the program renamed SmokeApp.exe, beside SmokeApp.vml, must run that form by itself
+          Copy-Item -Recurse build\vml.dist app
+          Rename-Item app\vml.exe SmokeApp.exe
+          Copy-Item tests\step1.vml app\SmokeApp.vml
+          $env:VML_DEBUG = "1"
+          Start-Process app\SmokeApp.exe -ArgumentList "--shot", "app.png" -Wait -NoNewWindow -RedirectStandardError app.log
+          if (-not (Select-String -Path app.log -Pattern "SmokeApp.vml: Parsed" -Quiet)) { Get-Content app.log; throw "an exported app didn't run its own form" }
+          "an exported app runs its own form"
       - name: Build Visualised-Setup.exe
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ needs.check.outputs.version }}" packaging\vml.iss
@@ -63,7 +81,7 @@ jobs:
           Copy-Item -Recurse build\vml.dist stage\vml
           Copy-Item packaging\THIRD-PARTY-NOTICES.txt stage\vml\
           Compress-Archive -Path stage\vml -DestinationPath vml-windows-x64.zip
-      - name: Build VML.msix (Microsoft Store)
+      - name: Build Visualised.msix (Microsoft Store)
         if: vars.MSIX_IDENTITY_NAME != ''
         shell: pwsh
         env:
@@ -82,14 +100,14 @@ jobs:
           python packaging/make_icon.py msix/Assets/StoreLogo.png 50
           (Get-Content packaging\AppxManifest.xml -Raw).Replace('@IDENTITY_NAME@', $env:ID).Replace('@PUBLISHER@', $env:PUB).Replace('@PUBLISHER_DISPLAY@', $env:PUBDISP).Replace('@DISPLAY_NAME@', $env:NAME).Replace('@VERSION@', $v) | Set-Content msix\AppxManifest.xml -Encoding utf8
           $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
-          & $makeappx.FullName pack /d msix /p VML.msix /o
+          & $makeappx.FullName pack /d msix /p Visualised.msix /o
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             packaging/Output/Visualised-Setup.exe
             vml-windows-x64.zip
-            VML.msix
+            Visualised.msix
           if-no-files-found: warn
 
   linux:
@@ -147,7 +165,7 @@ jobs:
           for f in Visualised-Setup.exe vml-windows-x64.zip vml-linux-x86_64.tar.gz install.sh; do
             find . -name "$f" | grep -q . || { echo "::error::$f is missing"; exit 1; }
           done
-          find . -name VML.msix | grep -q . && echo "Store package included" || echo "no Store package this time (set the MSIX_* variables)"
+          find . -name Visualised.msix | grep -q . && echo "Store package included" || echo "no Store package this time (set the MSIX_* variables)"
       - uses: softprops/action-gh-release@v2
         with:
           repository: wallisoft/vml-releases
@@ -162,4 +180,4 @@ jobs:
             **/vml-windows-x64.zip
             **/vml-linux-x86_64.tar.gz
             **/install.sh
-            **/VML.msix
+            **/Visualised.msix

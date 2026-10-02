@@ -377,9 +377,11 @@ Interpreter=lua
 <<LUA
 -- open the script editor (itself a VML form) for the selected control
 local sel = Vml("GetProperty", "Surface", "Selected")
-if sel == "" then return Vml("SetStatusText", "Select a control first") end
+if sel == "menubar" then return end
+local event = args[1] or ""
+if sel == "" then sel, event = "Surface", "OnOpened" end    -- the form itself: its OnOpened (VB's Form_Load)
 Vml("SetSetting", "editor_control", sel)
-Vml("SetSetting", "editor_event", args[1] or "")
+Vml("SetSetting", "editor_event", event)
 Vml("FormOpenModal", "script-editor.vml")
 Vml("RunScript", "SelectionChanged")
 LUA

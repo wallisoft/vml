@@ -54,6 +54,35 @@ if first and not first.startswith("-") and first not in APP_VERBS and not first.
         and not os.path.exists(first):
     from vml.client import main as client   # noqa: E402  (no Qt: quick)
     sys.exit(client())
+def crashed(exc_type, exc, tb):
+    """A GUI program that dies at start-up dies silently: write down why, and say where."""
+    import traceback
+    log = Path.home() / ".vml" / "crash.log"
+    text = "".join(traceback.format_exception(exc_type, exc, tb))
+    try:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with open(log, "a", encoding="utf-8") as f:
+            import time
+            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')}  {' '.join(sys.argv)}\n{text}\n")
+    except OSError:
+        pass
+    print(text, file=sys.stderr)
+    try:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(None, "Visualised", f"Visualised hit a problem and has to close.\n\n{exc}\n\n"
+                                                 f"The details are in:\n{log}")
+    except Exception:
+        pass
+
+
+sys.excepthook = crashed
 from vml.__main__ import main  # noqa: E402  (the package, not this file: packages win the import)
 
-main()
+try:
+    main()
+except SystemExit:
+    raise
+except Exception:
+    crashed(*sys.exc_info())
+    sys.exit(1)

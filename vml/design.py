@@ -268,10 +268,9 @@ class Overlay(QWidget):
 
     def mouseDoubleClickEvent(self, e):
         node = self.hit(e.position().toPoint())
-        if node is not None:
-            self.mode = None
-            self.view.select(node.name, user=True)        # whatever was double-clicked is what we act on
-            self.view.emit("OnDoubleClick", {"selected_control": node.name})
+        self.mode = None
+        self.view.select(node.name if node else "", user=True)   # whatever was double-clicked; nothing = the form
+        self.view.emit("OnDoubleClick", {"selected_control": node.name if node else ""})
 
     def keyPressEvent(self, e):
         v = self.view

@@ -1016,6 +1016,9 @@ class Engine:
             self.delete(kid.name, kid.scope)
         surf.widget.select("")
         surf.menu_scripts = {}
+        surf.design_scripts, surf.form_scripts = {}, {}
+        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
+            surf.props.pop(ev, None)
         surf.widget.menu_settings = {}
         surf.widget.set_menu([])
         surf.widget.apply_menu_settings()
@@ -1044,10 +1047,12 @@ class Engine:
                 out += [f"@MenuTheme {form}MenuTheme", *[f"{k}={v}" for k, v in theme.items()], ""]
         out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
-                          ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight")):
+                          ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
+                          ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp")):
             v = str(surf.props.get(prop, "") or "")
             if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false"):
-                out.insert(out.index(f"@Canvas {canvas}") - 1, f"{key}={v}")      # with the window's own lines
+                end = out.index("", out.index(f"@Window {form}"))   # the end of the window's own lines
+                out.insert(end, f"{key}={v}")
         first = ["Canvas.Left", "Canvas.Top", "Width", "Height"]
 
         def walk(container, parent_name):
@@ -1084,9 +1089,15 @@ class Engine:
             if any(it.get("onclick") == handler for it in menu):
                 term = "END_" + re.sub(r"\W", "_", handler).upper()
                 out += ["", f"@Script {handler}", f"Interpreter={interp}", f"<<{term}", *code.rstrip("\n").split("\n"), term]
-        for kid, _ in everything:
+        written = set()
+        for kid in [surf] + [k for k, _ in everything]:
             for event, (interp, code) in getattr(kid, "design_scripts", {}).items():
                 name = kid.props.get(event) or f"{kid.name}_{event}"
+                term = "END_" + re.sub(r"\W", "_", name).upper()
+                out += ["", f"@Script {name}", f"Interpreter={interp}", f"<<{term}", *code.rstrip("\n").split("\n"), term]
+                written.add(name)
+        for name, (interp, code) in getattr(surf, "form_scripts", {}).items():   # helpers other scripts call
+            if name not in written:
                 term = "END_" + re.sub(r"\W", "_", name).upper()
                 out += ["", f"@Script {name}", f"Interpreter={interp}", f"<<{term}", *code.rstrip("\n").split("\n"), term]
         Path(os.path.expanduser(path)).write_text("\n".join(out) + "\n", encoding="utf-8")
@@ -1159,6 +1170,18 @@ class Engine:
                 else:
                     self.cmd_SetProperty(name, k, v)
             count += 1
+        used = set()
+        for cid, parent_id, ctype, name in rows:
+            for k, v in props.get(cid, {}).items():
+                if v in scripts:
+                    used.add(v)
+        surf.design_scripts = {}
+        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
+            handler = wp.get(ev)
+            if handler and handler in scripts:
+                surf.design_scripts[ev] = scripts[handler]
+                self.cmd_SetEvent(surf.name, ev, handler)
+        surf.form_scripts = {n: v for n, v in scripts.items() if n not in used}
         log(f"opened {path}: {count} controls")
         return True
 
@@ -1378,6 +1401,9 @@ class Engine:
             return json.dumps([{"name": "OnClick", "has_script": f"{item}_Click" in getattr(surf, "menu_scripts", {})}])
         node = self._node(name)
         scripts = getattr(node, "design_scripts", {})
+        if node.type.name == "DesignSurface":                # the form itself: the window's events
+            events = ["OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"]
+            return json.dumps([{"name": e, "has_script": e in scripts} for e in events])
         events = sorted(e for e, hook in node.type.events.items() if hook is not None)
         if "OnClick" in events:                       # the one people want first, as in VB
             events.remove("OnClick")
@@ -1425,8 +1451,10 @@ class Engine:
             self.cmd_SetEvent(name, event, "")
             return ""
         node.design_scripts[event] = (self._lang_interp(str(language).lower()), str(code))
-        script_name = node.props.get(event) or f"{name}_{event}"
+        script_name = node.props.get(event) or (f"Form_{event}" if node.type.name == "DesignSurface" else f"{name}_{event}")
         self.cmd_SetEvent(name, event, script_name)
+        if node.type.name == "DesignSurface":
+            node.widget.emit("OnChanged", {"selected_control": ""})
         surf = node.parent if node.parent is not None and node.parent.type.name == "DesignSurface" else None
         if surf is not None:
             surf.widget.emit("OnChanged", {"selected_control": name})
