@@ -16,13 +16,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 APP_VERBS = ("setup-csharp", "html", "parse")
 first = sys.argv[1] if len(sys.argv) > 1 else ""
 
-if not first:
-    # an exported app: this binary renamed MyApp(.exe), with MyApp.vml beside it, runs that app
-    me = Path(sys.argv[0]).resolve()
+def own_app(program):
+    """An exported app: this program renamed MyApp(.exe), with MyApp.vml beside it, runs that app."""
+    me = Path(program).resolve()
     own = me.with_suffix(".vml") if me.suffix.lower() == ".exe" else me.parent / (me.name + ".vml")
-    if own.is_file() and me.stem.lower() not in ("vml", "vml.py"):
-        sys.argv.append(str(own))
-        first = str(own)
+    return own if own.is_file() and me.stem.lower() not in ("vml", "vml.py") else None
+
+
+if not first or first.startswith("-"):                    # no form named (options like --shot don't count)
+    found = own_app(sys.executable if "__compiled__" in globals() else sys.argv[0])
+    if found is not None:
+        sys.argv.insert(1, str(found))
+        first = str(found)
 
 if first == "parse":
     from vml.store import parse_vml   # noqa: E402

@@ -38,7 +38,7 @@ def steps():
     check("button added where right-clicked", (eng.cmd_GetControlX("Button1"), eng.cmd_GetControlY("Button1")), (40, 40))
     check("new button selected", view.selected, "Button1")
     check("property grid follows selection", eng.find("Props").widget.target, "Button1")
-    check("title shows unsaved", eng.find("Designer").widget.windowTitle(), "VML Designer - Untitled *")
+    check("title shows unsaved", eng.find("Designer").widget.windowTitle(), "Visualised - Untitled *")
 
     # drag it by (+46, +22): 86,62 snaps to the 8px grid -> (88, 64)
     start = origin + QPoint(60, 50)

@@ -730,7 +730,8 @@ KEY_NAMES = {"Del": "Delete", "Esc": "Escape", "Ins": "Insert", "PgUp": "PgUp", 
 
 
 def make_menuitem(node):
-    node.action = QAction(node.props.get("Text") or node.props.get("Header") or node.name)
+    sep = truthy(node.props.get("IsSeparator", ""))
+    node.action = QAction("" if sep else (node.props.get("Text") or node.props.get("Header") or node.name))
     node.menu = None
     return QWidget()
 
@@ -766,6 +767,14 @@ def shortcut(node, value):
     node.action.setShortcutContext(Qt.WindowShortcut)       # each window's shortcuts are its own
 
 
+def set_separator(node, value):
+    """A separator is just a line: no text (some Qt styles would show its name as a heading)."""
+    on = truthy(value)
+    node.action.setSeparator(on)
+    if on:
+        node.action.setText("")
+
+
 def make_contextmenu(node):
     node.menu = QMenu()
     node.action = None
@@ -780,7 +789,7 @@ MENU_PROPS = [
          apply=lambda n, v: n.action.setEnabled(truthy(v) if v not in (None, "") else True)),
     Prop("IsVisible", "bool", "Behaviour", default="true",
          apply=lambda n, v: n.action.setVisible(truthy(v) if v not in (None, "") else True)),
-    Prop("IsSeparator", "bool", "Behaviour", apply=lambda n, v: n.action.setSeparator(truthy(v))),
+    Prop("IsSeparator", "bool", "Behaviour", apply=lambda n, v: set_separator(n, v)),
     Prop("ToolTip", "text", "Behaviour", apply=lambda n, v: n.action.setToolTip(str(v or ""))),
 ]
 

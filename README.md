@@ -1,4 +1,6 @@
-# VML (Visualised Markup Language)
+# Visualised
+
+*Apps are written in VML, Visualised's own markup.*
 
 **A cross-platform RAD IDE that designs itself, for the desktop and the web**
 
@@ -70,7 +72,7 @@ designer's property panel are all driven from it, so a property added once appea
 
 ## Download
 
-- **Windows:** [VML-Setup.exe](https://github.com/wallisoft/vml-releases/releases/latest/download/VML-Setup.exe) (no admin needed), or the [portable zip](https://github.com/wallisoft/vml-releases/releases/latest/download/vml-windows-x64.zip)
+- **Windows:** [Visualised-Setup.exe](https://github.com/wallisoft/vml-releases/releases/latest/download/Visualised-Setup.exe) (no admin needed), or the [portable zip](https://github.com/wallisoft/vml-releases/releases/latest/download/vml-windows-x64.zip)
 - **Linux:** `curl -fsSL https://github.com/wallisoft/vml-releases/releases/latest/download/install.sh | bash`
 - More at **[vml.eur.bz](https://vml.eur.bz)**, including a live demo in your browser.
 
@@ -107,6 +109,8 @@ pip install -r requirements.txt
   live, so it never goes stale. Click the empty form to edit the form itself.
 - **Double-click a control to script it.** Choose the event and the language (Lua, or the OS shell), and write.
   Scripts are saved into the form as ordinary `@Script` blocks.
+- **Export** (File → Export): a **Windows app** or **Linux app** (the compiled runtime renamed after your app,
+  beside your forms: unzip and double-click), or a **web page** with the Lua engine inside it, so it works offline.
 - **F5 previews** the form running for real. **Ctrl+S** saves plain VML; **Ctrl+O** opens it again.
 
 ## On the web
@@ -115,13 +119,13 @@ The same `.vml` file runs in a browser. **View → Preview in Browser** (F6) in 
 HTML…**, or from a terminal:
 
 ```bash
-./vml.py html myform.vml          # writes myform.html: one self-contained page
+./vml.py html myform.vml          # writes myform.html: one self-contained page, works offline
 ./vml.py html myform.vml --open   # ...and opens it in your browser via a tiny local web server
 ```
 
 Layout is faithful: canvas forms are positioned exactly, and **anchors become CSS**, so controls move and stretch as
 the browser window resizes. Frames, menus, StackPanel, Grid, Border and DockPanel all carry across. **Lua scripts run
-unchanged** in the browser (Lua 5.4 compiled to WebAssembly), against a JavaScript `Vml()` that speaks the same
+unchanged** in the browser (Lua 5.4 compiled to WebAssembly, bundled into the page, so no network is needed), against a JavaScript `Vml()` that speaks the same
 commands, `require("dkjson")` included. Shell, C# and Python scripts are desktop-only and say so in the browser
 console. Open the console and `vml.Vml("GetProperty", "txtName", "Text")` works there too.
 

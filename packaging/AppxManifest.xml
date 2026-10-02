@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  VML MSIX manifest (Microsoft Store). The release workflow fills in the @...@ values: identity and
+  Visualised MSIX manifest (Microsoft Store). The release workflow fills in the @...@ values: identity and
   publisher from Partner Center (Product management > Product identity), version from the git tag.
 -->
 <Package

@@ -1,4 +1,4 @@
-; VML Windows installer (built by the release workflow from the Nuitka output).
+; Visualised Windows installer (built by the release workflow from the Nuitka output).
 ; Installs for the current user (no admin), associates .vml files, and can add VML to the PATH.
 
 #ifndef AppVersion
@@ -7,16 +7,16 @@
 
 [Setup]
 AppId={{4E7B2C91-6A3D-4F58-9C0B-2D8E5A71B6F4}
-AppName=VML
+AppName=Visualised
 AppVersion={#AppVersion}
-AppVerName=VML {#AppVersion}
+AppVerName=Visualised {#AppVersion}
 AppPublisher=Wallisoft
-AppPublisherURL=https://vml.eur.bz
-DefaultDirName={autopf}\VML
-DefaultGroupName=VML
+AppPublisherURL=https://visualised.io
+DefaultDirName={autopf}\Visualised
+DefaultGroupName=Visualised
 DisableProgramGroupPage=yes
 OutputDir=Output
-OutputBaseFilename=VML-Setup
+OutputBaseFilename=Visualised-Setup
 SetupIconFile=art\vml.ico
 UninstallDisplayIcon={app}\vml.exe
 Compression=lzma2
@@ -29,7 +29,7 @@ CloseApplications=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "addtopath"; Description: "Add VML to my PATH (so scripts and terminals can run vml)"; GroupDescription: "Options:"
+Name: "addtopath"; Description: "Add vml to my PATH (so scripts and terminals can run it)"; GroupDescription: "Options:"
 
 [Files]
 ; The whole compiled folder. Qt stays as separate, replaceable libraries (LGPL).
@@ -37,9 +37,9 @@ Source: "..\build\vml.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesub
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\VML Designer"; Filename: "{app}\vml.exe"
+Name: "{group}\Visualised"; Filename: "{app}\vml.exe"
 Name: "{group}\Third-party notices"; Filename: "{app}\THIRD-PARTY-NOTICES.txt"
-Name: "{autodesktop}\VML Designer"; Filename: "{app}\vml.exe"; Tasks: desktopicon
+Name: "{autodesktop}\Visualised"; Filename: "{app}\vml.exe"; Tasks: desktopicon
 
 [Registry]
 ; double-clicking a .vml file runs it
@@ -50,7 +50,7 @@ Root: HKCU; Subkey: "Software\Classes\VML.Form\shell\open\command"; ValueType: s
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Run]
-Filename: "{app}\vml.exe"; Description: "Open the VML Designer"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\vml.exe"; Description: "Open Visualised"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function NeedsAddPath(Dir: string): boolean;

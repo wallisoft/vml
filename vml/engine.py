@@ -1448,6 +1448,91 @@ class Engine:
         log(f"web page written: {path}")
         return path
 
+    # --- exporting an app: the compiled runtime, renamed after the app, with the app's forms beside it
+    RELEASES = "https://github.com/wallisoft/vml-releases/releases/latest/download/"
+    RUNTIMES = {"windows": ("vml-windows-x64.zip", "vml.exe", ".exe"), "linux": ("vml-linux-x86_64.tar.gz", "vml", "")}
+
+    def _runtime(self, platform):
+        """A folder holding the compiled runtime for a platform: this program's own when it matches,
+        otherwise downloaded once from the latest release and kept in ~/.vml/runtimes."""
+        asset, exe, _ = self.RUNTIMES[platform]
+        here = "windows" if sys.platform.startswith("win") else "linux" if sys.platform.startswith("linux") else ""
+        if FROZEN and platform == here:
+            return Path(sys.executable).resolve().parent
+        cache = SYSTEM_DIR.parent / "runtimes" / platform
+        folder = cache / "vml"
+        if (folder / exe).is_file():
+            return folder
+        cache.mkdir(parents=True, exist_ok=True)
+        archive = cache / asset
+        import urllib.request
+        self.cmd_SetStatusText(f"Downloading the {platform} runtime (first time only)...")
+        with urllib.request.urlopen(self.RELEASES + asset, timeout=60) as r, open(archive, "wb") as f:
+            total, done = int(r.headers.get("Content-Length") or 0), 0
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                if total:
+                    self.cmd_SetStatusText(f"Downloading the {platform} runtime: {done * 100 // total}%")
+                self.app.processEvents()
+        shutil.rmtree(folder, ignore_errors=True)
+        if asset.endswith(".zip"):
+            import zipfile
+            with zipfile.ZipFile(archive) as z:
+                z.extractall(cache)
+        else:
+            import tarfile
+            with tarfile.open(archive) as t:
+                t.extractall(cache, filter="tar") if hasattr(tarfile, "data_filter") else t.extractall(cache)
+        archive.unlink(missing_ok=True)
+        if not (folder / exe).is_file():
+            raise RuntimeError(f"the {platform} runtime download didn't contain {exe}")
+        return folder
+
+    def cmd_ExportApp(self, platform, out="", surface="Surface"):
+        """Package the designed form as a runnable app: a .zip (Windows) or .tar.gz (Linux) holding
+        MyApp(.exe), MyApp.vml and any other forms saved beside it. Double-click MyApp to run."""
+        platform = str(platform).lower()
+        if platform not in self.RUNTIMES:
+            raise ValueError(f"unknown platform {platform!r} (windows or linux)")
+        surf = self._surface(surface)
+        name = re.sub(r"[^A-Za-z0-9_-]", "", str(surf.props.get("FormName") or "MyApp")) or "MyApp"
+        _, exe, suffix = self.RUNTIMES[platform]
+        runtime = self._runtime(platform)
+        stage = Path(tempfile.mkdtemp(prefix="vml-export-")) / name
+        shutil.copytree(runtime, stage)
+        (stage / exe).rename(stage / f"{name}{suffix}")
+        saved = self.store.get_setting("current_file")
+        if saved and Path(saved).is_file():                  # other forms of a multi-form app come too
+            for other in Path(saved).parent.glob("*.vml"):
+                if other.resolve() != Path(saved).resolve():
+                    shutil.copy2(other, stage / other.name)
+        self.cmd_ExportVml(surf.name, str(stage / f"{name}.vml"))
+        (stage / "README.txt").write_text(
+            f"{name}\r\n\r\nTo run it: double-click {name}{suffix}"
+            + ("" if suffix else f" (or run ./{name} in a terminal)") +
+            "\r\n\r\nMade with Visualised: https://visualised.io\r\n", encoding="utf-8")
+        if platform == "linux":
+            (stage / name).chmod(0o755)
+        default = Path(saved).parent if saved else Path.home()
+        out = Path(out) if out else default / (f"{name}-windows.zip" if platform == "windows" else f"{name}-linux.tar.gz")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if platform == "windows":
+            base = str(out)[:-4] if str(out).endswith(".zip") else str(out)
+            path = shutil.make_archive(base, "zip", stage.parent, name)
+        else:
+            import tarfile
+            path = str(out) if str(out).endswith(".tar.gz") else str(out) + ".tar.gz"
+            with tarfile.open(path, "w:gz") as t:
+                t.add(stage, arcname=name)
+        shutil.rmtree(stage.parent, ignore_errors=True)
+        log(f"exported {name} for {platform}: {path}")
+        self.cmd_SetStatusText(f"Exported {name} for {platform}: {path}")
+        return path
+
     def cmd_PreviewInBrowser(self, surface="Surface"):
         """Open the form being designed in the default web browser, served from a tiny local web server:
         browsers (snap-packaged ones especially) won't run a page opened from disk that loads code from the web."""

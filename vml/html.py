@@ -15,6 +15,11 @@ from pathlib import Path
 from .registry import anchor_set, colour, num, thickness
 from .store import LUA_DIR, Store
 
+# Wasmoon (Lua in WebAssembly), bundled so pages work offline. Beside the package from source; at the top of a
+# compiled build (like the Lua files).
+WEB_DIR = next((d for d in (Path(__file__).resolve().parent / "web", Path(__file__).resolve().parent.parent / "web")
+                if (d / "glue.wasm").is_file()), Path(__file__).resolve().parent / "web")
+
 WASMOON = "https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/+esm"
 MENU_H = 26
 WEIGHTS = {"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600,
@@ -279,7 +284,7 @@ class Page:
 
     # ------------------------------------------------------------------ the page
 
-    def build(self):
+    def build(self, offline=True):
         win = next((r for r in self.rows if r[2] == "Window"), None)
         if win is None:
             raise ValueError(f"{self.path.name} has no @Window")
@@ -296,11 +301,21 @@ class Page:
             .replace("%%THEME%%", self.theme_css()).replace("%%BODY%%", body + self.context_menus()) \
             .replace("%%DATA%%", json.dumps(data).replace("</", "<\\/")) \
             .replace("%%DKJSON%%", json.dumps(dkjson).replace("</", "<\\/")).replace("%%WASMOON%%", WASMOON) \
-            .replace("%%SOURCE%%", esc(self.path.name))
+            .replace("%%SOURCE%%", esc(self.path.name)) \
+            .replace("%%BUNDLE%%", self.bundle() if offline else "")
+
+    def bundle(self):
+        """The Lua engine inside the page: no CDN, works offline and behind strict firewalls."""
+        import base64
+        js = (WEB_DIR / "wasmoon.js").read_text(encoding="utf-8").replace("</script", "<\\/script")
+        wasm = base64.b64encode((WEB_DIR / "glue.wasm").read_bytes()).decode()
+        return (f"<script>{js}</script>\n"
+                f'<script>window.VML_WASM = "data:application/wasm;base64,{wasm}";</script>')
 
 
-def export_html(vml_path, out_path=None):
-    page = Page(vml_path).build()
+def export_html(vml_path, out_path=None, offline=True):
+    """offline=True (the default) puts the Lua engine inside the page (about 420 KB more); False loads it from a CDN."""
+    page = Page(vml_path).build(offline=offline)
     out = Path(out_path) if out_path else Path(vml_path).with_suffix(".html")
     out.write_text(page, encoding="utf-8")
     return str(out)
@@ -350,6 +365,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <body>
 <div id="vml_window">%%BODY%%</div>
 <div id="vml_status">loading Lua...</div>
+%%BUNDLE%%
 <script type="module">
 // The VML runtime for the web: Lua 5.4 (WebAssembly) running the form's scripts against a JavaScript Vml().
 const VML = %%DATA%%;
@@ -507,8 +523,9 @@ document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus
 
 wire();
 try {
-  const { LuaFactory } = await import("%%WASMOON%%");
-  const factory = new LuaFactory();
+  // bundled in the page (offline), or fetched from the CDN
+  const { LuaFactory } = window.wasmoon ? window.wasmoon : await import("%%WASMOON%%");
+  const factory = new LuaFactory(window.VML_WASM);
   await factory.mountFile("dkjson.lua", DKJSON);
   lua = await factory.createEngine();
   lua.global.set("Vml", Vml);

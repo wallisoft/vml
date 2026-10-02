@@ -8,7 +8,7 @@
 # ============================================================================
 
 @Window Designer
-Title=VML Designer
+Title=Visualised
 Width=1180
 Height=760
 OnOpened=DesignerInit
@@ -93,10 +93,24 @@ Text=Save As...
 Shortcut=Ctrl+Shift+S
 OnClick=FileSaveAs
 
-@MenuItem FileExportHtml
+@MenuItem FileExport
 Parent=File
-Text=Export to HTML...
+Text=Export
+
+@MenuItem FileExportWeb
+Parent=FileExport
+Text=Web page...
 OnClick=ExportHtml
+
+@MenuItem FileExportWin
+Parent=FileExport
+Text=Windows app...
+OnClick=ExportWindows
+
+@MenuItem FileExportLinux
+Parent=FileExport
+Text=Linux app...
+OnClick=ExportLinux
 
 @MenuItem FileSep
 Parent=File
@@ -355,7 +369,7 @@ Interpreter=lua
 local file = Vml("GetSetting", "current_file")
 local name = file ~= "" and file:match("([^/\\]+)$") or "Untitled"
 local star = Vml("GetSetting", "dirty") == "true" and " *" or ""
-Vml("SetProperty", "Designer", "Title", "VML Designer - " .. name .. star)
+Vml("SetProperty", "Designer", "Title", "Visualised - " .. name .. star)
 LUA
 
 @Script EditScript
@@ -564,6 +578,26 @@ Vml("ExportHtml", "Surface", path)
 Vml("SetStatusText", "Web page written: " .. path)
 LUA
 
+@Script ExportWindows
+Interpreter=lua
+<<LUA
+local name = Vml("GetProperty", "Surface", "FormName")
+local path = Vml("FileSaveDialog", "Export as a Windows app", name .. "-windows", "zip")
+if path == "" then return end
+local out = Vml("ExportApp", "windows", path)
+if out ~= "" then Vml("InfoDialog", "Exported " .. name .. " for Windows:\n" .. out .. "\n\nUnzip it anywhere and double-click " .. name .. ".exe.", "Export") end
+LUA
+
+@Script ExportLinux
+Interpreter=lua
+<<LUA
+local name = Vml("GetProperty", "Surface", "FormName")
+local path = Vml("FileSaveDialog", "Export as a Linux app", name .. "-linux", "tar.gz")
+if path == "" then return end
+local out = Vml("ExportApp", "linux", path)
+if out ~= "" then Vml("InfoDialog", "Exported " .. name .. " for Linux:\n" .. out .. "\n\nUnpack it anywhere and run ./" .. name .. ".", "Export") end
+LUA
+
 @Script ToggleGrid
 Interpreter=lua
 <<LUA
@@ -574,5 +608,5 @@ LUA
 @Script About
 Interpreter=lua
 <<LUA
-Vml("InfoDialog", "VML Designer\n\nThe designer is itself a VML form: designer.vml.\nEngine: VML for Qt.", "About")
+Vml("InfoDialog", "Visualised\n\nDesign desktop and web apps.\nThe designer is itself a VML form: designer.vml.\n\nhttps://visualised.io\nMade by Wallisoft.", "About Visualised")
 LUA
