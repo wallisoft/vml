@@ -28,6 +28,9 @@ from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
 from .store import LUA_DIR, PARSER_LOG, Store
 
+# Every Python script starts with this: Vml() talks straight to the engine over its local socket.
+PYTHON_PRELUDE = "import sys\nfrom vml.client import call as Vml\nargs = sys.argv[2:]\n"     # argv[1] is the script name
+
 PLACEHOLDER = ControlType("Placeholder", make_box, container=True, add_child=box_add, place_child=box_place,
                           remove_child=layout_remove)
 SYSTEM_DIR = Path.home() / ".vml" / "system"
@@ -482,6 +485,12 @@ class Engine:
             return self.shell(["bash", "-c", content, name, *map(str, args)], name, origin)
         if interp in ("csharp", "c#", "cs"):
             return self.run_csharp(content, args, name, origin)
+        if interp in ("python", "python3", "py"):
+            py = self.python_exe()
+            if not py:
+                log(f"{name}: Python isn't installed on this machine")
+                return ""
+            return self.shell([py, "-c", PYTHON_PRELUDE + content, name, *map(str, args)], name, origin)
         if interp in ("powershell", "pwsh"):
             exe = shutil.which("pwsh") or shutil.which("powershell")
             if not exe:
@@ -511,9 +520,19 @@ class Engine:
         """The script languages this machine can run, for the script editor."""
         from . import csharp
         langs = ["Lua", f"Shell ({self.cmd_GetShellName()})"]
+        if self.python_exe():
+            langs.append("Python")
         if csharp.available():
             langs.append("C#")
         return json.dumps(langs)
+
+    @staticmethod
+    def python_exe():
+        """The user's own Python (with their pip packages); the engine's, when running from source."""
+        found = shutil.which("python3") or shutil.which("python")
+        if found:
+            return found
+        return sys.executable if "python" in Path(sys.executable).name.lower() else None
 
     def shell(self, argv, label="shell", origin=None, timeout=120):
         """Run a program, answering its `vml ...` calls while it runs (as the form that started it)."""
@@ -1320,11 +1339,13 @@ class Engine:
             return "lua"
         if lang in ("c#", "csharp", "cs"):
             return "csharp"
+        if lang in ("python", "py"):
+            return "python"
         return lang if lang in ("bash", "powershell") else self.SHELL
 
     @staticmethod
     def _lang_label(interp):
-        return {"lua": "Lua", "csharp": "C#"}.get(interp, "Shell")
+        return {"lua": "Lua", "csharp": "C#", "python": "Python"}.get(interp, "Shell")
 
     def cmd_GetShellName(self):
         return "PowerShell" if self.SHELL == "powershell" else "Bash"

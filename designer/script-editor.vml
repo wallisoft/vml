@@ -73,7 +73,7 @@ Spacing=8
 
 @TextBlock lblHint
 Parent=EdButtons
-Text=Lua and C# scripts call Vml("Command", ...) to work with the form.
+Text=Scripts call Vml("Command", ...) to work with the form.
 Foreground=#6B7280
 FontSize=11
 VerticalAlignment=Center
@@ -170,6 +170,8 @@ Interpreter=lua
 local lang, ctrl, event = args[1], args[2], args[3]
 if lang:sub(1, 2) == "C#" then
     return "// " .. ctrl .. " " .. event .. "  (Vml(...), args and State are available)\n\n"
+elseif lang:sub(1, 6) == "Python" then
+    return "# " .. ctrl .. " " .. event .. "  (Vml(...) and args are available)\n\n"
 elseif lang:sub(1, 5) == "Shell" then
     return "#!/bin/sh\n# " .. ctrl .. " " .. event .. "\n\n"
 end

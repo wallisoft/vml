@@ -30,6 +30,12 @@ def steps():
     print(f"      (each vml call from bash took about {ms} ms)")
     check("calls are quick (under 150 ms each)", ms < 150, True)
 
+    out = eng.run_script("PyHello", "a", "b", origin=eng.find("btnPython"))
+    check("Python reads and writes the form", lbl(), "Hello Steve from Python: mean 5.333333333333333")
+    check("Python gets its arguments", eng.store.get_setting("py_args"), '["a", "b"]')
+    check("Python -> Lua -> bash, printed back", out, "8 (bash echoed 4)")
+    check("Python offered in the script editor", "Python" in json.loads(eng.cmd_GetLanguages()), True)
+
     disc = os.path.expanduser("~/.vml/api.json")
     check("discovery file readable only by you", oct(stat.S_IMODE(os.stat(disc).st_mode)), "0o600")
     env = {k: v for k, v in os.environ.items() if not k.startswith("VML_")}

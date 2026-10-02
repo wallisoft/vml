@@ -110,6 +110,7 @@ pip install -r requirements.txt
 | **Lua** | Embedded (Lua 5.4 via `lupa`), in-process and fast. One state per form, or shared by named instance. `require("dkjson")` available. |
 | **Bash** | As a subprocess, with the `vml` command on its `PATH` to talk to the form (and `$VML_DB_PATH`, `vml-parse` as before). |
 | **PowerShell** | As a subprocess, on Windows (or anywhere `pwsh` is installed). |
+| **Python** | As a subprocess, using your own Python and its packages, with a native `Vml()` function (`from vml.client import call`) and `args`. |
 | **C#** (optional) | Compiled with Roslyn by a small .NET host that stays running; cached, so repeat runs are instant. |
 
 Events include clicks, text changes, selection, pointer, focus and keys (`OnKeyDown` and `OnKeyUp` receive
@@ -226,7 +227,7 @@ python3 tests/run_frames.py     # frames, nesting, keys, live geometry, window o
 python3 tests/run_menus.py      # menus: editor, menu bar and items as controls, saved, reopened and run
 python3 tests/run_multiform.py  # forms opening forms, Form.Control names, dialog results, Lua states
 python3 tests/run_csharp.py     # C# scripting (skips itself if .NET isn't set up)
-python3 tests/run_api.py        # the vml command: bash calling back, chains across languages, outside programs
+python3 tests/run_api.py        # the vml command and Python: calling back, chains across languages, outside programs
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.

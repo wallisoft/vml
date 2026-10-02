@@ -67,3 +67,19 @@ start=$(date +%s%N)
 for i in $(seq 1 20); do vml set lblOut Text "count $i"; done
 vml setting speed_ms $(( ($(date +%s%N) - start) / 20000000 ))
 SH
+
+@Button btnPython
+Parent=ApiStack
+Content=Python
+OnClick=PyHello
+
+@Script PyHello
+Interpreter=python
+<<PY
+import json, statistics
+name = Vml("GetProperty", "txtName", "Text")
+scores = [3, 5, 8]
+Vml("SetProperty", "lblOut", "Text", f"Hello {name} from Python: mean {statistics.mean(scores)}")
+Vml("SetSetting", "py_args", json.dumps(args))
+print(Vml("RunScript", "LuaDouble", "4"))
+PY
