@@ -14,8 +14,8 @@ import json
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
-                               QSizePolicy, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QMenuBar,
+                               QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from .registry import COMMON, REGISTRY, ControlType, Prop, anchor_set, anchored_rect, colour, num, register, truthy
 
@@ -115,7 +115,7 @@ class Overlay(QWidget):
     def paint_title_bar(self, p):
         """A window title bar above the form, so it looks like the window it will become."""
         v, f = self.view, self.view.form.geometry()
-        bar = QRect(f.left(), f.top() - TITLE_H, f.width(), TITLE_H)
+        bar = QRect(f.left(), f.top() - v.menu_h() - TITLE_H, f.width(), TITLE_H)
         p.setPen(QPen(QColor("#9ca3af"), 1))
         p.setBrush(QColor("#f3f4f6"))
         p.drawRect(bar.adjusted(0, 0, -1, 0))
@@ -169,6 +169,9 @@ class Overlay(QWidget):
                 if r.adjusted(-2, -2, 2, 2).contains(pos):
                     self.mode, self.handle, self.orig = "resize", name, QRect(sel.host.geometry())
                     return
+        if v.menu_items and v.menubar.geometry().contains(pos):
+            v.emit("OnMenuBarClick", {})
+            return
         node = self.hit(pos)
         v.select(node.name if node else "", user=True)
         fpos = pos - v.form.pos()
@@ -276,6 +279,11 @@ class SurfaceView(QScrollArea):
         self.form.setObjectName("DesignForm")
         self.form.setAttribute(Qt.WA_StyledBackground, True)
         self.form.move(PAGE_MARGIN, PAGE_MARGIN + TITLE_H)
+        self.menu_items = []
+        self.menubar = QMenuBar(self.page)                  # the designed form's menu, shown as it will look
+        self.menubar.setNativeMenuBar(False)
+        self.menubar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.menubar.hide()
         self.overlay = Overlay(self)
         self.setWidget(self.page)
         vp = self.viewport()                     # a palette colour, not a stylesheet: it can't cascade into the form
@@ -328,9 +336,41 @@ class SurfaceView(QScrollArea):
     def snap(self, n):
         return int(round(n / self.grid) * self.grid) if self.grid > 1 else int(n)
 
+    def menu_h(self):
+        return self.menubar.sizeHint().height() if self.menu_items else 0
+
+    def set_menu(self, items):
+        """Show the designed form's menu bar: top-level captions with their real dropdowns."""
+        self.menu_items = list(items)
+        self.menubar.clear()
+        parents, items = {}, self.menu_items
+        for i, it in enumerate(items):
+            level = int(it.get("level", 0))
+            target = self.menubar if level == 0 else parents.get(level - 1)
+            if target is None:
+                continue
+            if it.get("separator"):
+                target.addSeparator()
+                continue
+            has_kids = i + 1 < len(items) and int(items[i + 1].get("level", 0)) > level
+            if has_kids or level == 0:
+                menu = QMenu(it.get("text") or "", target)
+                act = target.addMenu(menu)
+                parents[level] = menu
+            else:
+                act = target.addAction(it.get("text") or "")
+            act.setEnabled(bool(it.get("enabled", True)))
+            if it.get("shortcut"):
+                act.setShortcut(it["shortcut"])
+        self.menubar.setVisible(bool(self.menu_items))
+        self.set_form_size(self.form.width(), self.form.height())
+
     def set_form_size(self, w, h):
+        mh = self.menu_h()
+        self.form.move(PAGE_MARGIN, PAGE_MARGIN + TITLE_H + mh)
         self.form.resize(int(w), int(h))
-        self.page.resize(int(w) + 2 * PAGE_MARGIN + 40, int(h) + 2 * PAGE_MARGIN + TITLE_H + 40)
+        self.menubar.setGeometry(PAGE_MARGIN, PAGE_MARGIN + TITLE_H, int(w), mh)
+        self.page.resize(int(w) + 2 * PAGE_MARGIN + 40, int(h) + 2 * PAGE_MARGIN + TITLE_H + mh + 40)
         self.overlay.setGeometry(self.page.rect())
         self.overlay.raise_()
         self.overlay.update()
@@ -430,7 +470,7 @@ def set_show_grid(node, v):
 register(ControlType("DesignSurface", make_surface, container=True, add_child=surface_add, place_child=surface_place,
                      remove_child=surface_remove, category="Design",
                      events={e: surface_event(e) for e in ("OnSelectionChanged", "OnContextMenu", "OnChanged", "OnDoubleClick",
-                                                           "OnGeometry")}),
+                                                           "OnGeometry", "OnMenuBarClick")}),
          [p for p in COMMON if p.name in ("Margin", "IsVisible", "Width", "Height", "HorizontalAlignment", "VerticalAlignment")],
          [Prop("FormName", "text", "Form", default="Form1"),
           Prop("FormTitle", "text", "Form", default="Form1", apply=lambda n, v: n.widget.overlay.update()),

@@ -1,0 +1,347 @@
+# ============================================================================
+# Menu Editor, after VB5's: type a caption, press Next for the next item,
+# use the arrows to indent items into submenus and to reorder them.
+# A caption of "-" (or ticking Separator) makes a separator line.
+# ============================================================================
+
+@Window MenuEditor
+Title=Menu Editor
+Width=600
+Height=520
+OnOpened=MenuEdLoad
+
+@DockPanel MeRoot
+Parent=MenuEditor
+
+@Border MeFooter
+Parent=MeRoot
+DockPanel.Dock=Bottom
+Background=#F3F4F6
+BorderBrush=#E5E7EB
+BorderThickness=0,1,0,0
+Padding=12,8
+
+@StackPanel MeFooterRow
+Parent=MeFooter
+Orientation=Horizontal
+Spacing=8
+
+@TextBlock meHint
+Parent=MeFooterRow
+Text=Indent items with the arrows to make submenus.
+Foreground=#6B7280
+FontSize=11
+VerticalAlignment=Center
+
+@Button btnMeCancel
+Parent=MeFooterRow
+Content=Cancel
+Padding=14,5
+OnClick=CloseSelf
+
+@Button btnMeOK
+Parent=MeFooterRow
+Content=OK
+Background=#2563EB
+Foreground=White
+Padding=22,5
+OnClick=MenuEdOK
+
+@StackPanel MeMain
+Parent=MeRoot
+Margin=14
+Spacing=8
+
+@Grid MeFields
+Parent=MeMain
+ColumnDefinitions=Auto,*,16,Auto,*
+RowDefinitions=Auto,8,Auto
+
+@TextBlock meCaptionLbl
+Parent=MeFields
+Text=Caption
+VerticalAlignment=Center
+Margin=0,0,8,0
+
+@TextBox txtCaption
+Parent=MeFields
+Grid.Column=1
+Watermark=e.g. &File
+TextChanged=MenuEdCaptionChanged
+
+@TextBlock meNameLbl
+Parent=MeFields
+Grid.Column=3
+Text=Name
+VerticalAlignment=Center
+Margin=0,0,8,0
+
+@TextBox txtName
+Parent=MeFields
+Grid.Column=4
+Watermark=made from the caption
+TextChanged=MenuEdNameChanged
+
+@TextBlock meShortcutLbl
+Parent=MeFields
+Grid.Row=2
+Text=Shortcut
+VerticalAlignment=Center
+Margin=0,0,8,0
+
+@TextBox txtShortcut
+Parent=MeFields
+Grid.Row=2
+Grid.Column=1
+Watermark=e.g. Ctrl+S
+TextChanged=MenuEdFieldChanged
+
+@StackPanel MeChecks
+Parent=MeFields
+Grid.Row=2
+Grid.Column=4
+Orientation=Horizontal
+Spacing=16
+
+@CheckBox chkSeparator
+Parent=MeChecks
+Content=Separator
+OnClick=MenuEdFieldChanged
+
+@CheckBox chkEnabled
+Parent=MeChecks
+Content=Enabled
+IsChecked=true
+OnClick=MenuEdFieldChanged
+
+@StackPanel MeButtons
+Parent=MeMain
+Orientation=Horizontal
+Spacing=6
+
+@Button btnOutdent
+Parent=MeButtons
+Content=←
+ToolTip=Outdent (move up a menu level)
+Width=36
+OnClick=MenuEdOutdent
+
+@Button btnIndent
+Parent=MeButtons
+Content=→
+ToolTip=Indent (make it a submenu item)
+Width=36
+OnClick=MenuEdIndent
+
+@Button btnUp
+Parent=MeButtons
+Content=↑
+ToolTip=Move up
+Width=36
+OnClick=MenuEdUp
+
+@Button btnDown
+Parent=MeButtons
+Content=↓
+ToolTip=Move down
+Width=36
+OnClick=MenuEdDown
+
+@Button btnNext
+Parent=MeButtons
+Content=Next
+Padding=12,4
+OnClick=MenuEdNext
+
+@Button btnInsert
+Parent=MeButtons
+Content=Insert
+Padding=12,4
+OnClick=MenuEdInsert
+
+@Button btnDelete
+Parent=MeButtons
+Content=Delete
+Padding=12,4
+OnClick=MenuEdDelete
+
+@Button btnMeScript
+Parent=MeButtons
+Content=Edit Script...
+Padding=12,4
+OnClick=MenuEdScript
+
+@ListBox lstMenu
+Parent=MeMain
+Height=270
+FontFamily=monospace
+SelectionChanged=MenuEdSelect
+
+# ============================================================================ scripts
+
+@Script MenuEdLoad
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+local items = json.decode(Vml("GetDesignMenu", "Surface")) or {}
+for _, it in ipairs(items) do it.named = true end
+if #items == 0 then items = {{text = "", name = "", shortcut = "", level = 0, separator = false, enabled = true}} end
+MenuEd = {items = items, cur = 1}
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdRefresh
+Interpreter=lua
+<<LUA
+-- redraw the list and the fields from MenuEd (script-set values never fire the edit events)
+local lines = {}
+for i, it in ipairs(MenuEd.items) do
+    local caption = it.separator and "-----" or (it.text ~= "" and it.text or "(new item)")
+    caption = caption:gsub(",", ";")
+    local shortcut = (it.shortcut ~= "" and not it.separator) and ("   [" .. it.shortcut .. "]") or ""
+    lines[i] = string.rep("....", it.level) .. caption .. shortcut
+end
+Vml("SetProperty", "lstMenu", "Items", table.concat(lines, ","))
+Vml("SetProperty", "lstMenu", "SelectedIndex", MenuEd.cur - 1)
+local it = MenuEd.items[MenuEd.cur] or {text = "", name = "", shortcut = "", separator = false, enabled = true}
+Vml("SetProperty", "txtCaption", "Text", it.text)
+Vml("SetProperty", "txtName", "Text", it.name)
+Vml("SetProperty", "txtShortcut", "Text", it.shortcut)
+Vml("SetProperty", "chkSeparator", "IsChecked", it.separator and "true" or "false")
+Vml("SetProperty", "chkEnabled", "IsChecked", it.enabled == false and "false" or "true")
+LUA
+
+@Script MenuEdSelect
+Interpreter=lua
+<<LUA
+MenuEd.cur = (tonumber(Vml("GetProperty", "lstMenu", "SelectedIndex")) or 0) + 1
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdCaptionChanged
+Interpreter=lua
+<<LUA
+-- the name follows the caption (mnuFile for "&File") until you type one of your own
+local it = MenuEd.items[MenuEd.cur]
+if not it then return end
+it.text = Vml("GetProperty", "txtCaption", "Text")
+if it.text == "-" then it.separator = true end
+if not it.named then
+    local base = it.text:gsub("&", ""):gsub("[^%w]", "")
+    it.name = base ~= "" and ("mnu" .. base:sub(1, 1):upper() .. base:sub(2)) or ""
+end
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdNameChanged
+Interpreter=lua
+<<LUA
+local it = MenuEd.items[MenuEd.cur]
+if not it then return end
+it.name = Vml("GetProperty", "txtName", "Text")
+it.named = it.name ~= ""
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdFieldChanged
+Interpreter=lua
+<<LUA
+local it = MenuEd.items[MenuEd.cur]
+if not it then return end
+it.shortcut = Vml("GetProperty", "txtShortcut", "Text")
+it.separator = Vml("GetProperty", "chkSeparator", "IsChecked") == "true"
+it.enabled = Vml("GetProperty", "chkEnabled", "IsChecked") == "true"
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdNext
+Interpreter=lua
+<<LUA
+-- like VB: move to the next item, or start a new one at the same level
+if MenuEd.cur < #MenuEd.items then
+    MenuEd.cur = MenuEd.cur + 1
+else
+    local level = MenuEd.items[MenuEd.cur] and MenuEd.items[MenuEd.cur].level or 0
+    table.insert(MenuEd.items, {text = "", name = "", shortcut = "", level = level, separator = false, enabled = true})
+    MenuEd.cur = #MenuEd.items
+end
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdInsert
+Interpreter=lua
+<<LUA
+local level = MenuEd.items[MenuEd.cur] and MenuEd.items[MenuEd.cur].level or 0
+table.insert(MenuEd.items, MenuEd.cur, {text = "", name = "", shortcut = "", level = level, separator = false, enabled = true})
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdDelete
+Interpreter=lua
+<<LUA
+table.remove(MenuEd.items, MenuEd.cur)
+if #MenuEd.items == 0 then
+    MenuEd.items = {{text = "", name = "", shortcut = "", level = 0, separator = false, enabled = true}}
+end
+MenuEd.cur = math.max(1, math.min(MenuEd.cur, #MenuEd.items))
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdIndent
+Interpreter=lua
+<<LUA
+local it, prev = MenuEd.items[MenuEd.cur], MenuEd.items[MenuEd.cur - 1]
+if it and prev then it.level = math.min(it.level + 1, prev.level + 1, 3) end
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdOutdent
+Interpreter=lua
+<<LUA
+local it = MenuEd.items[MenuEd.cur]
+if it then it.level = math.max(0, it.level - 1) end
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdUp
+Interpreter=lua
+<<LUA
+local i = MenuEd.cur
+if i > 1 then
+    MenuEd.items[i], MenuEd.items[i - 1] = MenuEd.items[i - 1], MenuEd.items[i]
+    MenuEd.cur = i - 1
+end
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdDown
+Interpreter=lua
+<<LUA
+local i = MenuEd.cur
+if i < #MenuEd.items then
+    MenuEd.items[i], MenuEd.items[i + 1] = MenuEd.items[i + 1], MenuEd.items[i]
+    MenuEd.cur = i + 1
+end
+Vml("RunScript", "MenuEdRefresh")
+LUA
+
+@Script MenuEdScript
+Interpreter=lua
+<<LUA
+-- the same script editor as controls, for this menu item's click
+local it = MenuEd.items[MenuEd.cur]
+if not it or it.separator or it.name == "" then
+    return Vml("InfoDialog", "Give the item a caption first.", "Menu Editor")
+end
+Vml("SetSetting", "editor_control", "menu:" .. it.name)
+Vml("SetSetting", "editor_event", "OnClick")
+Vml("FormOpenModal", "script-editor.vml")
+LUA
+
+@Script MenuEdOK
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+Vml("SetDesignMenu", "Surface", json.encode(MenuEd.items))
+Vml("CloseSelf")
+LUA

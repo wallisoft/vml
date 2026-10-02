@@ -763,7 +763,7 @@ def shortcut(node, value):
     for k, q in KEY_NAMES.items():
         v = "+".join(q if part == k else part for part in v.split("+"))
     node.action.setShortcut(QKeySequence(v))
-    node.action.setShortcutContext(Qt.ApplicationShortcut)
+    node.action.setShortcutContext(Qt.WindowShortcut)       # each window's shortcuts are its own
 
 
 def make_contextmenu(node):

@@ -52,6 +52,7 @@ OnContextMenu=ShowSurfaceMenu
 OnChanged=DesignChanged
 OnDoubleClick=EditScriptOnClick
 OnGeometry=ShowGeometry
+OnMenuBarClick=OpenMenuEditor
 
 # ---------------------------------------------------------------- menus
 
@@ -112,6 +113,12 @@ Text=Edit Script...
 Shortcut=Ctrl+E
 OnClick=EditScript
 
+@MenuItem EditMenus
+Parent=Edit
+Text=Menu Editor...
+Shortcut=Ctrl+M
+OnClick=OpenMenuEditor
+
 @MenuItem EditDuplicate
 Parent=Edit
 Text=Duplicate
@@ -169,6 +176,11 @@ OnClick=About
 @MenuItem CtxAdd
 Parent=SurfaceMenu
 Text=Add
+
+@MenuItem CtxMenus
+Parent=SurfaceMenu
+Text=Menu Editor...
+OnClick=OpenMenuEditor
 
 @MenuItem CtxSep
 Parent=SurfaceMenu
@@ -275,6 +287,14 @@ if sel == "" then return Vml("SetStatusText", "Select a control first") end
 Vml("SetSetting", "editor_control", sel)
 Vml("SetSetting", "editor_event", args[1] or "")
 Vml("FormOpenModal", "script-editor.vml")
+Vml("RunScript", "SelectionChanged")
+LUA
+
+@Script OpenMenuEditor
+Interpreter=lua
+<<LUA
+-- the Menu Editor is a VML form too
+Vml("FormOpenModal", "menu-editor.vml")
 Vml("RunScript", "SelectionChanged")
 LUA
 

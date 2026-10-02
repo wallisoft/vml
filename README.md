@@ -90,6 +90,9 @@ python3 -m vml path/to/any-form.vml         # run any VML form
 - **Live position and size** on the status bar while you drag, resize or nudge.
 - **Form options:** title, size, background, resizable, modal, minimum and maximum size, shown on a window title
   bar above the form as you design.
+- **Menu Editor** (Ctrl+M, or click the form's menu bar), after VB5's: type a caption, press Next, indent with the
+  arrows for submenus, add shortcuts and separators, and give each item a script. The form shows its real menu bar
+  as you design.
 - **Bring to Front / Send to Back, Duplicate (Ctrl+D), Delete.**
 - **The property grid** edits whatever is selected: grouped, with checkboxes, dropdowns and colour pickers, and
   live, so it never goes stale. Click the empty form to edit the form itself.
@@ -151,6 +154,7 @@ python3 tests/run_step1.py      # events, Lua, settings, shell, reflection
 python3 tests/run_designer.py   # the designer: add, drag, resize, edit, script, save, reopen, preview
 python3 tests/run_anchors.py    # anchors, in the designer and at runtime
 python3 tests/run_frames.py     # frames, nesting, keys, live geometry, window options
+python3 tests/run_menus.py      # the Menu Editor, menus saved, reopened and run
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.

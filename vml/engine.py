@@ -537,6 +537,8 @@ class Engine:
         return json.dumps(out)
 
     def cmd_GetControlType(self, name):
+        if self._menu_target(name):
+            return "MenuItem"
         node = self._node(name)
         return getattr(node, "template", None) or node.type.name
 
@@ -841,6 +843,8 @@ class Engine:
         for kid in list(surf.children):
             self.delete(kid.name, kid.scope)
         surf.widget.select("")
+        surf.menu_scripts = {}
+        surf.widget.set_menu([])
         for k, v in (("FormName", "Form1"), ("FormTitle", "Form1"), ("FormWidth", "640"), ("FormHeight", "480"),
                      ("FormBackground", "#ffffff")):
             self.cmd_SetProperty(surf.name, k, v)
@@ -850,9 +854,14 @@ class Engine:
         surf = self._surface(surface)
         g = lambda k, d: str(self.cmd_GetProperty(surf.name, k) or d)
         form, canvas = g("FormName", "Form1"), g("FormName", "Form1") + "Canvas"
+        menu = surf.widget.menu_items
+        mh = surf.widget.menu_h()
         out = [f"# {form}: designed in the VML designer", "", f"@Window {form}", f"Title={g('FormTitle', form)}",
-               f"Width={g('FormWidth', 640)}", f"Height={g('FormHeight', 480)}", "",
-               f"@Canvas {canvas}", f"Parent={form}", f"Background={g('FormBackground', '#ffffff')}"]
+               f"Width={g('FormWidth', 640)}", f"Height={int(float(g('FormHeight', 480))) + mh}", ""]
+        if menu:
+            out += [f"@DockPanel {form}Root", f"Parent={form}", "",
+                    f"@TinyMenu {form}Menu", f"Parent={form}Root", "DockPanel.Dock=Top", ""]
+        out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight")):
             v = str(surf.props.get(prop, "") or "")
@@ -876,6 +885,24 @@ class Engine:
                 if k in ("Name", "X", "Y", "IsHitTestVisible", "Focusable") or v == "" or skip.get(k) == v:
                     continue
                 out.append(f"{k}={v.replace(chr(10), ' ')}")
+        parents = {}
+        for it in menu:                                 # top-level items go on the menu bar; others under their parent
+            parents[it["level"]] = it["name"]
+            out += ["", f"@MenuItem {it['name']}", f"Parent={'MenuBar' if it['level'] == 0 else parents[it['level'] - 1]}"]
+            if it["separator"]:
+                out.append("IsSeparator=true")
+                continue
+            out.append(f"Text={it['text']}")
+            if it["shortcut"]:
+                out.append(f"Shortcut={it['shortcut']}")
+            if not it["enabled"]:
+                out.append("IsEnabled=false")
+            if it.get("onclick"):
+                out.append(f"OnClick={it['onclick']}")
+        for handler, (interp, code) in getattr(surf, "menu_scripts", {}).items():
+            if any(it.get("onclick") == handler for it in menu):
+                term = "END_" + re.sub(r"\W", "_", handler).upper()
+                out += ["", f"@Script {handler}", f"Interpreter={interp}", f"<<{term}", *code.rstrip("\n").split("\n"), term]
         for kid, _ in everything:
             for event, (interp, code) in getattr(kid, "design_scripts", {}).items():
                 name = kid.props.get(event) or f"{kid.name}_{event}"
@@ -893,11 +920,32 @@ class Engine:
             log(PARSER_LOG.pop(0))
         window = next((r for r in rows if r[2] == "Window"), None)
         canvas = next((r for r in rows if window and r[1] == window[0] and r[2] == "Canvas"), None)
+        if window is not None and canvas is None:            # a form with a menu: Window > DockPanel > Canvas
+            dock = next((r for r in rows if r[1] == window[0] and r[2] == "DockPanel"), None)
+            canvas = next((r for r in rows if dock and r[1] == dock[0] and r[2] == "Canvas"), None)
         if window is None or canvas is None:
             log(f"{path}: only forms laid out on a Canvas can be designed here (this one uses layout panels)")
             return False
         self.cmd_ClearDesign(surf.name)
         wp, cp = props[window[0]], props[canvas[0]]
+        by_id, menu = {r[0]: r for r in rows}, []
+        for cid, parent_id, ctype, name in rows:
+            if ctype != "MenuItem":
+                continue
+            level, p_id = 0, parent_id
+            while p_id in by_id and by_id[p_id][2] == "MenuItem":
+                level, p_id = level + 1, by_id[p_id][1]
+            mp = props[cid]
+            item = {"name": name, "text": mp.get("Text", ""), "shortcut": mp.get("Shortcut", ""), "level": level,
+                    "separator": mp.get("IsSeparator", "").lower() == "true", "enabled": mp.get("IsEnabled", "true").lower() != "false"}
+            if mp.get("OnClick") in scripts:
+                surf.menu_scripts = getattr(surf, "menu_scripts", {})
+                surf.menu_scripts[mp["OnClick"]] = scripts[mp["OnClick"]]
+                item["onclick"] = mp["OnClick"]
+            menu.append(item)
+        surf.widget.set_menu(menu)
+        if menu:
+            wp = dict(wp, Height=str(int(float(wp.get("Height", 480))) - surf.widget.menu_h()))
         for k, v in (("FormName", window[3]), ("FormTitle", wp.get("Title", window[3])),
                      ("FormWidth", wp.get("Width", "640")), ("FormHeight", wp.get("Height", "480")),
                      ("FormBackground", cp.get("Background", "#ffffff"))):
@@ -926,6 +974,57 @@ class Engine:
         return True
 
 
+
+    # --- the designed form's menu (the Menu Editor's side)
+    def _menu_slug(self, text):
+        base = re.sub(r"[^A-Za-z0-9]", "", str(text).replace("&", "")) or "Item"
+        return "mnu" + base[0].upper() + base[1:]
+
+    def cmd_GetDesignMenu(self, surface="Surface"):
+        surf = self._surface(surface)
+        return json.dumps(surf.widget.menu_items)
+
+    def cmd_SetDesignMenu(self, surface, items_json):
+        """Replace the designed form's menu: a flat list of items with indent levels, as in VB's Menu Editor."""
+        surf = self._surface(surface)
+        try:
+            raw = json.loads(items_json) if items_json else []
+        except ValueError:
+            raw = []
+        if isinstance(raw, dict):                     # an empty Lua table encodes as {}
+            raw = list(raw.values())
+        old = {it["name"]: it for it in surf.widget.menu_items}
+        scripts = getattr(surf, "menu_scripts", {})
+        items, names, prev_level = [], set(), -1
+        for it in raw:
+            sep = bool(it.get("separator"))
+            text = str(it.get("text", "") or "")
+            if not sep and not text.strip():
+                continue                               # blank rows are dropped, as VB did
+            name = str(it.get("name", "") or "") or (f"mnuSep{len(items) + 1}" if sep else self._menu_slug(text))
+            base, n = name, 2
+            while name in names:
+                name, n = f"{base}{n}", n + 1
+            names.add(name)
+            level = max(0, min(int(it.get("level", 0) or 0), prev_level + 1, 3))
+            prev_level = level
+            item = {"name": name, "text": text, "shortcut": str(it.get("shortcut", "") or ""), "level": level,
+                    "separator": sep, "enabled": it.get("enabled", True) not in (False, "false", 0)}
+            handler = it.get("onclick") or old.get(name, {}).get("onclick") or f"{name}_Click"
+            if handler in scripts:
+                item["onclick"] = handler
+            items.append(item)
+        surf.widget.set_menu(items)
+        surf.widget.emit("OnChanged", {"selected_control": ""})
+        return len(items)
+
+    def _menu_target(self, name):
+        """'menu:mnuSave' -> (surface node, item name); otherwise None."""
+        if not str(name).startswith("menu:"):
+            return None
+        surf = next((n for n in self.nodes.values() if n.type.name == "DesignSurface"), None)
+        return (surf, str(name)[5:]) if surf is not None else None
+
     # --- design scripts (the script editor's side)
     SHELL = "powershell" if sys.platform.startswith("win") else "bash"
 
@@ -933,6 +1032,10 @@ class Engine:
         return "PowerShell" if self.SHELL == "powershell" else "Bash"
 
     def cmd_GetControlEvents(self, name):
+        mt = self._menu_target(name)
+        if mt:
+            surf, item = mt
+            return json.dumps([{"name": "OnClick", "has_script": f"{item}_Click" in getattr(surf, "menu_scripts", {})}])
         node = self._node(name)
         scripts = getattr(node, "design_scripts", {})
         events = sorted(e for e, hook in node.type.events.items() if hook is not None)
@@ -942,6 +1045,13 @@ class Engine:
         return json.dumps([{"name": e, "has_script": e in scripts} for e in events])
 
     def cmd_GetDesignScript(self, name, event):
+        mt = self._menu_target(name)
+        if mt:
+            surf, item = mt
+            handler = next((it.get("onclick") for it in surf.widget.menu_items if it["name"] == item and it.get("onclick")),
+                           f"{item}_Click")
+            interp, code = getattr(surf, "menu_scripts", {}).get(handler, ("lua", ""))
+            return json.dumps({"language": "Lua" if interp == "lua" else "Shell", "code": code, "script": handler})
         node = self._node(name)
         interp, code = getattr(node, "design_scripts", {}).get(event, ("lua", ""))
         return json.dumps({"language": "Lua" if interp == "lua" else "Shell", "code": code,
@@ -949,6 +1059,25 @@ class Engine:
 
     def cmd_SetDesignScript(self, name, event, language, code):
         """Attach (or, with empty code, remove) a control's event script."""
+        mt = self._menu_target(name)
+        if mt:
+            surf, item = mt
+            surf.menu_scripts = getattr(surf, "menu_scripts", {})
+            handler = next((it.get("onclick") for it in surf.widget.menu_items if it["name"] == item and it.get("onclick")),
+                           f"{item}_Click")
+            lang = str(language).lower()
+            if not str(code).strip():
+                surf.menu_scripts.pop(handler, None)
+                for it in surf.widget.menu_items:
+                    if it["name"] == item:
+                        it.pop("onclick", None)
+                return ""
+            surf.menu_scripts[handler] = ("lua" if lang == "lua" else self.SHELL, str(code))
+            for it in surf.widget.menu_items:
+                if it["name"] == item:
+                    it["onclick"] = handler
+            surf.widget.emit("OnChanged", {"selected_control": ""})
+            return handler
         node = self._node(name)
         node.design_scripts = getattr(node, "design_scripts", {})
         if not str(code).strip():
