@@ -205,6 +205,9 @@ class Engine:
                 parent.type.add_child(parent, node)
         if tmpl:
             self._instantiate(node, tmpl, props)
+        if scope.startswith("design:"):
+            from .design import inert
+            inert(node.host)
         return node
 
     def apply(self, node, pname, value):
@@ -228,9 +231,11 @@ class Engine:
         need = w.minimumSizeHint()
         if need.height() > w.height() or need.width() > w.width():
             w.resize(w.size().expandedTo(need))
-        if modal:
+        if modal or truthy(node.props.get("Modal", "false")):
             w.setWindowModality(Qt.ApplicationModal)
         w.show()
+        if node.props.get("Resizable", "true").lower() == "false":
+            w.setFixedSize(w.size())
         self.windows.append(node)
         if node.props.get("OnOpened"):
             QTimer.singleShot(0, lambda: self.fire(node, "OnOpened", {}))
@@ -500,7 +505,7 @@ class Engine:
         """Canvas children aren't in a layout: re-place them when anything that affects their size changes."""
         while node is not None:
             parent = node.parent
-            if parent is not None and parent.type.name in ("Canvas", "DesignSurface") and parent.type.place_child:
+            if parent is not None and parent.type.name in ("Canvas", "DesignSurface", "Frame") and parent.type.place_child:
                 parent.type.place_child(parent, node)
                 return
             node = parent
@@ -715,13 +720,23 @@ class Engine:
         return json.dumps(sorted(out, key=lambda t: (order.get(t["category"], 9), t["name"])))
 
     def cmd_AddDesignControl(self, ctype, x=0, y=0, surface="Surface"):
+        """Add a control where the user right-clicked: inside a Frame if the click was in one."""
         surf = self._surface(surface)
+        view = surf.widget
+        from PySide6.QtCore import QPoint
+        page_pt = view.form.pos() + QPoint(int(float(x or 0)), int(float(y or 0)))
+        container = view.container_at(page_pt) or surf
+        if container is not surf:
+            local = container.widget.mapFrom(view.page, page_pt)
+            x, y = local.x(), local.y()
         name = self._unique(ctype)
-        if self.cmd_CreateControl(ctype, name, surf.name) == "Failed":
+        if self.cmd_CreateControl(ctype, name, container.name) == "Failed":
             return ""
         defaults = dict(DESIGN_DEFAULTS.get(ctype, {}))
+        if ctype == "Frame":
+            defaults["Text"] = ""
         for key in ("Content", "Text"):
-            if key in defaults and ctype in ("Button", "CheckBox", "TextBlock"):
+            if key in defaults and ctype in ("Button", "CheckBox", "TextBlock", "Frame"):
                 defaults[key] = name
         snap = surf.widget.snap
         defaults["Canvas.Left"], defaults["Canvas.Top"] = str(snap(float(x or 0))), str(snap(float(y or 0)))
@@ -748,6 +763,38 @@ class Engine:
             surf.widget.select(new, user=True)
             surf.widget.emit("OnChanged", {"selected_control": new})
         return new
+
+    def cmd_SetParent(self, name, parent_name):
+        """Move a control into another container (or back onto the form), keeping its place on screen."""
+        node, new_parent = self._node(name), self._node(parent_name)
+        old_parent = node.parent
+        if new_parent is old_parent or new_parent is node:
+            return False
+        p = new_parent
+        while p is not None:                                  # never into itself or its own children
+            if p is node:
+                return False
+            p = p.parent
+        from PySide6.QtCore import QPoint
+        screen_pos = node.host.mapToGlobal(QPoint(0, 0))
+        if old_parent is not None:
+            if old_parent.type.remove_child:
+                old_parent.type.remove_child(old_parent, node)
+            old_parent.children.remove(node)
+        target = new_parent.widget.form if new_parent.type.name == "DesignSurface" else new_parent.widget
+        local = target.mapFromGlobal(screen_pos)
+        node.props["Canvas.Left"], node.props["Canvas.Top"] = str(max(0, local.x())), str(max(0, local.y()))
+        node.parent = new_parent
+        new_parent.children.append(node)
+        new_parent.type.add_child(new_parent, node)
+        for k in ("Canvas.Left", "Canvas.Top"):
+            self.store.set_prop(node.cid, k, node.props[k])
+        if node.cid is not None:
+            self.store.db.execute("UPDATE ui_tree SET parent_id=? WHERE id=?", (new_parent.cid, node.cid))
+        for listener in list(self.listeners):
+            listener(node.name, "Canvas.Left", node.props["Canvas.Left"])
+            listener(node.name, "Canvas.Top", node.props["Canvas.Top"])
+        return True
 
     def cmd_RenameControl(self, old, new):
         node = self._node(old)
@@ -806,24 +853,36 @@ class Engine:
         out = [f"# {form}: designed in the VML designer", "", f"@Window {form}", f"Title={g('FormTitle', form)}",
                f"Width={g('FormWidth', 640)}", f"Height={g('FormHeight', 480)}", "",
                f"@Canvas {canvas}", f"Parent={form}", f"Background={g('FormBackground', '#ffffff')}"]
+        for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
+                          ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight")):
+            v = str(surf.props.get(prop, "") or "")
+            if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false"):
+                out.insert(out.index(f"@Canvas {canvas}") - 1, f"{key}={v}")      # with the window's own lines
         first = ["Canvas.Left", "Canvas.Top", "Width", "Height"]
-        for kid in surf.children:
+
+        def walk(container, parent_name):
+            for kid in container.children:
+                yield kid, parent_name
+                if kid.type.name == "Frame":
+                    yield from walk(kid, kid.name)
+        everything = list(walk(surf, canvas))
+        for kid, parent_name in everything:
             ctype = getattr(kid, "template", None) or kid.type.name
             skip = dict(self.templates[ctype].parts[0][3]) if ctype in self.templates else {}
-            out += ["", f"@{ctype} {kid.name}", f"Parent={canvas}"]
+            out += ["", f"@{ctype} {kid.name}", f"Parent={parent_name}"]
             keys = [k for k in first if k in kid.props] + sorted(k for k in kid.props if k not in first)
             for k in keys:
                 v = str(kid.props.get(k, ""))
                 if k in ("Name", "X", "Y", "IsHitTestVisible", "Focusable") or v == "" or skip.get(k) == v:
                     continue
                 out.append(f"{k}={v.replace(chr(10), ' ')}")
-        for kid in surf.children:
+        for kid, _ in everything:
             for event, (interp, code) in getattr(kid, "design_scripts", {}).items():
                 name = kid.props.get(event) or f"{kid.name}_{event}"
                 term = "END_" + re.sub(r"\W", "_", name).upper()
                 out += ["", f"@Script {name}", f"Interpreter={interp}", f"<<{term}", *code.rstrip("\n").split("\n"), term]
         Path(os.path.expanduser(path)).write_text("\n".join(out) + "\n", encoding="utf-8")
-        log(f"saved {len(surf.children)} controls to {path}")
+        log(f"saved {len(everything)} controls to {path}")
         return True
 
     def cmd_ImportVml(self, path, surface="Surface"):
@@ -843,12 +902,17 @@ class Engine:
                      ("FormWidth", wp.get("Width", "640")), ("FormHeight", wp.get("Height", "480")),
                      ("FormBackground", cp.get("Background", "#ffffff"))):
             self.cmd_SetProperty(surf.name, k, v)
-        count = 0
-        for cid, parent_id, ctype, name in rows:
-            if parent_id != canvas[0]:
+        for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
+                          ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight")):
+            if wp.get(key):
+                self.cmd_SetProperty(surf.name, prop, wp[key])
+        count, placed = 0, {canvas[0]: surf.name}
+        for cid, parent_id, ctype, name in rows:               # parents always come before their children
+            if parent_id not in placed:
                 continue
-            if self.cmd_CreateControl(ctype, name, surf.name) == "Failed":
+            if self.cmd_CreateControl(ctype, name, placed[parent_id]) == "Failed":
                 continue
+            placed[cid] = name
             node = self.find(name)
             for k, v in props[cid].items():
                 if k in node.type.events and v in scripts:
@@ -858,10 +922,6 @@ class Engine:
                 else:
                     self.cmd_SetProperty(name, k, v)
             count += 1
-        nested = sum(1 for r in rows if r[1] not in (None, window[0], canvas[0]) and
-                     any(x[0] == r[1] and x[1] == canvas[0] for x in rows))
-        if nested:
-            log(f"{path}: {nested} controls nested inside containers aren't editable here yet")
         log(f"opened {path}: {count} controls")
         return True
 

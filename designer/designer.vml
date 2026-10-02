@@ -51,6 +51,7 @@ OnSelectionChanged=SelectionChanged
 OnContextMenu=ShowSurfaceMenu
 OnChanged=DesignChanged
 OnDoubleClick=EditScriptOnClick
+OnGeometry=ShowGeometry
 
 # ---------------------------------------------------------------- menus
 
@@ -245,7 +246,7 @@ Interpreter=lua
 <<LUA
 local sel = Vml("GetProperty", "Surface", "Selected")
 Vml("SetProperty", "Props", "Target", sel ~= "" and sel or "Surface")
-Vml("SetStatusText", sel ~= "" and ("Selected " .. sel .. "  (" .. Vml("GetControlType", sel) .. ")") or "The form")
+Vml("RunScript", "ShowGeometry")
 LUA
 
 @Script DesignChanged
@@ -253,6 +254,7 @@ Interpreter=lua
 <<LUA
 Vml("SetSetting", "dirty", "true")
 Vml("RunScript", "UpdateTitle")
+Vml("RunScript", "ShowGeometry")
 LUA
 
 @Script UpdateTitle
@@ -281,6 +283,20 @@ Interpreter=lua
 <<LUA
 -- double-click: straight to the control's click script, as in VB
 Vml("RunScript", "EditScript", "OnClick")
+LUA
+
+@Script ShowGeometry
+Interpreter=lua
+<<LUA
+-- live position and size on the status bar (runs while dragging, resizing and nudging)
+local sel = Vml("GetProperty", "Surface", "Selected")
+if sel == "" then
+    Vml("SetStatusText", string.format("Form    %s x %s", Vml("GetProperty", "Surface", "FormWidth"),
+        Vml("GetProperty", "Surface", "FormHeight")))
+else
+    Vml("SetStatusText", string.format("%s  (%s)    X %s   Y %s    W %s   H %s", sel, Vml("GetControlType", sel),
+        Vml("GetControlX", sel), Vml("GetControlY", sel), Vml("GetControlWidth", sel), Vml("GetControlHeight", sel)))
+end
 LUA
 
 @Script DeleteSelected

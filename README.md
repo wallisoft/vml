@@ -85,6 +85,11 @@ python3 -m vml path/to/any-form.vml         # run any VML form
   (Shift for a grid step).
 - **Anchors:** pin a control to the form's edges so it moves or stretches as the window resizes (an OK button in
   the corner, a text box that spans the width, a list that fills the form). Drag the form's corner to see it live.
+- **Frames:** right-click inside a Frame to add a control to it, or drag a control onto a frame (and off it
+  again). Frames carry their contents with them; anchor the frame and its contents to make whole areas stretch.
+- **Live position and size** on the status bar while you drag, resize or nudge.
+- **Form options:** title, size, background, resizable, modal, minimum and maximum size, shown on a window title
+  bar above the form as you design.
 - **Bring to Front / Send to Back, Duplicate (Ctrl+D), Delete.**
 - **The property grid** edits whatever is selected: grouped, with checkboxes, dropdowns and colour pickers, and
   live, so it never goes stale. Click the empty form to edit the form itself.
@@ -100,7 +105,8 @@ python3 -m vml path/to/any-form.vml         # run any VML form
 | **Bash** | As a subprocess, with `$VML_DB_PATH` pointing at the form's database and `vml-parse` on the `PATH`. |
 | **PowerShell** | As a subprocess, on Windows (or anywhere `pwsh` is installed). |
 
-Event handlers can name a script (`OnClick=SaveScript`), pass it arguments (`OnClick=AddItem(Button)`), call an
+Events include clicks, text changes, selection, pointer, focus and keys (`OnKeyDown` and `OnKeyUp` receive
+the key, its text and the Ctrl/Shift/Alt modifiers). Event handlers can name a script (`OnClick=SaveScript`), pass it arguments (`OnClick=AddItem(Button)`), call an
 engine command (`OnClick=FormOpenModal about.vml`), or be a line of Lua.
 
 Commonly used `Vml()` commands:
@@ -117,7 +123,7 @@ Commonly used `Vml()` commands:
 
 ## Controls
 
-Window, StackPanel, Grid, DockPanel, Canvas, Border, ScrollViewer, TextBlock, TextBox, Button, CheckBox, ComboBox,
+Window, Frame, StackPanel, Grid, DockPanel, Canvas, Border, ScrollViewer, TextBlock, TextBox, Button, CheckBox, ComboBox,
 ListBox, Rectangle, menus (TinyMenu, MenuItem, ContextMenu, MenuTheme), and **composite controls** defined in VML
 itself with `@ControlTemplate` and `@PropertyMap`. Layout follows Avalonia's rules (DockPanel docking order, Grid
 star sizing, Margin outside and Padding inside), so existing forms look the same.
@@ -144,6 +150,7 @@ tests/          tests that drive forms like a user does
 python3 tests/run_step1.py      # events, Lua, settings, shell, reflection
 python3 tests/run_designer.py   # the designer: add, drag, resize, edit, script, save, reopen, preview
 python3 tests/run_anchors.py    # anchors, in the designer and at runtime
+python3 tests/run_frames.py     # frames, nesting, keys, live geometry, window options
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.
@@ -151,7 +158,7 @@ python3 tests/run_anchors.py    # anchors, in the designer and at runtime
 ## Roadmap
 
 - Named interpreter instances (`Interpreter=lua mygame`): scripts sharing a name share their state
-- Nesting controls inside containers in the designer, and designing layout-based forms
+- Designing layout-based forms
 - Undo and redo
 - Packaged releases (Linux, Windows installer, Microsoft Store)
 

@@ -28,6 +28,7 @@ PLACEMENT_ORDER = {"Canvas.Left": 0, "Canvas.Top": 1, "Anchor": 2}
 HIDDEN_IN_GRID = {"X", "Y", "Name", "IsHitTestVisible", "Focusable"}
 HANDLE = 7
 PAGE_MARGIN = 28
+TITLE_H = 30                 # the pretend window title bar above the form
 
 
 def inert(widget):
@@ -49,7 +50,7 @@ class Overlay(QWidget):
 
     # geometry helpers (all in page coordinates)
     def rect_of(self, node):
-        return node.host.geometry().translated(self.view.form.pos())
+        return QRect(node.host.mapTo(self.view.page, QPoint(0, 0)), node.host.size())
 
     def handles(self, r):
         cx, cy = r.center().x(), r.center().y()
@@ -62,10 +63,13 @@ class Overlay(QWidget):
         f = self.view.form.geometry()
         return QRect(f.right() - 4, f.bottom() - 4, 10, 10)
 
-    def hit(self, pos):
-        fpos = pos - self.view.form.pos()
-        for node in reversed(self.view.node.children):
-            if node.host.isVisible() and node.host.geometry().contains(fpos):
+    def hit(self, pos, container=None):
+        """The deepest control under pos (page coordinates): a control inside a Frame wins over the Frame."""
+        container = container or self.view.node
+        for node in reversed(container.children):
+            if node.host.isVisible() and self.rect_of(node).contains(pos):
+                if node.type.name == "Frame":
+                    return self.hit(pos, node) or node
                 return node
         return None
 
@@ -105,7 +109,36 @@ class Overlay(QWidget):
         p.setPen(QPen(QColor("#9ca3af"), 1))
         p.setBrush(QColor("#9ca3af"))
         p.drawRect(self.form_grip())
+        self.paint_title_bar(p)
         p.end()
+
+    def paint_title_bar(self, p):
+        """A window title bar above the form, so it looks like the window it will become."""
+        v, f = self.view, self.view.form.geometry()
+        bar = QRect(f.left(), f.top() - TITLE_H, f.width(), TITLE_H)
+        p.setPen(QPen(QColor("#9ca3af"), 1))
+        p.setBrush(QColor("#f3f4f6"))
+        p.drawRect(bar.adjusted(0, 0, -1, 0))
+        title = str(v.node.props.get("FormTitle") or v.node.props.get("FormName") or "Form1")
+        p.setPen(QColor("#111827"))
+        p.drawText(bar.adjusted(12, 0, -120, 0), Qt.AlignVCenter | Qt.AlignLeft, title)
+        resizable = str(v.node.props.get("FormResizable", "true")).lower() != "false"
+        x = bar.right() - 36
+        for glyph in ("close", "max", "min"):
+            r = QRect(x, bar.top() + 7, 16, 16)
+            p.setPen(QPen(QColor("#9ca3af") if glyph == "max" and not resizable else QColor("#374151"), 1.4))
+            if glyph == "close":
+                p.drawLine(r.left() + 3, r.top() + 3, r.right() - 3, r.bottom() - 3)
+                p.drawLine(r.right() - 3, r.top() + 3, r.left() + 3, r.bottom() - 3)
+            elif glyph == "max":
+                p.setBrush(Qt.NoBrush)
+                p.drawRect(r.adjusted(3, 3, -3, -3))
+            else:
+                p.drawLine(r.left() + 3, r.center().y() + 3, r.right() - 3, r.center().y() + 3)
+            x -= 36
+
+    def geometry_moved(self):
+        self.view.emit("OnGeometry", {})
 
     def cursor_for(self, pos):
         if self.form_grip().contains(pos):
@@ -185,6 +218,7 @@ class Overlay(QWidget):
                 node.widget.setFixedSize(w, hgt)
                 node.host.setGeometry(QRect(x, y, w, hgt))
         self.update()
+        self.geometry_moved()
 
     def mouseReleaseEvent(self, e):
         v, mode = self.view, self.mode
@@ -194,6 +228,13 @@ class Overlay(QWidget):
             v.commit_form()
         elif mode in ("move", "resize") and node is not None:
             g = node.host.geometry()
+            if mode == "move":
+                target = v.container_at(e.position().toPoint(), exclude=node) or v.node
+                if target is not node.parent:
+                    v.engine.cmd_SetParent(node.name, target.name)
+                    self.update()
+                    v.emit("OnChanged", {"selected_control": node.name})
+                    return
             if g != self.orig:
                 v.commit(node, g, resized=(mode == "resize"))
 
@@ -214,6 +255,7 @@ class Overlay(QWidget):
             g = node.host.geometry()
             g.moveTo(max(0, g.x() + dx), max(0, g.y() + dy))
             v.commit(node, g)
+            self.geometry_moved()
         elif e.key() == Qt.Key_Escape:
             v.select("", user=True)
         else:
@@ -233,7 +275,7 @@ class SurfaceView(QScrollArea):
         self.form = QWidget(self.page)
         self.form.setObjectName("DesignForm")
         self.form.setAttribute(Qt.WA_StyledBackground, True)
-        self.form.move(PAGE_MARGIN, PAGE_MARGIN)
+        self.form.move(PAGE_MARGIN, PAGE_MARGIN + TITLE_H)
         self.overlay = Overlay(self)
         self.setWidget(self.page)
         vp = self.viewport()                     # a palette colour, not a stylesheet: it can't cascade into the form
@@ -245,8 +287,29 @@ class SurfaceView(QScrollArea):
         self.set_form_size(640, 480)
 
     # selection
+    def walk(self, container=None):
+        for n in (container or self.node).children:
+            yield n
+            if n.type.container:
+                yield from self.walk(n)
+
     def selected_node(self):
-        return next((n for n in self.node.children if n.name == self.selected), None)
+        return next((n for n in self.walk() if n.name == self.selected), None)
+
+    def container_at(self, page_pos, exclude=None):
+        """The deepest Frame under a point, ignoring exclude and everything inside it; None means the form."""
+        found, container = None, self.node
+        while True:
+            nxt = None
+            for n in reversed(container.children):
+                if n is exclude or n.type.name != "Frame" or not n.host.isVisible():
+                    continue
+                if self.overlay.rect_of(n).contains(page_pos):
+                    nxt = n
+                    break
+            if nxt is None:
+                return found
+            found = container = nxt
 
     def select(self, name, user=False):
         name = name or ""
@@ -267,7 +330,7 @@ class SurfaceView(QScrollArea):
 
     def set_form_size(self, w, h):
         self.form.resize(int(w), int(h))
-        self.page.resize(int(w) + 2 * PAGE_MARGIN + 40, int(h) + 2 * PAGE_MARGIN + 40)
+        self.page.resize(int(w) + 2 * PAGE_MARGIN + 40, int(h) + 2 * PAGE_MARGIN + TITLE_H + 40)
         self.overlay.setGeometry(self.page.rect())
         self.overlay.raise_()
         self.overlay.update()
@@ -278,11 +341,19 @@ class SurfaceView(QScrollArea):
 
     def commit(self, node, g, resized=False):
         e = self.engine
+        kids = [(k, k.host.geometry(), k.widget.size()) for k in node.children] if resized and node.type.name == "Frame" else []
         e.cmd_SetProperty(node.name, "Canvas.Left", str(g.x()))
         e.cmd_SetProperty(node.name, "Canvas.Top", str(g.y()))
         if resized:
             e.cmd_SetProperty(node.name, "Width", str(g.width()))
             e.cmd_SetProperty(node.name, "Height", str(g.height()))
+        for k, kg, ks in kids:                               # keep where the frame's anchors put them
+            if anchor_set(k.props.get("Anchor")) == {"Top", "Left"}:
+                continue
+            e.cmd_SetProperty(k.name, "Canvas.Left", str(kg.x()))
+            e.cmd_SetProperty(k.name, "Canvas.Top", str(kg.y()))
+            e.cmd_SetProperty(k.name, "Width", str(ks.width()))
+            e.cmd_SetProperty(k.name, "Height", str(ks.height()))
         self.overlay.update()
         self.emit("OnChanged", {"selected_control": node.name})
 
@@ -294,12 +365,20 @@ class SurfaceView(QScrollArea):
             a = anchor_set(node.props.get("Anchor"))
             if a == {"Top", "Left"}:
                 continue
+            kids = [(k, k.host.geometry(), k.widget.size()) for k in node.children] if node.type.name == "Frame" else []
             g = node.host.geometry()
             e.cmd_SetProperty(node.name, "Canvas.Left", str(g.x()))
             e.cmd_SetProperty(node.name, "Canvas.Top", str(g.y()))
             if ("Left" in a and "Right" in a) or ("Top" in a and "Bottom" in a):
                 e.cmd_SetProperty(node.name, "Width", str(node.widget.width()))
                 e.cmd_SetProperty(node.name, "Height", str(node.widget.height()))
+            for k, kg, ks in kids:                           # a stretched frame keeps its contents where its anchors put them
+                if anchor_set(k.props.get("Anchor")) == {"Top", "Left"}:
+                    continue
+                e.cmd_SetProperty(k.name, "Canvas.Left", str(kg.x()))
+                e.cmd_SetProperty(k.name, "Canvas.Top", str(kg.y()))
+                e.cmd_SetProperty(k.name, "Width", str(ks.width()))
+                e.cmd_SetProperty(k.name, "Height", str(ks.height()))
         self.overlay.update()
         self.emit("OnChanged", {"selected_control": ""})
 
@@ -350,10 +429,11 @@ def set_show_grid(node, v):
 
 register(ControlType("DesignSurface", make_surface, container=True, add_child=surface_add, place_child=surface_place,
                      remove_child=surface_remove, category="Design",
-                     events={e: surface_event(e) for e in ("OnSelectionChanged", "OnContextMenu", "OnChanged", "OnDoubleClick")}),
+                     events={e: surface_event(e) for e in ("OnSelectionChanged", "OnContextMenu", "OnChanged", "OnDoubleClick",
+                                                           "OnGeometry")}),
          [p for p in COMMON if p.name in ("Margin", "IsVisible", "Width", "Height", "HorizontalAlignment", "VerticalAlignment")],
          [Prop("FormName", "text", "Form", default="Form1"),
-          Prop("FormTitle", "text", "Form", default="Form1"),
+          Prop("FormTitle", "text", "Form", default="Form1", apply=lambda n, v: n.widget.overlay.update()),
           Prop("FormWidth", "number", "Form", default="640",
                apply=lambda n, v: n.widget.set_form_size(num(v, 640), n.widget.form.height()),
                read=lambda n: n.widget.form.width()),
@@ -361,6 +441,10 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
                apply=lambda n, v: n.widget.set_form_size(n.widget.form.width(), num(v, 480)),
                read=lambda n: n.widget.form.height()),
           Prop("FormBackground", "colour", "Form", default="#ffffff", apply=lambda n, v: n.widget.set_form_bg(v)),
+          Prop("FormResizable", "bool", "Form", default="true", apply=lambda n, v: n.widget.overlay.update()),
+          Prop("FormModal", "bool", "Form", default="false"),
+          Prop("FormMinWidth", "number", "Form"), Prop("FormMinHeight", "number", "Form"),
+          Prop("FormMaxWidth", "number", "Form"), Prop("FormMaxHeight", "number", "Form"),
           Prop("GridSize", "number", "Behaviour", default="8", apply=set_grid),
           Prop("ShowGrid", "bool", "Behaviour", default="true", apply=set_show_grid),
           Prop("Selected", "text", "Behaviour", apply=lambda n, v: n.widget.select(str(v or "")),
@@ -578,4 +662,5 @@ DESIGN_DEFAULTS = {
     "DockPanel": {"Width": "200", "Height": "120", "Background": "#F9FAFB"},
     "Rectangle": {"Width": "120", "Height": "80", "Fill": "#BFDBFE", "Stroke": "#2563EB", "StrokeThickness": "1"},
     "ScrollViewer": {"Width": "200", "Height": "120"},
+    "Frame": {"Width": "240", "Height": "160"},
 }

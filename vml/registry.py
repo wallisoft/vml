@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt
+from PySide6.QtGui import QColor as _QColor, QKeySequence, QPainter as _QPainter, QPen as _QPen
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
                                QListWidget, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
@@ -223,6 +224,14 @@ class _Filter(QObject):
         t = ev.type()
         if t in self.kinds:
             details = {}
+            if t in (QEvent.KeyPress, QEvent.KeyRelease):
+                mods = ev.modifiers()
+                names = [n for flag, n in ((Qt.ControlModifier, "Ctrl"), (Qt.ShiftModifier, "Shift"),
+                                           (Qt.AltModifier, "Alt"), (Qt.MetaModifier, "Meta")) if mods & flag]
+                code = int(getattr(ev.key(), "value", ev.key()))
+                details = {"event_key": KEY_NAMES_BY_CODE.get(code) or QKeySequence(code).toString() or str(code),
+                           "event_key_text": ev.text(), "event_modifiers": "+".join(names),
+                           "event_repeat": "true" if ev.isAutoRepeat() else "false"}
             if t in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.MouseMove):
                 p = ev.position()
                 btn = {Qt.LeftButton: "Left", Qt.RightButton: "Right", Qt.MiddleButton: "Middle"}.get(ev.button(), "")
@@ -246,6 +255,15 @@ def on_signal(signal_name):
         getattr(node.widget, signal_name).connect(lambda *a: fire({}))
     return hook
 
+
+KEY_NAMES = {Qt.Key_Return: "Enter", Qt.Key_Enter: "Enter", Qt.Key_Escape: "Escape", Qt.Key_Space: "Space",
+             Qt.Key_Backspace: "Backspace", Qt.Key_Delete: "Delete", Qt.Key_Tab: "Tab", Qt.Key_Up: "Up",
+             Qt.Key_Down: "Down", Qt.Key_Left: "Left", Qt.Key_Right: "Right"}
+KEY_NAMES_BY_CODE = {int(getattr(k, "value", k)): v for k, v in KEY_NAMES.items()}   # Qt reports keys as numbers
+KEY_EVENTS = {
+    "OnKeyDown": on_qt_event(QEvent.KeyPress),
+    "OnKeyUp": on_qt_event(QEvent.KeyRelease),
+}
 
 POINTER_EVENTS = {
     "OnPointerPressed": on_qt_event(QEvent.MouseButtonPress),
@@ -463,6 +481,7 @@ class CanvasWidget(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        self.laid_out = True                     # anchors only mean something once we've a real size
         for child in list(self.node.children):
             canvas_place(self.node, child)
 
@@ -470,7 +489,7 @@ class CanvasWidget(QWidget):
 def canvas_place(parent, child):
     child.host.adjustSize()
     w = parent.widget
-    ref = w.ref_size() if isinstance(w, CanvasWidget) else None
+    ref = w.ref_size() if isinstance(w, CanvasWidget) and getattr(w, "laid_out", False) else None
     if ref is None or anchor_set(child.props.get("Anchor")) == {"Top", "Left"}:
         child.host.move(int(num(child.props.get("Canvas.Left", child.props.get("X")))),
                         int(num(child.props.get("Canvas.Top", child.props.get("Y")))))
@@ -614,8 +633,12 @@ def set_selected_item(node, value):
 
 register(ControlType("Window", make_window, container=True, add_child=single_add, place_child=single_place,
                      remove_child=layout_remove, category="Containers",
-                     events={"OnOpened": None, "OnClosing": None}),          # fired by the engine
-         COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or "")))])
+                     events={"OnOpened": None, "OnClosing": None, **KEY_EVENTS}),   # OnOpened/OnClosing fired by the engine
+         COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or ""))),
+                  Prop("Resizable", "bool", "Behaviour", default="true"),        # applied by the engine when shown
+                  Prop("Modal", "bool", "Behaviour", default="false"),
+                  Prop("MaxWidth", "number", "Layout", apply=lambda n, v: n.widget.setMaximumWidth(int(num(v, 16777215)) or 16777215)),
+                  Prop("MaxHeight", "number", "Layout", apply=lambda n, v: n.widget.setMaximumHeight(int(num(v, 16777215)) or 16777215))])
 
 register(ControlType("StackPanel", make_box, container=True, add_child=box_add, place_child=box_place,
                      remove_child=layout_remove, category="Containers", events=dict(POINTER_EVENTS)),
@@ -660,31 +683,31 @@ register(ControlType("TextBlock", make_label, events=dict(POINTER_EVENTS)),
                                                         | Qt.AlignVCenter))])
 
 register(ControlType("TextBox", make_textbox,
-                     events={"TextChanged": on_signal("textChanged"), **POINTER_EVENTS}),
+                     events={"TextChanged": on_signal("textChanged"), **KEY_EVENTS, **POINTER_EVENTS}),
          COMMON, ATTACHED, PADDING_STYLE,
          [Prop("Text", "text", "Common", apply=lambda n, v: set_text(n.widget, v), read=lambda n: text_of(n.widget)),
           Prop("Watermark", "text", "Common", apply=lambda n, v: n.widget.setPlaceholderText(str(v or ""))),
           Prop("IsReadOnly", "bool", "Behaviour", apply=lambda n, v: n.widget.setReadOnly(truthy(v))),
           Prop("AcceptsReturn", "bool", "Behaviour")])
 
-register(ControlType("Button", make_button, events={"OnClick": on_signal("clicked"), **POINTER_EVENTS}),
+register(ControlType("Button", make_button, events={"OnClick": on_signal("clicked"), **KEY_EVENTS, **POINTER_EVENTS}),
          COMMON, ATTACHED, PADDING_STYLE,
          [Prop("Content", "text", "Common", apply=lambda n, v: n.widget.setText(str(v or "")))])
 
 register(ControlType("CheckBox", lambda n: QCheckBox(),
-                     events={"OnClick": on_signal("clicked"), "OnChecked": on_signal("toggled"), **POINTER_EVENTS}),
+                     events={"OnClick": on_signal("clicked"), "OnChecked": on_signal("toggled"), **KEY_EVENTS, **POINTER_EVENTS}),
          COMMON, ATTACHED,
          [Prop("Content", "text", "Common", apply=lambda n, v: n.widget.setText(str(v or ""))),
           Prop("IsChecked", "bool", "Common", apply=lambda n, v: n.widget.setChecked(truthy(v)),
                read=lambda n: "true" if n.widget.isChecked() else "false")])
 
-register(ControlType("ComboBox", lambda n: QComboBox(), events={"SelectionChanged": on_signal("currentIndexChanged")}),
+register(ControlType("ComboBox", lambda n: QComboBox(), events={"SelectionChanged": on_signal("currentIndexChanged"), **KEY_EVENTS}),
          COMMON, ATTACHED,
          [Prop("Items", "list", "Common", apply=set_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentIndex()),
           Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item)])
 
-register(ControlType("ListBox", lambda n: QListWidget(), events={"SelectionChanged": on_signal("currentRowChanged")}),
+register(ControlType("ListBox", lambda n: QListWidget(), events={"SelectionChanged": on_signal("currentRowChanged"), **KEY_EVENTS}),
          COMMON, ATTACHED,
          [Prop("Items", "list", "Common", apply=set_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentRow()),
@@ -700,7 +723,7 @@ register(ControlType("Rectangle", lambda n: QFrame(), events=dict(POINTER_EVENTS
 
 # ------------------------------------------------------------------ menus (virtual nodes: they own a QAction / QMenu, not a widget on screen)
 
-from PySide6.QtGui import QAction, QKeySequence          # noqa: E402
+from PySide6.QtGui import QAction          # noqa: E402
 from PySide6.QtWidgets import QMenu, QMenuBar             # noqa: E402
 
 KEY_NAMES = {"Del": "Delete", "Esc": "Escape", "Ins": "Insert", "PgUp": "PgUp", "PgDn": "PgDown"}
@@ -815,3 +838,47 @@ for _ct in REGISTRY.values():
         _ct.props["IsHitTestVisible"] = Prop("IsHitTestVisible", "bool", "Behaviour", apply=hit_test, default="true")
         _ct.props["Focusable"] = Prop("Focusable", "bool", "Behaviour",
                                       apply=lambda n, v: n.widget.setFocusPolicy(Qt.StrongFocus if truthy(v) else Qt.NoFocus))
+
+
+
+# ------------------------------------------------------------------ Frame (VB's Frame: a captioned container)
+
+class FrameWidget(CanvasWidget):
+    """Children are placed at Left/Top inside the frame and anchored to its edges. Its reference size is its own
+    designed Width/Height, so anchored children follow the frame when it stretches."""
+    CAPTION_GAP = 8
+
+    def ref_size(self):
+        p = self.node.props
+        if p.get("Width") and p.get("Height"):
+            return (num(p["Width"]), num(p["Height"]))
+        return (self.width(), self.height())
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        p = _QPainter(self)
+        p.setRenderHint(_QPainter.Antialiasing)
+        props = self.node.props
+        text = str(props.get("Text", "") or "")
+        border = _QColor(colour(props.get("BorderBrush") or "#9CA3AF"))
+        fm = p.fontMetrics()
+        top = fm.height() // 2 if text else 0
+        p.setPen(_QPen(border, 1))
+        p.drawRoundedRect(0, top, self.width() - 1, self.height() - 1 - top, 4, 4)
+        if text:
+            w = fm.horizontalAdvance(text) + 8
+            bg = self.palette().window().color()
+            colour_bg = props.get("Background")
+            p.fillRect(self.CAPTION_GAP, 0, w, fm.height(), _QColor(colour(colour_bg)) if colour_bg else bg)
+            fg = props.get("Foreground")
+            p.setPen(_QColor(colour(fg)) if fg else self.palette().windowText().color())
+            p.drawText(self.CAPTION_GAP + 4, fm.ascent(), text)
+        p.end()
+
+
+register(ControlType("Frame", lambda n: FrameWidget(n), container=True, add_child=canvas_add, place_child=canvas_place,
+                     remove_child=canvas_remove, category="Containers", events=dict(POINTER_EVENTS)),
+         COMMON, ATTACHED,
+         [Prop("Text", "text", "Common", apply=lambda n, v: n.widget.update()),
+          Prop("BorderBrush", "colour", "Appearance", apply=lambda n, v: n.widget.update()),
+          Prop("BorderThickness", "thickness", "Appearance")])
