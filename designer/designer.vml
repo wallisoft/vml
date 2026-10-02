@@ -93,6 +93,11 @@ Text=Save As...
 Shortcut=Ctrl+Shift+S
 OnClick=FileSaveAs
 
+@MenuItem FileExportHtml
+Parent=File
+Text=Export to HTML...
+OnClick=ExportHtml
+
 @MenuItem FileSep
 Parent=File
 IsSeparator=true
@@ -154,6 +159,12 @@ Parent=View
 Text=Preview
 Shortcut=F5
 OnClick=Preview
+
+@MenuItem ViewBrowser
+Parent=View
+Text=Preview in Browser
+Shortcut=F6
+OnClick=PreviewBrowser
 
 @MenuItem ViewGrid
 Parent=View
@@ -534,6 +545,23 @@ Interpreter=lua
 <<LUA
 Vml("PreviewDesign", "Surface")
 Vml("SetStatusText", "Previewing " .. Vml("GetProperty", "Surface", "FormName"))
+LUA
+
+@Script PreviewBrowser
+Interpreter=lua
+<<LUA
+-- the same form, as a web page, in your browser
+local path = Vml("PreviewInBrowser", "Surface")
+Vml("SetStatusText", "Opened in your browser: " .. path)
+LUA
+
+@Script ExportHtml
+Interpreter=lua
+<<LUA
+local path = Vml("FileSaveDialog", "Export as a web page", Vml("GetProperty", "Surface", "FormName"), "html")
+if path == "" then return end
+Vml("ExportHtml", "Surface", path)
+Vml("SetStatusText", "Web page written: " .. path)
 LUA
 
 @Script ToggleGrid

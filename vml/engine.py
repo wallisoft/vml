@@ -1411,6 +1411,31 @@ class Engine:
             surf.widget.emit("OnChanged", {"selected_control": name})
         return script_name
 
+    def cmd_ExportHtml(self, source="Surface", out=""):
+        """Write a form as one self-contained web page. source: a design surface, or a .vml file."""
+        from .html import export_html
+        node = self.find(source) if source and not str(source).lower().endswith(".vml") else None
+        if node is not None and node.type.name == "DesignSurface":
+            saved = self.store.get_setting("current_file")
+            vml = Path(tempfile.gettempdir()) / f"vml-web-{node.name}.vml"
+            self.cmd_ExportVml(node.name, str(vml))
+            out = out or (str(Path(saved).with_suffix(".html")) if saved else str(vml.with_suffix(".html")))
+        else:
+            vml = self._form_path(source)
+            out = out or str(Path(vml).with_suffix(".html"))
+        path = export_html(str(vml), out)
+        log(f"web page written: {path}")
+        return path
+
+    def cmd_PreviewInBrowser(self, surface="Surface"):
+        """Open the form being designed in the default web browser."""
+        node = self._surface(surface)
+        out = Path(tempfile.gettempdir()) / f"vml-web-{node.name}.html"
+        path = self.cmd_ExportHtml(node.name, str(out))
+        import webbrowser
+        webbrowser.open(Path(path).resolve().as_uri())
+        return path
+
     def cmd_PreviewDesign(self, surface="Surface"):
         """Run the form being designed, for real, in its own window."""
         surf = self._surface(surface)

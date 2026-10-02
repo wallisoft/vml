@@ -1,0 +1,169 @@
+# A designer-style form: menu bar over a canvas, anchors, a frame, Lua scripts
+
+@Window Demo
+Title=VML in the browser
+Width=640
+Height=446
+OnOpened=DemoOpened
+
+@DockPanel DemoRoot
+Parent=Demo
+
+@TinyMenu DemoMenu
+Parent=DemoRoot
+DockPanel.Dock=Top
+
+@MenuTheme DemoTheme
+Background=#1E3A8A
+Foreground=White
+HoverBackground=#2563EB
+HoverForeground=White
+
+@Canvas DemoCanvas
+Parent=DemoRoot
+Background=#F8FAFC
+
+@TextBlock lblTitle
+Parent=DemoCanvas
+Canvas.Left=24
+Canvas.Top=18
+Text=Hello from VML
+FontSize=22
+FontWeight=Bold
+Foreground=#1E3A8A
+
+@TextBox txtName
+Parent=DemoCanvas
+Canvas.Left=24
+Canvas.Top=64
+Width=592
+Height=28
+Anchor=Top,Left,Right
+Watermark=Type your name
+
+@Frame fraOptions
+Parent=DemoCanvas
+Canvas.Left=24
+Canvas.Top=112
+Width=592
+Height=220
+Anchor=Top,Bottom,Left,Right
+Text=Options
+
+@CheckBox chkShout
+Parent=fraOptions
+Canvas.Left=16
+Canvas.Top=24
+Content=Shout
+OnClick=Greet
+
+@ComboBox cboColour
+Parent=fraOptions
+Canvas.Left=16
+Canvas.Top=56
+Width=160
+Items=Blue,Green,Red
+SelectedIndex=0
+SelectionChanged=ColourChanged
+
+@ListBox lstLog
+Parent=fraOptions
+Canvas.Left=200
+Canvas.Top=24
+Width=376
+Height=180
+Anchor=Top,Bottom,Left,Right
+
+@TextBlock lblHello
+Parent=DemoCanvas
+Canvas.Left=24
+Canvas.Top=352
+Width=400
+Height=24
+Anchor=Bottom,Left
+Text=Hello, stranger
+
+@Button btnGo
+Parent=DemoCanvas
+Canvas.Left=516
+Canvas.Top=346
+Width=100
+Height=32
+Anchor=Bottom,Right
+Content=Greet me
+Background=#2563EB
+Foreground=White
+OnClick=Greet
+
+@MenuItem mnuFile
+Parent=MenuBar
+Text=&File
+
+@MenuItem mnuClear
+Parent=mnuFile
+Text=&Clear log
+Shortcut=Ctrl+L
+OnClick=ClearLog
+
+@MenuItem mnuShell
+Parent=mnuFile
+Text=Run a &shell script
+OnClick=ShellOnly
+
+@MenuItem mnuHelp
+Parent=MenuBar
+Text=&Help
+
+@MenuItem mnuAbout
+Parent=mnuHelp
+Text=&About...
+OnClick=About
+
+@Script DemoOpened
+Interpreter=lua
+<<LUA
+greetings = 0
+Vml("SetProperty", "lstLog", "Items", "Lua is running in the browser")
+LUA
+
+@Script Greet
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+local name = Vml("GetProperty", "txtName", "Text")
+if name == "" then name = "stranger" end
+local msg = "Hello, " .. name
+if Vml("GetProperty", "chkShout", "IsChecked") == "true" then msg = msg:upper() .. "!" end
+Vml("SetProperty", "lblHello", "Text", msg)
+greetings = greetings + 1
+local log = {}
+for item in (Vml("GetProperty", "lstLog", "Items") .. ""):gmatch("[^,]+") do log[#log + 1] = item end
+Vml("SetSetting", "last", json.encode({name = name, count = greetings}))
+Vml("SetProperty", "lstLog", "Items", "Lua is running in the browser,greeted " .. name .. " (" .. greetings .. ")")
+LUA
+
+@Script ColourChanged
+Interpreter=lua
+<<LUA
+local c = Vml("GetProperty", "cboColour", "SelectedItem")
+local hex = ({Blue = "#1E3A8A", Green = "#166534", Red = "#991B1B"})[c] or "#000000"
+Vml("SetProperty", "lblTitle", "Foreground", hex)
+LUA
+
+@Script ClearLog
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "lstLog", "Items", "")
+LUA
+
+@Script About
+Interpreter=lua
+<<LUA
+Vml("InfoDialog", "VML in the browser\n\nSame .vml file, same Lua scripts.", "About")
+LUA
+
+@Script ShellOnly
+Interpreter=bash
+<<SH
+echo "this runs on the desktop"
+SH

@@ -1,6 +1,6 @@
 # VML (Visualised Markup Language)
 
-**A cross-platform RAD IDE that designs itself**
+**A cross-platform RAD IDE that designs itself, for the desktop and the web**
 
 VML is a lightweight, patent-pending application development system: simple flat markup, scripted in Lua or the
 operating system's own shell, running as real native desktop applications on Linux, Windows and macOS. Think Visual
@@ -102,6 +102,23 @@ pip install -r requirements.txt
 - **Double-click a control to script it.** Choose the event and the language (Lua, or the OS shell), and write.
   Scripts are saved into the form as ordinary `@Script` blocks.
 - **F5 previews** the form running for real. **Ctrl+S** saves plain VML; **Ctrl+O** opens it again.
+
+## On the web
+
+The same `.vml` file runs in a browser. **View → Preview in Browser** (F6) in the designer, **File → Export to
+HTML…**, or from a terminal:
+
+```bash
+./vml.py html myform.vml          # writes myform.html: one self-contained page, no server needed
+```
+
+Layout is faithful: canvas forms are positioned exactly, and **anchors become CSS**, so controls move and stretch as
+the browser window resizes. Frames, menus, StackPanel, Grid, Border and DockPanel all carry across. **Lua scripts run
+unchanged** in the browser (Lua 5.4 compiled to WebAssembly), against a JavaScript `Vml()` that speaks the same
+commands, `require("dkjson")` included. Shell, C# and Python scripts are desktop-only and say so in the browser
+console. Open the console and `vml.Vml("GetProperty", "txtName", "Text")` works there too.
+
+![The same form, in a browser](docs/web.png)
 
 ## Scripting
 
@@ -228,6 +245,7 @@ python3 tests/run_menus.py      # menus: editor, menu bar and items as controls,
 python3 tests/run_multiform.py  # forms opening forms, Form.Control names, dialog results, Lua states
 python3 tests/run_csharp.py     # C# scripting (skips itself if .NET isn't set up)
 python3 tests/run_api.py        # the vml command and Python: calling back, chains across languages, outside programs
+python3 tests/run_web.py        # the HTML renderer in a real browser (needs: pip install playwright)
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.
@@ -236,6 +254,7 @@ python3 tests/run_api.py        # the vml command and Python: calling back, chai
 
 - Designing layout-based forms
 - Undo and redo
+- Mobile, via a renderer for phones
 - Packaged releases (Linux, Windows installer, Microsoft Store)
 
 ## History
