@@ -6,7 +6,10 @@ from pathlib import Path
 
 from lupa import lua54
 
-LUA_DIR = Path(__file__).resolve().parent / "lua"
+# Beside the package when run from source; at the top of a compiled build (where a folder named "vml"
+# would clash with the Linux program, also called "vml").
+LUA_DIR = next((d for d in (Path(__file__).resolve().parent / "lua", Path(__file__).resolve().parent.parent / "lua")
+                if (d / "vml-parser.lua").is_file()), Path(__file__).resolve().parent / "lua")
 PARSER_LOG = []          # drained into the engine log after each parse
 
 SCHEMA = """

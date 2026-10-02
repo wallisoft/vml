@@ -49,7 +49,7 @@ jobs:
           python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
             --windows-console-mode=attach --windows-icon-from-ico=packaging/art/vml.ico `
             --include-package=vml --include-package=lupa `
-            --include-data-dir=designer=designer --include-data-dir=vml/lua=vml/lua `
+            --include-data-dir=designer=designer --include-data-dir=vml/lua=lua `
             --company-name=Wallisoft --product-name=VML `
             --file-version=${{ needs.check.outputs.version }} --product-version=${{ needs.check.outputs.version }} `
             --output-filename=vml.exe --output-dir=build vml.py
@@ -110,7 +110,7 @@ jobs:
         run: |
           python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 \
             --include-package=vml --include-package=lupa \
-            --include-data-dir=designer=designer --include-data-dir=vml/lua=vml/lua \
+            --include-data-dir=designer=designer --include-data-dir=vml/lua=lua \
             --output-filename=vml --output-dir=build vml.py
       - name: Package
         run: |
