@@ -82,6 +82,8 @@ class Engine:
         self._quiet = 0                        # >0 while scripts set properties: Qt signals then aren't user events
         self._script_stack, self._scope_stack = [], []
         self._init_lua(lua_paths)
+        from .api import ApiServer
+        self.api = ApiServer(self, log)                     # scripts in any language call back through this
         self._init_shell()
         self._seed_settings()
 
@@ -458,10 +460,12 @@ class Engine:
     def _init_shell(self):
         """Bash scripts call `vml-parse` and read $VML_DB_PATH, as in the Avalonia engine."""
         self.bin_dir = Path(tempfile.mkdtemp(prefix="vml-bin-"))
-        shim = self.bin_dir / "vml-parse"
-        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" -m vml.parsecli "$@"\n')
-        shim.chmod(0o755)
-        self.env = dict(os.environ, VML_DB_PATH=self.store.path,
+        for name, module in (("vml-parse", "vml.parsecli"), ("vml", "vml.client")):
+            shim = self.bin_dir / name
+            shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" -m {module} "$@"\n')
+            shim.chmod(0o755)
+            (self.bin_dir / f"{name}.cmd").write_text(f'@"{sys.executable}" -m {module} %*\r\n')
+        self.env = dict(os.environ, VML_DB_PATH=self.store.path, **self.api.env(),
                         PATH=f"{self.bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
                         PYTHONPATH=str(Path(__file__).resolve().parent.parent))
 
@@ -475,7 +479,7 @@ class Engine:
             r = self.lua_exec(content, args, label=name, origin=origin, key=self.lua_key(script=name))
             return "" if r is None else r
         if interp in ("bash", "sh"):
-            return self.shell(["bash", "-c", content, name, *map(str, args)], name)
+            return self.shell(["bash", "-c", content, name, *map(str, args)], name, origin)
         if interp in ("csharp", "c#", "cs"):
             return self.run_csharp(content, args, name, origin)
         if interp in ("powershell", "pwsh"):
@@ -483,7 +487,7 @@ class Engine:
             if not exe:
                 log(f"{name}: PowerShell isn't installed on this machine")
                 return ""
-            return self.shell([exe, "-NoProfile", "-Command", content], name)
+            return self.shell([exe, "-NoProfile", "-Command", content, *map(str, args)], name, origin)
         log(f"{name}: '{interp}' scripts aren't supported by this engine (Lua, Bash and PowerShell are)")
         return ""
 
@@ -511,32 +515,55 @@ class Engine:
             langs.append("C#")
         return json.dumps(langs)
 
-    def shell(self, argv, label="shell"):
+    def shell(self, argv, label="shell", origin=None, timeout=120):
+        """Run a program, answering its `vml ...` calls while it runs (as the form that started it)."""
+        self._script_stack.append(origin)
         try:
-            r = subprocess.run(argv, capture_output=True, text=True, env=self.env, timeout=120)
-        except Exception as exc:
-            log(f"{label}: {exc}")
-            return ""
-        for line in (r.stdout + r.stderr).splitlines():
+            with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+                try:
+                    proc = subprocess.Popen(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=self.env)
+                except Exception as exc:
+                    log(f"{label}: {exc}")
+                    return ""
+                started = time.time()
+                while proc.poll() is None:
+                    self.api.poll()
+                    if time.time() - started > timeout:
+                        proc.kill()
+                        log(f"{label}: stopped after {timeout}s")
+                        break
+                    time.sleep(0.003)
+                self.api.poll()
+                out.seek(0)
+                err.seek(0)
+                stdout = out.read().decode(errors="replace")
+                stderr = err.read().decode(errors="replace")
+        finally:
+            self._script_stack.pop()
+        for line in (stdout + stderr).splitlines():
             log(f"[{label}] {line}")
-        return r.stdout.rstrip("\n")
+        return stdout.rstrip("\n")
 
     # ================================================================ the Vml() API
 
     def vml(self, command, *args):
+        """Scripts' Vml(): forgiving. A bad call is logged and gives an empty result."""
+        try:
+            return self.vml_strict(command, *args)
+        except Exception as exc:
+            log(f'Vml("{command}"): {exc}')
+            return ""
+
+    def vml_strict(self, command, *args):
+        """The same, but a bad call raises, so the `vml` command can exit with an error."""
         fn = getattr(self, "cmd_" + str(command), None)
         if fn is None:
-            log(f'Vml("{command}") isn\'t implemented yet')
-            return ""
+            raise LookupError(f"{command} isn't a VML command")
         args = ["" if a is None else (a if isinstance(a, (int, float)) else str(a)) for a in args]
         try:
             r = fn(*args)
         except TypeError as exc:
-            log(f'Vml("{command}"): wrong arguments ({exc})')
-            return ""
-        except Exception as exc:
-            log(f'Vml("{command}"): {exc}')
-            return ""
+            raise TypeError(f"wrong arguments for {command} ({exc})") from None
         if isinstance(r, bool):
             return "true" if r else "false"
         return "" if r is None else r
@@ -772,7 +799,8 @@ class Engine:
         return self.lua_exec(code, args, label="ExecuteScript")
 
     def cmd_Shell(self, command):
-        return self.shell(["bash", "-c", command], "shell")
+        origin = next((o for o in reversed(self._script_stack) if o is not None), None)
+        return self.shell(["bash", "-c", command], "shell", origin)
 
     # --- data
     def cmd_SqlQuery(self, sql, *args):

@@ -108,7 +108,7 @@ pip install -r requirements.txt
 | Language | How it runs |
 |---|---|
 | **Lua** | Embedded (Lua 5.4 via `lupa`), in-process and fast. One state per form, or shared by named instance. `require("dkjson")` available. |
-| **Bash** | As a subprocess, with `$VML_DB_PATH` pointing at the form's database and `vml-parse` on the `PATH`. |
+| **Bash** | As a subprocess, with the `vml` command on its `PATH` to talk to the form (and `$VML_DB_PATH`, `vml-parse` as before). |
 | **PowerShell** | As a subprocess, on Windows (or anywhere `pwsh` is installed). |
 | **C#** (optional) | Compiled with Roslyn by a small .NET host that stays running; cached, so repeat runs are instant. |
 
@@ -119,6 +119,28 @@ engine command (`OnClick=FormOpenModal about.vml`), or be a line of Lua.
 **Each form has its own Lua state**, so its globals are its own. To share state deliberately, give scripts the same
 **named instance**: `Interpreter=lua mygame` (or `Instance=mygame`). Every script in that instance, in any form, sees
 the same globals.
+
+### Bash, PowerShell, and any other language: the `vml` command
+
+Scripts VML runs have a `vml` command on their PATH that talks to the running form:
+
+```bash
+name=$(vml get txtName Text)
+vml set lblHello Text "Hello, $name"
+vml setting last_user "$name"
+vml run SaveScript "$name"        # any script, in any language; prints what it returns
+vml InfoDialog "Saved!"           # or any Vml() command by name
+```
+
+```powershell
+$name = vml get txtName Text
+vml set lblHello Text "Hello, $name"
+```
+
+Plain control names mean the script's own form (`Form.Control` reaches another). A failed call prints an error and
+exits with 1, so `||`, `$?` and `$LASTEXITCODE` work. Programs VML didn't start can drive a running form too:
+`./vml.py get txtName Text` from a terminal, or any language speaking one line of JSON over the local socket
+described in `~/.vml/api.json` (readable only by you; the token in it is required).
 
 ### C# (optional)
 
@@ -204,13 +226,13 @@ python3 tests/run_frames.py     # frames, nesting, keys, live geometry, window o
 python3 tests/run_menus.py      # menus: editor, menu bar and items as controls, saved, reopened and run
 python3 tests/run_multiform.py  # forms opening forms, Form.Control names, dialog results, Lua states
 python3 tests/run_csharp.py     # C# scripting (skips itself if .NET isn't set up)
+python3 tests/run_api.py        # the vml command: bash calling back, chains across languages, outside programs
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.
 
 ## Roadmap
 
-- A local API and `vml` command, so any language (Python, Node, Go...) can drive a running form
 - Designing layout-based forms
 - Undo and redo
 - Packaged releases (Linux, Windows installer, Microsoft Store)

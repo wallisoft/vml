@@ -1,0 +1,8 @@
+@Window ApiOther
+Title=Other form
+Width=240
+Height=120
+
+@TextBlock lblOut
+Parent=ApiOther
+Text=untouched

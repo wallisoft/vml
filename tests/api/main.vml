@@ -1,0 +1,69 @@
+@Window ApiMain
+Title=API test
+Width=360
+Height=220
+
+@StackPanel ApiStack
+Parent=ApiMain
+Margin=12
+Spacing=6
+
+@TextBox txtName
+Parent=ApiStack
+Text=Steve
+
+@Button btnBash
+Parent=ApiStack
+Content=Bash
+OnClick=BashHello
+
+@Button btnChain
+Parent=ApiStack
+Content=Bash -> Lua -> Bash
+OnClick=BashChain
+
+@Button btnSpeed
+Parent=ApiStack
+Content=Speed
+OnClick=BashSpeed
+
+@TextBlock lblOut
+Parent=ApiStack
+Text=
+
+@Script BashHello
+Interpreter=bash
+<<SH
+name=$(vml get txtName Text)
+vml set lblOut Text "Hello, $name, from bash"
+vml setting from_bash "yes"
+vml get nosuch Text 2>/dev/null || vml setting error_seen "exit $?"
+SH
+
+@Script BashChain
+Interpreter=bash
+<<SH
+r=$(vml run LuaDouble 21)
+vml set lblOut Text "lua said $r"
+SH
+
+@Script LuaDouble
+Interpreter=lua
+<<LUA
+local echoed = Vml("RunScript", "BashEcho", args[1])
+return tostring(tonumber(args[1]) * 2) .. " (" .. echoed .. ")"
+LUA
+
+@Script BashEcho
+Interpreter=bash
+<<SH
+echo "bash echoed $1"
+SH
+
+@Script BashSpeed
+Interpreter=bash
+<<SH
+start=$(date +%s%N)
+for i in $(seq 1 20); do vml set lblOut Text "count $i"; done
+vml setting speed_ms $(( ($(date +%s%N) - start) / 20000000 ))
+SH
