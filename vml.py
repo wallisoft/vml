@@ -23,8 +23,25 @@ def own_app(program):
     return own if own.is_file() and me.stem.lower() not in ("vml", "vml.py") else None
 
 
+def where_am_i():
+    """Every reliable answer to "which program am I?" (compiled builds report it in different places)."""
+    places = []
+    try:
+        places.append(os.readlink("/proc/self/exe"))        # Linux: the kernel's own answer
+    except OSError:
+        pass
+    places += [sys.argv[0], sys.executable]
+    compiled = globals().get("__compiled__")
+    if compiled is not None and getattr(compiled, "original_argv0", None):
+        places.append(compiled.original_argv0)               # Nuitka: how this program was started
+    return [p for p in places if p]
+
+
 if not first or first.startswith("-"):                    # no form named (options like --shot don't count)
-    found = own_app(sys.executable if "__compiled__" in globals() else sys.argv[0])
+    candidates = where_am_i()
+    found = next((f for f in (own_app(c) for c in candidates) if f is not None), None)
+    if os.environ.get("VML_DEBUG"):
+        print(f"vml: program locations {candidates} -> app {found}", file=sys.stderr)
     if found is not None:
         sys.argv.insert(1, str(found))
         first = str(found)

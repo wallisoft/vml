@@ -126,7 +126,7 @@ jobs:
           test -s shot.png && echo "the compiled binary opens a form"
           # an exported app: the binary renamed SmokeApp, beside SmokeApp.vml, must run that form by itself
           cp -r dist-vml app && mv app/vml app/SmokeApp && cp tests/step1.vml app/SmokeApp.vml
-          QT_QPA_PLATFORM=offscreen timeout 60 ./app/SmokeApp --shot app.png 2> app.log || true
+          VML_DEBUG=1 QT_QPA_PLATFORM=offscreen timeout 60 ./app/SmokeApp --shot app.png 2> app.log || true
           grep -q "SmokeApp.vml: Parsed" app.log && echo "an exported app runs its own form" || { cat app.log; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
