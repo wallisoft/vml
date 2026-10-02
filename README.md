@@ -74,8 +74,8 @@ Requires Python 3.10+.
 
 ```bash
 pip install -r requirements.txt
-python3 -m vml designer/designer.vml        # the designer
-python3 -m vml path/to/any-form.vml         # run any VML form
+./vml.py                       # the designer
+./vml.py path/to/any-form.vml  # run any VML form
 ```
 
 ## The designer
@@ -90,9 +90,10 @@ python3 -m vml path/to/any-form.vml         # run any VML form
 - **Live position and size** on the status bar while you drag, resize or nudge.
 - **Form options:** title, size, background, resizable, modal, minimum and maximum size, shown on a window title
   bar above the form as you design.
-- **Menu Editor** (Ctrl+M, or click the form's menu bar), after VB5's: type a caption, press Next, indent with the
-  arrows for submenus, add shortcuts and separators, and give each item a script. The form shows its real menu bar
-  as you design.
+- **Menus, two ways.** Right-click the form and choose **Add Menu**, then treat menu items like controls: click a
+  caption to select it and edit it in the property grid, and right-click any item for Add Before, Add After, Add
+  Submenu Item, Delete and Edit Script. Or use the **Menu Editor** (Ctrl+M), after VB5's: type a caption, press
+  Next, indent with the arrows. Either way, the form shows its real menu bar as you design.
 - **Bring to Front / Send to Back, Duplicate (Ctrl+D), Delete.**
 - **The property grid** edits whatever is selected: grouped, with checkboxes, dropdowns and colour pickers, and
   live, so it never goes stale. Click the empty form to edit the form itself.

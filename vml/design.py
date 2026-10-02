@@ -83,6 +83,13 @@ class Overlay(QWidget):
             for x in range(f.left(), f.right(), g):
                 for y in range(f.top(), f.bottom(), g):
                     p.drawPoint(x, y)
+        if v.selected.startswith("menu:"):
+            act = next((a for a in v.menubar.actions() if a.data() == v.selected[5:]), None)
+            if act is not None:
+                g = v.menubar.actionGeometry(act).translated(v.menubar.pos())
+                p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+                p.setBrush(Qt.NoBrush)
+                p.drawRect(g.adjusted(0, 0, -1, -1))
         sel = v.selected_node()
         if sel is not None:
             r = self.rect_of(sel)
@@ -170,7 +177,15 @@ class Overlay(QWidget):
                     self.mode, self.handle, self.orig = "resize", name, QRect(sel.host.geometry())
                     return
         if v.menu_items and v.menubar.geometry().contains(pos):
-            v.emit("OnMenuBarClick", {})
+            local = v.menubar.mapFrom(v.page, pos)
+            act = v.menubar.actionAt(local)
+            name = act.data() if act is not None else ""
+            v.select(f"menu:{name}" if name else "", user=True)
+            if act is not None and e.button() == Qt.RightButton:
+                v.emit("OnMenuContextMenu", {"selected_control": f"menu:{name}"})
+            elif act is not None and act.menu() is not None:
+                geo = v.menubar.actionGeometry(act)
+                act.menu().popup(v.menubar.mapToGlobal(geo.bottomLeft()))
             return
         node = self.hit(pos)
         v.select(node.name if node else "", user=True)
@@ -340,9 +355,11 @@ class SurfaceView(QScrollArea):
         return self.menubar.sizeHint().height() if self.menu_items else 0
 
     def set_menu(self, items):
-        """Show the designed form's menu bar: top-level captions with their real dropdowns."""
+        """Show the designed form's menu bar with real dropdowns. In the designer, choosing an item in a
+        dropdown selects it, and right-clicking one offers Add / Delete / Edit Script."""
         self.menu_items = list(items)
         self.menubar.clear()
+        self._menu_filters = []
         parents, items = {}, self.menu_items
         for i, it in enumerate(items):
             level = int(it.get("level", 0))
@@ -350,20 +367,47 @@ class SurfaceView(QScrollArea):
             if target is None:
                 continue
             if it.get("separator"):
-                target.addSeparator()
+                act = target.addSeparator()
+                act.setData(it["name"])
                 continue
             has_kids = i + 1 < len(items) and int(items[i + 1].get("level", 0)) > level
             if has_kids or level == 0:
                 menu = QMenu(it.get("text") or "", target)
+                menu.installEventFilter(self._menu_filter(menu))
                 act = target.addMenu(menu)
                 parents[level] = menu
             else:
                 act = target.addAction(it.get("text") or "")
+                act.triggered.connect(lambda _=False, n=it["name"]: self.select(f"menu:{n}", user=True))
+            act.setData(it["name"])
             act.setEnabled(bool(it.get("enabled", True)))
             if it.get("shortcut"):
                 act.setShortcut(it["shortcut"])
         self.menubar.setVisible(bool(self.menu_items))
         self.set_form_size(self.form.width(), self.form.height())
+
+    def _menu_filter(self, menu):
+        from PySide6.QtCore import QEvent, QObject
+        view = self
+
+        class F(QObject):
+            def eventFilter(self, obj, ev):
+                if ev.type() == QEvent.MouseButtonPress:
+                    act = menu.actionAt(ev.position().toPoint())
+                    if act is not None and act.data():
+                        if ev.button() == Qt.RightButton:
+                            view.select(f"menu:{act.data()}", user=True)
+                            menu.close()
+                            view.emit("OnMenuContextMenu", {"selected_control": f"menu:{act.data()}"})
+                            return True
+                        if act.menu() is not None or act.isSeparator():   # submenu parents and separators: select them too
+                            view.select(f"menu:{act.data()}", user=True)
+                            menu.close()
+                            return True
+                return False
+        f = F(menu)
+        self._menu_filters.append(f)
+        return f
 
     def set_form_size(self, w, h):
         mh = self.menu_h()
@@ -470,7 +514,7 @@ def set_show_grid(node, v):
 register(ControlType("DesignSurface", make_surface, container=True, add_child=surface_add, place_child=surface_place,
                      remove_child=surface_remove, category="Design",
                      events={e: surface_event(e) for e in ("OnSelectionChanged", "OnContextMenu", "OnChanged", "OnDoubleClick",
-                                                           "OnGeometry", "OnMenuBarClick")}),
+                                                           "OnGeometry", "OnMenuBarClick", "OnMenuContextMenu")}),
          [p for p in COMMON if p.name in ("Margin", "IsVisible", "Width", "Height", "HorizontalAlignment", "VerticalAlignment")],
          [Prop("FormName", "text", "Form", default="Form1"),
           Prop("FormTitle", "text", "Form", default="Form1", apply=lambda n, v: n.widget.overlay.update()),
@@ -533,6 +577,9 @@ class GridView(QScrollArea):
         lay = QVBoxLayout(body)
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(2)
+        if self.target.startswith("menu:"):
+            self.rebuild_menu_item(body, lay)
+            return
         target = self.engine.find(self.target) if self.target else None
         if target is None:
             msg = QLabel("Select a control to see its properties.")
@@ -578,6 +625,29 @@ class GridView(QScrollArea):
         lay.addStretch(1)
         self.setWidget(body)
 
+    def rebuild_menu_item(self, body, lay):
+        """A menu item on the design surface: its caption, shortcut, enabled and separator, and its script."""
+        head = QLabel(f"<b>MenuItem</b>  <span style='color:#6b7280'>{self.target[5:]}</span>")
+        head.setStyleSheet("font-size: 13px; padding: 2px 0 6px 0;")
+        lay.addWidget(head)
+        lay.addLayout(self.row_layout("Name", self.name_editor(self.target[5:])))
+        title = QLabel("COMMON")
+        title.setStyleSheet("color: #2563eb; font-size: 10px; font-weight: 700; padding: 8px 0 2px 0;")
+        lay.addWidget(title)
+        for p in json.loads(self.engine.cmd_GetControlPropertiesJson(self.target)):
+            lay.addLayout(self.row_layout(p["name"], self.editor(p)))
+        title = QLabel("EVENTS")
+        title.setStyleSheet("color: #2563eb; font-size: 10px; font-weight: 700; padding: 8px 0 2px 0;")
+        lay.addWidget(title)
+        handler = QLineEdit(self.engine.cmd_GetProperty(self.target, "OnClick"))
+        handler.setReadOnly(True)
+        handler.setPlaceholderText("double-click the item, or right-click > Edit Script")
+        handler.setStyleSheet("font-size: 11px; color: #4b5563;")
+        self.editors["OnClick"] = handler
+        lay.addLayout(self.row_layout("OnClick", handler))
+        lay.addStretch(1)
+        self.setWidget(body)
+
     def row_layout(self, label, editor):
         row = QHBoxLayout()
         row.setSpacing(6)
@@ -598,11 +668,13 @@ class GridView(QScrollArea):
 
     def rename(self, ed):
         new = ed.text().strip()
-        if new and new != self.target:
+        is_menu = self.target.startswith("menu:")
+        current = self.target[5:] if is_menu else self.target
+        if new and new != current:
             if self.engine.cmd_RenameControl(self.target, new):
-                self.target = new
-                self.node.props["Target"] = new
-            ed.setText(self.target)
+                self.target = ("menu:" + new) if is_menu else new
+                self.node.props["Target"] = self.target
+            ed.setText(self.target[5:] if self.target.startswith("menu:") else self.target)
 
     def editor(self, p):
         name, value, kind = p["name"], p["value"], p.get("kind", "text")
@@ -638,6 +710,10 @@ class GridView(QScrollArea):
 
     def commit(self, prop, value):
         if self._loading or not self.target:
+            return
+        if self.target.startswith("menu:"):
+            if str(self.engine.cmd_GetProperty(self.target, prop)) != str(value):
+                self.engine.cmd_SetProperty(self.target, prop, value)
             return
         node = self.engine.find(self.target)
         if node is None:

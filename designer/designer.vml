@@ -52,7 +52,7 @@ OnContextMenu=ShowSurfaceMenu
 OnChanged=DesignChanged
 OnDoubleClick=EditScriptOnClick
 OnGeometry=ShowGeometry
-OnMenuBarClick=OpenMenuEditor
+OnMenuContextMenu=ShowMenuItemMenu
 
 # ---------------------------------------------------------------- menus
 
@@ -177,6 +177,11 @@ OnClick=About
 Parent=SurfaceMenu
 Text=Add
 
+@MenuItem CtxAddMenu
+Parent=SurfaceMenu
+Text=Add Menu
+OnClick=AddMenu
+
 @MenuItem CtxMenus
 Parent=SurfaceMenu
 Text=Menu Editor...
@@ -210,6 +215,48 @@ OnClick=SendSelectedToBack
 Parent=SurfaceMenu
 Text=Delete
 OnClick=DeleteSelected
+
+# ---------------------------------------------------------------- right-click on a menu item
+
+@ContextMenu MenuItemMenu
+
+@MenuItem MiAddBefore
+Parent=MenuItemMenu
+Text=Add Item Before
+OnClick=MenuAddBefore
+
+@MenuItem MiAddAfter
+Parent=MenuItemMenu
+Text=Add Item After
+OnClick=MenuAddAfter
+
+@MenuItem MiAddChild
+Parent=MenuItemMenu
+Text=Add Submenu Item
+OnClick=MenuAddChild
+
+@MenuItem MiSep1
+Parent=MenuItemMenu
+IsSeparator=true
+
+@MenuItem MiScript
+Parent=MenuItemMenu
+Text=Edit Script...
+OnClick=EditScript
+
+@MenuItem MiDelete
+Parent=MenuItemMenu
+Text=Delete
+OnClick=DeleteSelected
+
+@MenuItem MiSep2
+Parent=MenuItemMenu
+IsSeparator=true
+
+@MenuItem MiEditor
+Parent=MenuItemMenu
+Text=Menu Editor...
+OnClick=OpenMenuEditor
 
 # ============================================================================ scripts
 
@@ -250,6 +297,7 @@ local selected = Vml("GetProperty", "Surface", "Selected") ~= ""
 for _, item in ipairs({"CtxEditScript", "CtxDuplicate", "CtxFront", "CtxBack", "CtxDelete"}) do
     Vml("SetMenuItemEnabled", item, selected)
 end
+Vml("SetMenuItemEnabled", "CtxAddMenu", Vml("GetDesignMenu", "Surface") == "[]")
 Vml("ShowContextMenu", "SurfaceMenu")
 LUA
 
@@ -290,6 +338,36 @@ Vml("FormOpenModal", "script-editor.vml")
 Vml("RunScript", "SelectionChanged")
 LUA
 
+@Script ShowMenuItemMenu
+Interpreter=lua
+<<LUA
+Vml("ShowContextMenu", "MenuItemMenu")
+LUA
+
+@Script AddMenu
+Interpreter=lua
+<<LUA
+Vml("MenuAddItem", "", "first")
+LUA
+
+@Script MenuAddBefore
+Interpreter=lua
+<<LUA
+Vml("MenuAddItem", Vml("GetProperty", "Surface", "Selected"), "before")
+LUA
+
+@Script MenuAddAfter
+Interpreter=lua
+<<LUA
+Vml("MenuAddItem", Vml("GetProperty", "Surface", "Selected"), "after")
+LUA
+
+@Script MenuAddChild
+Interpreter=lua
+<<LUA
+Vml("MenuAddItem", Vml("GetProperty", "Surface", "Selected"), "child")
+LUA
+
 @Script OpenMenuEditor
 Interpreter=lua
 <<LUA
@@ -310,7 +388,9 @@ Interpreter=lua
 <<LUA
 -- live position and size on the status bar (runs while dragging, resizing and nudging)
 local sel = Vml("GetProperty", "Surface", "Selected")
-if sel == "" then
+if sel:sub(1, 5) == "menu:" then
+    Vml("SetStatusText", "Menu item " .. sel:sub(6) .. "    right-click for Add / Delete / Edit Script")
+elseif sel == "" then
     Vml("SetStatusText", string.format("Form    %s x %s", Vml("GetProperty", "Surface", "FormWidth"),
         Vml("GetProperty", "Surface", "FormHeight")))
 else
@@ -324,6 +404,11 @@ Interpreter=lua
 <<LUA
 local sel = Vml("GetProperty", "Surface", "Selected")
 if sel == "" then return end
+if sel:sub(1, 5) == "menu:" then
+    Vml("MenuDeleteItem", sel)
+    Vml("SetStatusText", "Deleted " .. sel:sub(6))
+    return
+end
 Vml("DeleteControl", sel)
 Vml("SetProperty", "Surface", "Selected", "")
 Vml("RunScript", "SelectionChanged")

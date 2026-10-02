@@ -233,12 +233,21 @@ class Engine:
             w.resize(w.size().expandedTo(need))
         if modal or truthy(node.props.get("Modal", "false")):
             w.setWindowModality(Qt.ApplicationModal)
+        opening = bool(node.props.get("OnOpened"))
+        if opening:
+            w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
         w.show()
         if node.props.get("Resizable", "true").lower() == "false":
             w.setFixedSize(w.size())
         self.windows.append(node)
-        if node.props.get("OnOpened"):
-            QTimer.singleShot(0, lambda: self.fire(node, "OnOpened", {}))
+        if opening:
+            def opened():
+                try:
+                    self.fire(node, "OnOpened", {})
+                finally:
+                    self.app.processEvents()
+                    w.setWindowOpacity(1.0)
+            QTimer.singleShot(0, opened)
 
     def delete(self, name, scope=None):
         node = self.find(name, scope) if scope is None else self.scopes.get(scope, {}).get(name)
@@ -374,7 +383,11 @@ class Engine:
             finally:
                 self._script_stack.pop()
         if hasattr(self, "cmd_" + handler):
-            return self.vml(handler)
+            self._script_stack.append(node)                  # so CloseSelf etc. know which form asked
+            try:
+                return self.vml(handler)
+            finally:
+                self._script_stack.pop()
         if re.fullmatch(r"[A-Za-z_]\w*", handler):
             log(f"{node.name}: {handler} isn't a script in this form or an engine command")
             return None
@@ -483,6 +496,8 @@ class Engine:
 
     # --- properties
     def cmd_SetProperty(self, name, prop, value=""):
+        if self._menu_target(name):
+            return self._menu_set(name, prop, value)
         outer = self._node(name)
         node, prop2 = self._resolve(outer, prop)
         node.props[prop2] = value
@@ -511,6 +526,8 @@ class Engine:
             node = parent
 
     def cmd_GetProperty(self, name, prop):
+        if self._menu_target(name):
+            return self._menu_get(name, prop)
         node, prop = self._resolve(self._node(name), prop)
         p = node.type.props.get(prop)
         if p and p.read:
@@ -519,6 +536,8 @@ class Engine:
 
     def cmd_GetControlPropertiesJson(self, name):
         """Reflection: every property this control has, with its live value and editor; composites list their mapped ones first."""
+        if self._menu_target(name):
+            return self._menu_props_json(name)
         node = self._node(name)
         out, seen = [], set()
         for prop, (target, tprop) in node.maps.items():
@@ -799,6 +818,16 @@ class Engine:
         return True
 
     def cmd_RenameControl(self, old, new):
+        surf, items, i = self._menu_item(old)
+        if i is not None:                                   # renaming a menu item
+            new = str(new).strip()
+            if not re.fullmatch(r"[A-Za-z_]\w*", new) or any(it["name"] == new for it in items):
+                return False
+            items[i]["name"] = new
+            surf.widget.set_menu(items)
+            surf.widget.selected = "menu:" + new
+            surf.widget.emit("OnChanged", {"selected_control": "menu:" + new})
+            return True
         node = self._node(old)
         new = str(new).strip()
         if not re.fullmatch(r"[A-Za-z_]\w*", new) or self.find(new, node.scope) is not None:
@@ -1024,6 +1053,104 @@ class Engine:
             return None
         surf = next((n for n in self.nodes.values() if n.type.name == "DesignSurface"), None)
         return (surf, str(name)[5:]) if surf is not None else None
+
+
+    # --- menu items as controls on the design surface ("menu:mnuFile")
+    MENU_PROPS = (("Text", "text", "text"), ("Shortcut", "shortcut", "text"), ("IsEnabled", "enabled", "bool"),
+                  ("IsSeparator", "separator", "bool"))
+
+    def _menu_item(self, target):
+        mt = self._menu_target(target)
+        if not mt:
+            return None, None, None
+        surf, name = mt
+        items = surf.widget.menu_items
+        i = next((k for k, it in enumerate(items) if it["name"] == name), None)
+        return surf, items, i
+
+    def _menu_get(self, target, prop):
+        surf, items, i = self._menu_item(target)
+        if i is None:
+            return ""
+        it = items[i]
+        if prop == "Name":
+            return it["name"]
+        if prop == "OnClick":
+            return it.get("onclick", "")
+        for p, key, kind in self.MENU_PROPS:
+            if p == prop:
+                v = it.get(key, "")
+                return ("true" if v else "false") if kind == "bool" else str(v)
+        return ""
+
+    def _menu_set(self, target, prop, value):
+        surf, items, i = self._menu_item(target)
+        if i is None:
+            return
+        for p, key, kind in self.MENU_PROPS:
+            if p == prop:
+                items[i][key] = truthy(value) if kind == "bool" else str(value)
+        surf.widget.set_menu(items)
+        surf.widget.emit("OnChanged", {"selected_control": target})
+        for listener in list(self.listeners):
+            listener(target, prop, value)
+
+    def _menu_props_json(self, target):
+        surf, items, i = self._menu_item(target)
+        if i is None:
+            return "[]"
+        out = [{"name": p, "value": self._menu_get(target, p), "type": "checkbox" if kind == "bool" else "text",
+                "kind": kind, "group": "Common", "options": []} for p, key, kind in self.MENU_PROPS]
+        return json.dumps(out)
+
+    def cmd_MenuAddItem(self, target="", where="after", surface="Surface"):
+        """Add a menu item before or after another, as its first submenu item ("child"), or start a menu ("first")."""
+        surf = self._surface(surface)
+        items = surf.widget.menu_items
+        existing = {it["name"] for it in items}
+        n = 1
+        while f"mnuItem{n}" in existing:
+            n += 1
+        new = {"name": f"mnuItem{n}", "text": f"Item{n}", "shortcut": "", "level": 0, "separator": False, "enabled": True}
+        _, _, i = self._menu_item(target) if target else (None, None, None)
+        if i is None:
+            if not items:
+                new.update(name="mnuFile" if "mnuFile" not in existing else new["name"], text="&File")
+            items.append(new)
+        else:
+            level = items[i]["level"]
+            end = i + 1                                    # the end of this item's own submenu
+            while end < len(items) and items[end]["level"] > level:
+                end += 1
+            if where == "before":
+                new["level"] = level
+                items.insert(i, new)
+            elif where == "child":
+                new["level"] = min(level + 1, 3)
+                items.insert(i + 1, new)
+            else:
+                new["level"] = level
+                items.insert(end, new)
+        surf.widget.set_menu(items)
+        surf.widget.select("menu:" + new["name"], user=True)
+        surf.widget.emit("OnChanged", {"selected_control": "menu:" + new["name"]})
+        return "menu:" + new["name"]
+
+    def cmd_MenuDeleteItem(self, target, surface="Surface"):
+        """Delete a menu item and everything in its submenu."""
+        surf, items, i = self._menu_item(target)
+        if i is None:
+            return False
+        level, end = items[i]["level"], i + 1
+        while end < len(items) and items[end]["level"] > level:
+            end += 1
+        for it in items[i:end]:
+            getattr(surf, "menu_scripts", {}).pop(it.get("onclick", ""), None)
+        del items[i:end]
+        surf.widget.set_menu(items)
+        surf.widget.select("", user=True)
+        surf.widget.emit("OnChanged", {"selected_control": ""})
+        return True
 
     # --- design scripts (the script editor's side)
     SHELL = "powershell" if sys.platform.startswith("win") else "bash"

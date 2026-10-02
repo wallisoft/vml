@@ -71,11 +71,43 @@ def steps():
     check("reopened: menu script back", json.loads(eng.cmd_GetDesignScript("menu:mnuNew", "OnClick"))["code"].startswith("Vml("), True)
     eng.windows[0].widget.grab().save(os.path.join(HERE, "tests", "menus-designer.png"))
 
+    # Cancel closes only the Menu Editor, never the designer
+    def cancel_editor():
+        ed = [w for w in eng.windows if "menu-editor" in w.scope]
+        if ed:
+            eng.scopes[ed[0].scope]["btnMeCancel"].widget.click()
+    QTimer.singleShot(600, cancel_editor)
+    eng.handle("OpenMenuEditor", eng.find("EditMenus")); settle()
+    check("Cancel closed the editor, not the designer", eng.find("Designer").widget.isVisible(), True)
+    check("menu unchanged by Cancel", [a.text() for a in view.menubar.actions()], ["&File", "&Help"])
+
+    # menus as controls: click a caption on the design surface, edit it in the grid
+    ov = view.overlay
+    file_act = view.menubar.actions()[0]
+    centre = view.menubar.actionGeometry(file_act).center() + view.menubar.pos()
+    QTest.mouseClick(ov, Qt.LeftButton, Qt.NoModifier, centre); settle()
+    file_act.menu().close()
+    check("clicking a caption selects the menu item", view.selected, "menu:mnuFile")
+    grid = eng.find("Props").widget
+    check("property grid edits it", grid.target, "menu:mnuFile")
+    grid.editors["Text"].setText("&Project"); grid.editors["Text"].editingFinished.emit(); settle()
+    check("caption changed on the design surface", view.menubar.actions()[0].text(), "&Project")
+    new = eng.cmd_MenuAddItem("menu:mnuFile", "after")
+    check("Add Item After: new top-level menu after File's submenu", [a.text() for a in view.menubar.actions()],
+          ["&Project", "Item1", "&Help"])
+    check("and it's selected", view.selected, new)
+    child = eng.cmd_MenuAddItem(new, "child")
+    check("Add Submenu Item: it now has a dropdown", view.menubar.actions()[1].menu().actions()[0].text(), "Item2")
+    eng.handle("DeleteSelected", eng.find("MiDelete"))
+    check("Delete removes the selected item", [a.text() for a in view.menubar.actions()[1].menu().actions()], [])
+    eng.cmd_MenuDeleteItem(new)
+    check("deleting a menu removes it and its submenu", [a.text() for a in view.menubar.actions()], ["&Project", "&Help"])
+
     eng.cmd_PreviewDesign("Surface"); settle()
     prev = [w for w in eng.windows if "vml-preview" in w.scope][-1]
     sc = prev.scope
     bar = next(n for n in eng.scopes[sc].values() if n.type.name == "TinyMenu").widget
-    check("preview: real menu bar", [a.text() for a in bar.actions()], ["&File", "&Help"])
+    check("preview: real menu bar", [a.text() for a in bar.actions()], ["&Project", "&Help"])
     eng.scopes[sc]["mnuNew"].action.trigger(); settle()
     check("preview: menu item runs its script", eng.store.get_setting("menu_test"), "new clicked")
     check("preview: canvas below the menu, controls in place",
