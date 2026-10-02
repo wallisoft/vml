@@ -73,7 +73,7 @@ Spacing=8
 
 @TextBlock lblHint
 Parent=EdButtons
-Text=Lua scripts can call Vml("Command", ...) to work with the form.
+Text=Lua and C# scripts call Vml("Command", ...) to work with the form.
 Foreground=#6B7280
 FontSize=11
 VerticalAlignment=Center
@@ -120,7 +120,7 @@ for _, e in ipairs(json.decode(Vml("GetControlEvents", ctrl))) do
     names[#names + 1] = e.name
 end
 Vml("SetProperty", "cboEvent", "Items", table.concat(names, ","))
-Vml("SetProperty", "cboLang", "Items", "Lua,Shell (" .. Vml("GetShellName") .. ")")
+Vml("SetProperty", "cboLang", "Items", table.concat(json.decode(Vml("GetLanguages")), ","))   -- C# only if set up
 local wanted, chosen = Vml("GetSetting", "editor_event"), names[1]
 for _, n in ipairs(names) do if n == wanted then chosen = n end end
 Vml("SetProperty", "cboEvent", "SelectedItem", chosen)
@@ -138,13 +138,12 @@ local previous = Vml("GetSetting", "editor_loaded_event")
 if previous ~= "" then Vml("RunScript", "EditorStore", previous) end
 local event = Vml("GetProperty", "cboEvent", "SelectedItem")
 local s = json.decode(Vml("GetDesignScript", ctrl, event))
-local shell = s.language == "Shell"
-Vml("SetProperty", "cboLang", "SelectedIndex", shell and "1" or "0")
+local langs = json.decode(Vml("GetLanguages"))
+local chosen = langs[1]
+for _, l in ipairs(langs) do if l:sub(1, #s.language) == s.language then chosen = l end end
+Vml("SetProperty", "cboLang", "SelectedItem", chosen)
 local code = s.code
-if code == "" then
-    code = shell and "#!/bin/sh\n# " .. ctrl .. " " .. event .. "\n\n"
-                 or "-- " .. ctrl .. " " .. event .. "\n\n"
-end
+if code == "" then code = Vml("RunScript", "EditorStarter", chosen, ctrl, event) end
 Vml("SetProperty", "txtCode", "Text", code)
 Vml("SetProperty", "btnRemove", "IsEnabled", s.code ~= "" and "true" or "false")
 Vml("SetSetting", "editor_loaded_event", event)
@@ -158,11 +157,23 @@ Interpreter=lua
 local code = Vml("GetProperty", "txtCode", "Text")
 if code == Vml("GetSetting", "editor_original") then
     local ctrl, event = Vml("GetSetting", "editor_control"), Vml("GetProperty", "cboEvent", "SelectedItem")
-    local shell = Vml("GetProperty", "cboLang", "SelectedIndex") == 1
-    code = shell and "#!/bin/sh\n# " .. ctrl .. " " .. event .. "\n\n" or "-- " .. ctrl .. " " .. event .. "\n\n"
+    code = Vml("RunScript", "EditorStarter", Vml("GetProperty", "cboLang", "SelectedItem"), ctrl, event)
     Vml("SetProperty", "txtCode", "Text", code)
     Vml("SetSetting", "editor_original", code)
 end
+LUA
+
+@Script EditorStarter
+Interpreter=lua
+<<LUA
+-- a first line for a new script, in the chosen language
+local lang, ctrl, event = args[1], args[2], args[3]
+if lang:sub(1, 2) == "C#" then
+    return "// " .. ctrl .. " " .. event .. "  (Vml(...), args and State are available)\n\n"
+elseif lang:sub(1, 5) == "Shell" then
+    return "#!/bin/sh\n# " .. ctrl .. " " .. event .. "\n\n"
+end
+return "-- " .. ctrl .. " " .. event .. "\n\n"
 LUA
 
 @Script EditorStore
@@ -172,7 +183,7 @@ Interpreter=lua
 local event = args[1]
 local code = Vml("GetProperty", "txtCode", "Text")
 if code == Vml("GetSetting", "editor_original") then return end
-local lang = Vml("GetProperty", "cboLang", "SelectedIndex") == 1 and "Shell" or "Lua"
+local lang = Vml("GetProperty", "cboLang", "SelectedItem"):match("^(%S+)")      -- "Lua", "Shell" or "C#"
 Vml("SetDesignScript", Vml("GetSetting", "editor_control"), event, lang, code)
 LUA
 

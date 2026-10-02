@@ -110,6 +110,7 @@ pip install -r requirements.txt
 | **Lua** | Embedded (Lua 5.4 via `lupa`), in-process and fast. One state per form, or shared by named instance. `require("dkjson")` available. |
 | **Bash** | As a subprocess, with `$VML_DB_PATH` pointing at the form's database and `vml-parse` on the `PATH`. |
 | **PowerShell** | As a subprocess, on Windows (or anywhere `pwsh` is installed). |
+| **C#** (optional) | Compiled with Roslyn by a small .NET host that stays running; cached, so repeat runs are instant. |
 
 Events include clicks, text changes, selection, pointer, focus and keys (`OnKeyDown` and `OnKeyUp` receive
 the key, its text and the Ctrl/Shift/Alt modifiers). Event handlers can name a script (`OnClick=SaveScript`), pass it arguments (`OnClick=AddItem(Button)`), call an
@@ -118,6 +119,26 @@ engine command (`OnClick=FormOpenModal about.vml`), or be a line of Lua.
 **Each form has its own Lua state**, so its globals are its own. To share state deliberately, give scripts the same
 **named instance**: `Interpreter=lua mygame` (or `Instance=mygame`). Every script in that instance, in any form, sees
 the same globals.
+
+### C# (optional)
+
+With the .NET SDK (8.0 or later) installed, build the C# host once:
+
+```bash
+./vml.py setup-csharp
+```
+
+C# then appears in the script editor alongside Lua and the shell, with the same API:
+
+```csharp
+var name = Vml("GetProperty", "txtName", "Text");
+State["clicks"] = (State.TryGetValue("clicks", out var c) ? (int)c : 0) + 1;   // State: kept per form
+Vml("SetProperty", "lblHello", "Text", $"Hello, {name} ({State["clicks"]})");
+```
+
+Script arguments are in `args`, `Console.WriteLine` goes to the log, and C# and Lua can call each other through
+`RunScript`. The first run of a script takes about a second to compile; after that it's instant. Without .NET,
+nothing changes: C# simply isn't offered.
 
 ### Multiple forms
 
@@ -182,13 +203,14 @@ python3 tests/run_anchors.py    # anchors, in the designer and at runtime
 python3 tests/run_frames.py     # frames, nesting, keys, live geometry, window options
 python3 tests/run_menus.py      # menus: editor, menu bar and items as controls, saved, reopened and run
 python3 tests/run_multiform.py  # forms opening forms, Form.Control names, dialog results, Lua states
+python3 tests/run_csharp.py     # C# scripting (skips itself if .NET isn't set up)
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.
 
 ## Roadmap
 
-- A local API and `vml` command, so any language (C#, Python, Node...) can drive a running form
+- A local API and `vml` command, so any language (Python, Node, Go...) can drive a running form
 - Designing layout-based forms
 - Undo and redo
 - Packaged releases (Linux, Windows installer, Microsoft Store)

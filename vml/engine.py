@@ -476,6 +476,8 @@ class Engine:
             return "" if r is None else r
         if interp in ("bash", "sh"):
             return self.shell(["bash", "-c", content, name, *map(str, args)], name)
+        if interp in ("csharp", "c#", "cs"):
+            return self.run_csharp(content, args, name, origin)
         if interp in ("powershell", "pwsh"):
             exe = shutil.which("pwsh") or shutil.which("powershell")
             if not exe:
@@ -484,6 +486,30 @@ class Engine:
             return self.shell([exe, "-NoProfile", "-Command", content], name)
         log(f"{name}: '{interp}' scripts aren't supported by this engine (Lua, Bash and PowerShell are)")
         return ""
+
+    def run_csharp(self, code, args, label, origin=None):
+        from . import csharp
+        if not csharp.available():
+            log(f"{label}: C# scripting isn't set up on this machine (run: ./vml.py setup-csharp)")
+            return ""
+        if getattr(self, "_csharp", None) is None:
+            self._csharp = csharp.CSharpHost(self, log)
+        self._script_stack.append(origin)
+        try:
+            return self._csharp.run(code, args, self.lua_key(script=label), label)
+        except Exception as exc:
+            log(f"{label}: {exc}")
+            return ""
+        finally:
+            self._script_stack.pop()
+
+    def cmd_GetLanguages(self):
+        """The script languages this machine can run, for the script editor."""
+        from . import csharp
+        langs = ["Lua", f"Shell ({self.cmd_GetShellName()})"]
+        if csharp.available():
+            langs.append("C#")
+        return json.dumps(langs)
 
     def shell(self, argv, label="shell"):
         try:
@@ -1260,6 +1286,18 @@ class Engine:
     # --- design scripts (the script editor's side)
     SHELL = "powershell" if sys.platform.startswith("win") else "bash"
 
+    def _lang_interp(self, lang):
+        lang = lang.lower()
+        if lang == "lua":
+            return "lua"
+        if lang in ("c#", "csharp", "cs"):
+            return "csharp"
+        return lang if lang in ("bash", "powershell") else self.SHELL
+
+    @staticmethod
+    def _lang_label(interp):
+        return {"lua": "Lua", "csharp": "C#"}.get(interp, "Shell")
+
     def cmd_GetShellName(self):
         return "PowerShell" if self.SHELL == "powershell" else "Bash"
 
@@ -1283,10 +1321,10 @@ class Engine:
             handler = next((it.get("onclick") for it in surf.widget.menu_items if it["name"] == item and it.get("onclick")),
                            f"{item}_Click")
             interp, code = getattr(surf, "menu_scripts", {}).get(handler, ("lua", ""))
-            return json.dumps({"language": "Lua" if interp == "lua" else "Shell", "code": code, "script": handler})
+            return json.dumps({"language": self._lang_label(interp), "code": code, "script": handler})
         node = self._node(name)
         interp, code = getattr(node, "design_scripts", {}).get(event, ("lua", ""))
-        return json.dumps({"language": "Lua" if interp == "lua" else "Shell", "code": code,
+        return json.dumps({"language": self._lang_label(interp), "code": code,
                            "script": node.props.get(event, "")})
 
     def cmd_SetDesignScript(self, name, event, language, code):
@@ -1304,7 +1342,7 @@ class Engine:
                     if it["name"] == item:
                         it.pop("onclick", None)
                 return ""
-            surf.menu_scripts[handler] = ("lua" if lang == "lua" else self.SHELL, str(code))
+            surf.menu_scripts[handler] = (self._lang_interp(lang), str(code))
             for it in surf.widget.menu_items:
                 if it["name"] == item:
                     it["onclick"] = handler
@@ -1316,9 +1354,7 @@ class Engine:
             node.design_scripts.pop(event, None)
             self.cmd_SetEvent(name, event, "")
             return ""
-        lang = str(language).lower()
-        interp = "lua" if lang == "lua" else (lang if lang in ("bash", "powershell") else self.SHELL)
-        node.design_scripts[event] = (interp, str(code))
+        node.design_scripts[event] = (self._lang_interp(str(language).lower()), str(code))
         script_name = node.props.get(event) or f"{name}_{event}"
         self.cmd_SetEvent(name, event, script_name)
         surf = node.parent if node.parent is not None and node.parent.type.name == "DesignSurface" else None

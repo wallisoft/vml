@@ -1,0 +1,66 @@
+@Window CsForm
+Title=C# test
+Width=360
+Height=220
+
+@StackPanel CsStack
+Parent=CsForm
+Margin=12
+Spacing=6
+
+@TextBox txtName
+Parent=CsStack
+Text=Steve
+
+@Button btnHello
+Parent=CsStack
+Content=Hello from C#
+OnClick=CsHello
+
+@Button btnRound
+Parent=CsStack
+Content=C# -> Lua -> C#
+OnClick=CsRoundTrip
+
+@Button btnBroken
+Parent=CsStack
+Content=Broken
+OnClick=CsBroken
+
+@TextBlock lblOut
+Parent=CsStack
+Text=
+
+@Script CsHello
+Interpreter=csharp
+<<CS
+var name = Vml("GetProperty", "txtName", "Text");
+State["clicks"] = (State.TryGetValue("clicks", out var c) ? (int)c : 0) + 1;
+var words = new[] { "Hello", name, "from", "C#" };
+Vml("SetProperty", "lblOut", "Text", $"{string.Join(" ", words)} ({State["clicks"]})");
+CS
+
+@Script CsRoundTrip
+Interpreter=csharp
+<<CS
+var fromLua = Vml("RunScript", "LuaMiddle", "x");
+Vml("SetProperty", "lblOut", "Text", fromLua);
+CS
+
+@Script LuaMiddle
+Interpreter=lua
+<<LUA
+return "lua saw " .. args[1] .. " and C# said " .. Vml("RunScript", "CsLeaf", "y")
+LUA
+
+@Script CsLeaf
+Interpreter=csharp
+<<CS
+return $"'{args[0].ToUpper()}'";
+CS
+
+@Script CsBroken
+Interpreter=csharp
+<<CS
+int x = "not a number";
+CS

@@ -5,3 +5,6 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+csharp/bin/
+csharp/VmlCSharpHost/bin/
+csharp/VmlCSharpHost/obj/
