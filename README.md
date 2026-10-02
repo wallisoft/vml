@@ -83,6 +83,8 @@ python3 -m vml path/to/any-form.vml         # run any VML form
 - **Right-click the form to add a control.** The list comes from the registry, so new control types appear automatically.
 - **Drag to move, drag the handles to resize.** Snaps to the grid; hold Alt for free movement. Arrow keys nudge
   (Shift for a grid step).
+- **Anchors:** pin a control to the form's edges so it moves or stretches as the window resizes (an OK button in
+  the corner, a text box that spans the width, a list that fills the form). Drag the form's corner to see it live.
 - **Bring to Front / Send to Back, Duplicate (Ctrl+D), Delete.**
 - **The property grid** edits whatever is selected: grouped, with checkboxes, dropdowns and colour pickers, and
   live, so it never goes stale. Click the empty form to edit the form itself.
@@ -141,6 +143,7 @@ tests/          tests that drive forms like a user does
 ```bash
 python3 tests/run_step1.py      # events, Lua, settings, shell, reflection
 python3 tests/run_designer.py   # the designer: add, drag, resize, edit, script, save, reopen, preview
+python3 tests/run_anchors.py    # anchors, in the designer and at runtime
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.

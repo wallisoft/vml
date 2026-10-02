@@ -17,9 +17,14 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
                                QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
-from .registry import COMMON, REGISTRY, ControlType, Prop, colour, num, register, truthy
+from .registry import COMMON, REGISTRY, ControlType, Prop, anchor_set, anchored_rect, colour, num, register, truthy
 
-GROUP_ORDER = ["Form", "Control", "Common", "Text", "Appearance", "Layout", "Placement", "Behaviour", "Events"]
+GROUP_ORDER = ["Form", "Control", "Common", "Placement", "Layout", "Text", "Appearance", "Behaviour", "Events"]
+# On a canvas form these only matter inside layout panels, so the grid leaves them out; and it uses VB's names.
+CANVAS_HIDDEN = {"DockPanel.Dock", "Grid.Row", "Grid.Column", "Grid.RowSpan", "Grid.ColumnSpan",
+                 "HorizontalAlignment", "VerticalAlignment", "Margin"}
+CANVAS_LABELS = {"Canvas.Left": "Left", "Canvas.Top": "Top"}
+PLACEMENT_ORDER = {"Canvas.Left": 0, "Canvas.Top": 1, "Anchor": 2}
 HIDDEN_IN_GRID = {"X", "Y", "Name", "IsHitTestVisible", "Focusable"}
 HANDLE = 7
 PAGE_MARGIN = 28
@@ -80,6 +85,19 @@ class Overlay(QWidget):
             p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
             p.setBrush(Qt.NoBrush)
             p.drawRect(r.adjusted(-1, -1, 0, 0))
+            a = anchor_set(sel.props.get("Anchor"))
+            if a != {"Top", "Left"}:
+                f = v.form.geometry()
+                p.setPen(QPen(QColor(37, 99, 235, 120), 1, Qt.DotLine))
+                cx, cy = r.center().x(), r.center().y()
+                if "Left" in a:
+                    p.drawLine(f.left(), cy, r.left(), cy)
+                if "Right" in a:
+                    p.drawLine(r.right(), cy, f.right(), cy)
+                if "Top" in a:
+                    p.drawLine(cx, f.top(), cx, r.top())
+                if "Bottom" in a:
+                    p.drawLine(cx, r.bottom(), cx, f.bottom())
             p.setPen(QPen(QColor("#2563eb"), 1))
             p.setBrush(QColor("white"))
             for h in self.handles(r).values():
@@ -108,6 +126,9 @@ class Overlay(QWidget):
         self.start, self.handle, self.mode = pos, None, None
         if e.button() == Qt.LeftButton and self.form_grip().contains(pos):
             self.mode, self.orig = "form", QRect(v.form.geometry())
+            # anchored controls follow the form as it resizes: remember where they started
+            self.anchored = [(n, dict(n.props), n.widget.sizeHint()) for n in v.node.children
+                             if anchor_set(n.props.get("Anchor")) != {"Top", "Left"}]
             return
         sel = v.selected_node()
         if e.button() == Qt.LeftButton and sel is not None:
@@ -133,7 +154,15 @@ class Overlay(QWidget):
         d = pos - self.start
         snap = (lambda n: n) if e.modifiers() & Qt.AltModifier else v.snap
         if self.mode == "form":
-            v.set_form_size(max(80, snap(self.orig.width() + d.x())), max(60, snap(self.orig.height() + d.y())))
+            nw, nh = max(80, snap(self.orig.width() + d.x())), max(60, snap(self.orig.height() + d.y()))
+            v.set_form_size(nw, nh)
+            for node, props, natural in getattr(self, "anchored", []):
+                x, y, w, h, stretched = anchored_rect(props, natural, (self.orig.width(), self.orig.height()), (nw, nh))
+                if stretched:
+                    node.widget.setFixedSize(w, h)
+                    node.host.setGeometry(x, y, w, h)
+                else:
+                    node.host.move(x, y)
         elif self.mode == "move":
             node = v.selected_node()
             if node is not None:
@@ -258,8 +287,20 @@ class SurfaceView(QScrollArea):
         self.emit("OnChanged", {"selected_control": node.name})
 
     def commit_form(self):
-        self.engine.cmd_SetProperty(self.node.name, "FormWidth", str(self.form.width()))
-        self.engine.cmd_SetProperty(self.node.name, "FormHeight", str(self.form.height()))
+        e = self.engine
+        e.cmd_SetProperty(self.node.name, "FormWidth", str(self.form.width()))
+        e.cmd_SetProperty(self.node.name, "FormHeight", str(self.form.height()))
+        for node in self.node.children:
+            a = anchor_set(node.props.get("Anchor"))
+            if a == {"Top", "Left"}:
+                continue
+            g = node.host.geometry()
+            e.cmd_SetProperty(node.name, "Canvas.Left", str(g.x()))
+            e.cmd_SetProperty(node.name, "Canvas.Top", str(g.y()))
+            if ("Left" in a and "Right" in a) or ("Top" in a and "Bottom" in a):
+                e.cmd_SetProperty(node.name, "Width", str(node.widget.width()))
+                e.cmd_SetProperty(node.name, "Height", str(node.widget.height()))
+        self.overlay.update()
         self.emit("OnChanged", {"selected_control": ""})
 
 
@@ -385,9 +426,12 @@ class GridView(QScrollArea):
         if not design_form:
             lay.addLayout(self.row_layout("Name", self.name_editor(target.name)))
         props = json.loads(self.engine.cmd_GetControlPropertiesJson(target.name))
+        on_canvas = target.parent is not None and target.parent.type.name in ("DesignSurface", "Canvas")
         groups = {}
         for p in props:
             if p["name"] in HIDDEN_IN_GRID or (design_form and p["group"] != "Form"):
+                continue
+            if on_canvas and p["name"] in CANVAS_HIDDEN:
                 continue
             if design_form is False and p["group"] == "Form":
                 continue
@@ -401,8 +445,12 @@ class GridView(QScrollArea):
             title = QLabel(g.upper())
             title.setStyleSheet("color: #2563eb; font-size: 10px; font-weight: 700; padding: 8px 0 2px 0;")
             lay.addWidget(title)
-            for p in groups[g]:
-                lay.addLayout(self.row_layout(p["name"], self.editor(p)))
+            rows = groups[g]
+            if g == "Placement":
+                rows = sorted(rows, key=lambda p: PLACEMENT_ORDER.get(p["name"], 9))
+            for p in rows:
+                label = CANVAS_LABELS.get(p["name"], p["name"]) if on_canvas else p["name"]
+                lay.addLayout(self.row_layout(label, self.editor(p)))
         lay.addStretch(1)
         self.setWidget(body)
 

@@ -200,6 +200,9 @@ ATTACHED = [                                            # read by the parent con
     Prop("Grid.RowSpan", "number", "Placement", apply=set_alignment), Prop("Grid.ColumnSpan", "number", "Placement", apply=set_alignment),
     Prop("DockPanel.Dock", "choice", "Placement", options=("Left", "Top", "Right", "Bottom"), apply=set_alignment),
     Prop("Canvas.Left", "number", "Placement", apply=set_alignment), Prop("Canvas.Top", "number", "Placement", apply=set_alignment),
+    Prop("Anchor", "choice", "Placement", default="Top,Left", apply=set_alignment,
+         options=("Top,Left", "Top,Right", "Bottom,Left", "Bottom,Right", "Top,Left,Right", "Bottom,Left,Right",
+                  "Top,Bottom,Left", "Top,Bottom,Right", "Top,Bottom,Left,Right")),
 ]
 PADDING_STYLE = [Prop("Padding", "thickness", "Layout",
                       apply=style("padding", lambda v: "{1}px {2}px {3}px {0}px".format(*thickness(v))))]
@@ -409,10 +412,74 @@ def canvas_add(parent, child):
     child.host.show()
 
 
+ANCHORS = ("Top,Left", "Top,Right", "Bottom,Left", "Bottom,Right", "Top,Left,Right", "Bottom,Left,Right",
+           "Top,Bottom,Left", "Top,Bottom,Right", "Top,Bottom,Left,Right")
+
+
+def anchor_set(value):
+    parts = {p.strip().capitalize() for p in str(value or "").split(",") if p.strip()}
+    return parts or {"Top", "Left"}
+
+
+def anchored_rect(props, natural, ref, cur):
+    """Where a control anchored to some edges belongs when its container goes from size ref to size cur.
+    Pinned to both opposite edges, it stretches; pinned only to the far edge, it moves; otherwise it stays."""
+    x0, y0 = num(props.get("Canvas.Left", props.get("X"))), num(props.get("Canvas.Top", props.get("Y")))
+    w0 = num(props.get("Width"), natural.width()) if props.get("Width") not in (None, "", "Auto") else natural.width()
+    h0 = num(props.get("Height"), natural.height()) if props.get("Height") not in (None, "", "Auto") else natural.height()
+    a = anchor_set(props.get("Anchor"))
+    dx, dy = cur[0] - ref[0], cur[1] - ref[1]
+    x, w = x0, w0
+    if "Left" in a and "Right" in a:
+        w = max(8, w0 + dx)
+    elif "Right" in a:
+        x = x0 + dx
+    y, h = y0, h0
+    if "Top" in a and "Bottom" in a:
+        h = max(8, h0 + dy)
+    elif "Bottom" in a:
+        y = y0 + dy
+    stretched = ("Left" in a and "Right" in a) or ("Top" in a and "Bottom" in a)
+    return int(x), int(y), int(w), int(h), stretched
+
+
+class CanvasWidget(QWidget):
+    """A Canvas: children at Canvas.Left/Top, re-placed by their Anchor whenever the canvas resizes.
+    Its reference size is the form's designed size (the Window's Width/Height) when it fills a window."""
+
+    def __init__(self, node):
+        super().__init__()
+        self.node, self._ref = node, None
+        self.setMinimumSize(50, 50)
+
+    def ref_size(self):
+        if self._ref is None:
+            p = self.node.parent
+            if p is not None and p.type.name == "Window" and p.props.get("Width") and p.props.get("Height"):
+                self._ref = (num(p.props["Width"]), num(p.props["Height"]))
+            elif self.width() > 60:
+                self._ref = (self.width(), self.height())
+        return self._ref
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        for child in list(self.node.children):
+            canvas_place(self.node, child)
+
+
 def canvas_place(parent, child):
     child.host.adjustSize()
-    child.host.move(int(num(child.props.get("Canvas.Left", child.props.get("X")))),
-                    int(num(child.props.get("Canvas.Top", child.props.get("Y")))))
+    w = parent.widget
+    ref = w.ref_size() if isinstance(w, CanvasWidget) else None
+    if ref is None or anchor_set(child.props.get("Anchor")) == {"Top", "Left"}:
+        child.host.move(int(num(child.props.get("Canvas.Left", child.props.get("X")))),
+                        int(num(child.props.get("Canvas.Top", child.props.get("Y")))))
+        return
+    x, y, cw, ch, stretched = anchored_rect(child.props, child.widget.sizeHint(), ref, (w.width(), w.height()))
+    if stretched:
+        child.widget.setFixedSize(cw, ch)
+        child.host.adjustSize()
+    child.host.move(x, y)
 
 
 def canvas_remove(parent, child):
@@ -469,9 +536,7 @@ def make_dock(node):
 
 
 def make_canvas(node):
-    w = QWidget()
-    w.setMinimumSize(50, 50)
-    return w
+    return CanvasWidget(node)
 
 
 def make_scroll(node):
