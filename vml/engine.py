@@ -1428,13 +1428,33 @@ class Engine:
         return path
 
     def cmd_PreviewInBrowser(self, surface="Surface"):
-        """Open the form being designed in the default web browser."""
+        """Open the form being designed in the default web browser, served from a tiny local web server:
+        browsers (snap-packaged ones especially) won't run a page opened from disk that loads code from the web."""
         node = self._surface(surface)
-        out = Path(tempfile.gettempdir()) / f"vml-web-{node.name}.html"
-        path = self.cmd_ExportHtml(node.name, str(out))
+        folder = Path(tempfile.gettempdir()) / "vml-web"
+        folder.mkdir(exist_ok=True)
+        out = folder / f"{node.name}.html"
+        self.cmd_ExportHtml(node.name, str(out))
+        url = f"{self._web_server(folder)}/{out.name}"
         import webbrowser
-        webbrowser.open(Path(path).resolve().as_uri())
-        return path
+        webbrowser.open(url)
+        return url
+
+    def _web_server(self, folder):
+        """Start (once) a local web server on 127.0.0.1 for browser previews; returns its address."""
+        if getattr(self, "_web_url", None) is None:
+            import functools
+            import threading
+            from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+            class Quiet(SimpleHTTPRequestHandler):
+                def log_message(self, *a):
+                    pass
+            server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(folder)))
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self._web_server_obj = server
+            self._web_url = f"http://127.0.0.1:{server.server_address[1]}"
+        return self._web_url
 
     def cmd_PreviewDesign(self, surface="Surface"):
         """Run the form being designed, for real, in its own window."""

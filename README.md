@@ -109,7 +109,8 @@ The same `.vml` file runs in a browser. **View → Preview in Browser** (F6) in 
 HTML…**, or from a terminal:
 
 ```bash
-./vml.py html myform.vml          # writes myform.html: one self-contained page, no server needed
+./vml.py html myform.vml          # writes myform.html: one self-contained page
+./vml.py html myform.vml --open   # ...and opens it in your browser via a tiny local web server
 ```
 
 Layout is faithful: canvas forms are positioned exactly, and **anchors become CSS**, so controls move and stretch as

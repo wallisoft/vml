@@ -4,7 +4,7 @@
     ./vml.py                       the designer
     ./vml.py myform.vml            run a form
     ./vml.py setup-csharp          (optional) build the C# script host
-    ./vml.py html form.vml         write the form as a web page (form.html)
+    ./vml.py html form.vml         write the form as a web page (form.html); add --open to view it
     ./vml.py get txtName Text      talk to the running form: get / set / setting / run / any Vml command
 """
 import os

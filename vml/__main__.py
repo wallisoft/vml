@@ -1,6 +1,6 @@
 """vml [form.vml] [--db path/to/vml.db] [--shot out.png]   (no form: open the VML designer)
    vml setup-csharp                                         (optional: build the C# script host)
-   vml html form.vml [out.html]                             (write the form as a web page)"""
+   vml html form.vml [out.html] [--open]                    (write the form as a web page; --open serves and opens it)"""
 import argparse
 import sys
 from pathlib import Path
@@ -22,7 +22,21 @@ def main():
         rest = [x for x in sys.argv[2:] if not x.startswith("-")]
         if not rest:
             raise SystemExit("usage: vml html form.vml [out.html]")
-        print(export_html(rest[0], rest[1] if len(rest) > 1 else None))
+        out = export_html(rest[0], rest[1] if len(rest) > 1 else None)
+        print(out)
+        if "--open" in sys.argv:                            # serve it locally and open it in the browser
+            import functools
+            import webbrowser
+            from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+            folder = Path(out).resolve().parent
+            server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(SimpleHTTPRequestHandler, directory=str(folder)))
+            url = f"http://127.0.0.1:{server.server_address[1]}/{Path(out).name}"
+            print(f"serving at {url}  (Ctrl+C to stop)")
+            webbrowser.open(url)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
         raise SystemExit(0)
     if a.vml == "setup-csharp":                             # optional: build the C# script host once
         from . import csharp
