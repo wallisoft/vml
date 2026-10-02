@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bg)"/>
+  <!-- a window: title bar with three dots, white body -->
+  <rect x="84" y="112" width="344" height="288" rx="22" fill="#FFFFFF"/>
+  <path d="M84 134 a22 22 0 0 1 22 -22 h300 a22 22 0 0 1 22 22 v28 h-344 z" fill="#DBEAFE"/>
+  <circle cx="116" cy="137" r="8" fill="#93C5FD"/>
+  <circle cx="142" cy="137" r="8" fill="#93C5FD"/>
+  <circle cx="168" cy="137" r="8" fill="#93C5FD"/>
+  <!-- markup brackets inside: < / > -->
+  <path d="M206 218 L158 274 L206 330" fill="none" stroke="#2563EB" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M306 218 L354 274 L306 330" fill="none" stroke="#2563EB" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M274 206 L238 342" fill="none" stroke="#1E3A8A" stroke-width="22" stroke-linecap="round"/>
+</svg>

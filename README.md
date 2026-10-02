@@ -68,7 +68,13 @@ The **control registry** is the single source of truth: each control type is dec
 (its kind, editor, group, how to set it and read it back) and its events. Rendering, the `Vml()` API and the
 designer's property panel are all driven from it, so a property added once appears everywhere.
 
-## Quick start
+## Download
+
+- **Windows:** [VML-Setup.exe](https://github.com/wallisoft/vml-releases/releases/latest/download/VML-Setup.exe) (no admin needed), or the [portable zip](https://github.com/wallisoft/vml-releases/releases/latest/download/vml-windows-x64.zip)
+- **Linux:** `curl -fsSL https://github.com/wallisoft/vml-releases/releases/latest/download/install.sh | bash`
+- More at **[vml.eur.bz](https://vml.eur.bz)**, including a live demo in your browser.
+
+## Quick start (from source)
 
 Requires Python 3.10+.
 
@@ -233,6 +239,8 @@ vml/            the engine
   lua/          vml-parser.lua, dkjson.lua
 designer/       the designer and script editor (VML + Lua)
 tests/          tests that drive forms like a user does
+packaging/      icon, installers (Windows, Linux) and the Store manifest
+.github/        the release workflow: tag a version, get every download
 ```
 
 ## Tests
@@ -256,7 +264,8 @@ python3 tests/run_web.py        # the HTML renderer in a real browser (needs: pi
 - Designing layout-based forms
 - Undo and redo
 - Mobile, via a renderer for phones
-- Packaged releases (Linux, Windows installer, Microsoft Store)
+- The Microsoft Store listing
+- Exporting your app as a Windows or Linux program
 
 ## History
 

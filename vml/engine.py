@@ -29,7 +29,24 @@ from .design import DESIGN_DEFAULTS  # importing design also registers DesignSur
 from .store import LUA_DIR, PARSER_LOG, Store
 
 # Every Python script starts with this: Vml() talks straight to the engine over its local socket.
-PYTHON_PRELUDE = "import sys\nfrom vml.client import call as Vml\nargs = sys.argv[2:]\n"     # argv[1] is the script name
+PYTHON_PRELUDE = """import sys, os, json, socket
+def Vml(command, *a):
+    host, port = os.environ["VML_API"].rsplit(":", 1)
+    with socket.create_connection((host, int(port)), timeout=30) as s:
+        s.sendall((json.dumps({"token": os.environ["VML_TOKEN"], "cmd": command, "args": [str(x) for x in a]}) + "\\n").encode())
+        data = b""
+        while not data.endswith(b"\\n"):
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    reply = json.loads(data or b"{}")
+    if not reply.get("ok"):
+        raise RuntimeError(reply.get("error", "no reply"))
+    return reply.get("value")
+args = sys.argv[2:]
+"""     # every Python script starts with this; argv[1] is the script name
+FROZEN = "__compiled__" in globals()      # running as a compiled (Nuitka) binary
 
 PLACEHOLDER = ControlType("Placeholder", make_box, container=True, add_child=box_add, place_child=box_place,
                           remove_child=layout_remove)
@@ -463,11 +480,15 @@ class Engine:
     def _init_shell(self):
         """Bash scripts call `vml-parse` and read $VML_DB_PATH, as in the Avalonia engine."""
         self.bin_dir = Path(tempfile.mkdtemp(prefix="vml-bin-"))
-        for name, module in (("vml-parse", "vml.parsecli"), ("vml", "vml.client")):
+        for name, module, verb in (("vml-parse", "vml.parsecli", "parse"), ("vml", "vml.client", "")):
+            if FROZEN:                                  # a compiled build: the binary itself answers
+                run_sh, run_cmd = f'"{sys.executable}" {verb}'.rstrip(), f'"{sys.executable}" {verb}'.rstrip()
+            else:
+                run_sh = run_cmd = f'"{sys.executable}" -m {module}'
             shim = self.bin_dir / name
-            shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" -m {module} "$@"\n')
+            shim.write_text(f'#!/bin/sh\nexec {run_sh} "$@"\n')
             shim.chmod(0o755)
-            (self.bin_dir / f"{name}.cmd").write_text(f'@"{sys.executable}" -m {module} %*\r\n')
+            (self.bin_dir / f"{name}.cmd").write_text(f'@{run_cmd} %*\r\n')
         self.env = dict(os.environ, VML_DB_PATH=self.store.path, **self.api.env(),
                         PATH=f"{self.bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
                         PYTHONPATH=str(Path(__file__).resolve().parent.parent))

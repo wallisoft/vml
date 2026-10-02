@@ -1,0 +1,161 @@
+name: Release
+
+# Push a tag like v0.15.0 and this compiles VML to native code with Nuitka, builds the Windows installer,
+# a portable Windows zip, the Linux package and (once the Store identity is set) the Microsoft Store MSIX,
+# then publishes them to the PUBLIC repo wallisoft/vml-releases. The source stays in this private repo.
+#
+# Needs:  secret RELEASES_TOKEN   (fine-grained token: vml-releases, Contents read/write)
+# Store:  variables MSIX_IDENTITY_NAME, MSIX_PUBLISHER, MSIX_PUBLISHER_DISPLAY (Partner Center > Product identity)
+#         and optionally MSIX_DISPLAY_NAME (default "VML Designer"). Without them, the MSIX step is skipped.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Tag must match __version__ in vml/__init__.py
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CODE=$(grep -m1 '__version__' vml/__init__.py | cut -d'"' -f2)
+          echo "tag=$TAG code=$CODE"
+          [ "$TAG" = "$CODE" ] || { echo "::error::Tag v$TAG doesn't match __version__ $CODE"; exit 1; }
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pillow nuitka ordered-set zstandard
+          choco install innosetup -y --no-progress
+      - name: Compile with Nuitka
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
+            --windows-console-mode=attach --windows-icon-from-ico=packaging/art/vml.ico `
+            --include-package=vml --include-package=lupa `
+            --include-data-dir=designer=designer --include-data-dir=vml/lua=vml/lua `
+            --company-name=Wallisoft --product-name=VML `
+            --file-version=${{ needs.check.outputs.version }} --product-version=${{ needs.check.outputs.version }} `
+            --output-filename=vml.exe --output-dir=build vml.py
+      - name: Build VML-Setup.exe
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ needs.check.outputs.version }}" packaging\vml.iss
+      - name: Portable zip (also what the designer uses to export Windows apps)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory stage | Out-Null
+          Copy-Item -Recurse build\vml.dist stage\vml
+          Copy-Item packaging\THIRD-PARTY-NOTICES.txt stage\vml\
+          Compress-Archive -Path stage\vml -DestinationPath vml-windows-x64.zip
+      - name: Build VML.msix (Microsoft Store)
+        if: vars.MSIX_IDENTITY_NAME != ''
+        shell: pwsh
+        env:
+          ID: ${{ vars.MSIX_IDENTITY_NAME }}
+          PUB: ${{ vars.MSIX_PUBLISHER }}
+          PUBDISP: ${{ vars.MSIX_PUBLISHER_DISPLAY }}
+          NAME: ${{ vars.MSIX_DISPLAY_NAME || 'VML Designer' }}
+        run: |
+          $p = "${{ needs.check.outputs.version }}".Split('.'); while ($p.Count -lt 3) { $p += '0' }
+          $v = "$($p[0]).$($p[1]).$($p[2]).0"
+          New-Item -ItemType Directory msix\Assets -Force | Out-Null
+          Copy-Item -Recurse build\vml.dist\* msix\
+          Copy-Item packaging\THIRD-PARTY-NOTICES.txt msix\
+          python packaging/make_icon.py msix/Assets/Square150x150Logo.png 150
+          python packaging/make_icon.py msix/Assets/Square44x44Logo.png 44
+          python packaging/make_icon.py msix/Assets/StoreLogo.png 50
+          (Get-Content packaging\AppxManifest.xml -Raw).Replace('@IDENTITY_NAME@', $env:ID).Replace('@PUBLISHER@', $env:PUB).Replace('@PUBLISHER_DISPLAY@', $env:PUBDISP).Replace('@DISPLAY_NAME@', $env:NAME).Replace('@VERSION@', $v) | Set-Content msix\AppxManifest.xml -Encoding utf8
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          & $makeappx.FullName pack /d msix /p VML.msix /o
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            packaging/Output/VML-Setup.exe
+            vml-windows-x64.zip
+            VML.msix
+          if-no-files-found: warn
+
+  linux:
+    needs: check
+    runs-on: ubuntu-22.04        # older base = runs on older and newer distros
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq patchelf libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pillow nuitka ordered-set zstandard
+      - name: Compile with Nuitka
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 \
+            --include-package=vml --include-package=lupa \
+            --include-data-dir=designer=designer --include-data-dir=vml/lua=vml/lua \
+            --output-filename=vml --output-dir=build vml.py
+      - name: Package
+        run: |
+          mv build/vml.dist vml
+          python packaging/make_icon.py vml/vml.png
+          cp packaging/THIRD-PARTY-NOTICES.txt vml/
+          tar czf vml-linux-x86_64.tar.gz vml
+          cp packaging/install.sh install.sh
+      - name: Smoke test the compiled binary
+        run: |
+          ./vml/vml parse tests/step1.vml | grep -q "INSERT INTO ui_tree"
+          QT_QPA_PLATFORM=offscreen timeout 60 ./vml/vml tests/step1.vml --shot shot.png
+          test -s shot.png && echo "the compiled binary opens a form"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            vml-linux-x86_64.tar.gz
+            install.sh
+
+  publish:
+    needs: [check, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Make sure everything made it
+        run: |
+          for f in VML-Setup.exe vml-windows-x64.zip vml-linux-x86_64.tar.gz install.sh; do
+            find . -name "$f" | grep -q . || { echo "::error::$f is missing"; exit 1; }
+          done
+          find . -name VML.msix | grep -q . && echo "Store package included" || echo "no Store package this time (set the MSIX_* variables)"
+      - uses: softprops/action-gh-release@v2
+        with:
+          repository: wallisoft/vml-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: VML ${{ needs.check.outputs.version }}
+          body: |
+            **Windows 10 and 11:** download `VML-Setup.exe` and run it (no admin needed), or unzip `vml-windows-x64.zip` anywhere.
+            **Linux (Ubuntu 22.04+ and similar):** `curl -fsSL https://github.com/wallisoft/vml-releases/releases/latest/download/install.sh | bash`
+          files: |
+            **/VML-Setup.exe
+            **/vml-windows-x64.zip
+            **/vml-linux-x86_64.tar.gz
+            **/install.sh
+            **/VML.msix

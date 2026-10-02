@@ -1,0 +1,11 @@
+VML includes or uses the following open-source software. Thank you to their authors.
+
+Qt for Python (PySide6) and Qt     LGPL-3.0     https://www.qt.io/qt-for-python
+  Qt is used as separate, replaceable shared libraries, as the LGPL requires.
+Python                             PSF License  https://www.python.org
+Lua 5.4                            MIT          https://www.lua.org
+lupa (Lua for Python)              MIT          https://github.com/scoder/lupa
+dkjson (JSON for Lua)              MIT          http://dkolf.de/dkjson-lua
+Wasmoon (Lua in WebAssembly)       MIT          https://github.com/ceifa/wasmoon
+  Loaded by exported web pages; not part of the desktop program.
+Nuitka (compiler runtime)          Apache-2.0   https://nuitka.net
