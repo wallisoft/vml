@@ -114,15 +114,15 @@ jobs:
             --output-filename=vml --output-dir=build vml.py
       - name: Package
         run: |
-          mv build/vml.dist vml
-          python packaging/make_icon.py vml/vml.png
-          cp packaging/THIRD-PARTY-NOTICES.txt vml/
-          tar czf vml-linux-x86_64.tar.gz vml
+          mv build/vml.dist dist-vml                 # (a folder called "vml" already exists: the source)
+          python packaging/make_icon.py dist-vml/vml.png
+          cp packaging/THIRD-PARTY-NOTICES.txt dist-vml/
+          tar czf vml-linux-x86_64.tar.gz --transform 's,^dist-vml,vml,' dist-vml
           cp packaging/install.sh install.sh
       - name: Smoke test the compiled binary
         run: |
-          ./vml/vml parse tests/step1.vml | grep -q "INSERT INTO ui_tree"
-          QT_QPA_PLATFORM=offscreen timeout 60 ./vml/vml tests/step1.vml --shot shot.png
+          ./dist-vml/vml parse tests/step1.vml | grep -q "INSERT INTO ui_tree"
+          QT_QPA_PLATFORM=offscreen timeout 60 ./dist-vml/vml tests/step1.vml --shot shot.png
           test -s shot.png && echo "the compiled binary opens a form"
       - uses: actions/upload-artifact@v4
         with:
