@@ -90,10 +90,12 @@ pip install -r requirements.txt
 - **Live position and size** on the status bar while you drag, resize or nudge.
 - **Form options:** title, size, background, resizable, modal, minimum and maximum size, shown on a window title
   bar above the form as you design.
-- **Menus, two ways.** Right-click the form and choose **Add Menu**, then treat menu items like controls: click a
+- **Menus, two ways.** Right-click the form and choose **Add Menu** for File, Edit and Help (Exit and About already
+  work), then treat menu items like controls: click a
   caption to select it and edit it in the property grid, and right-click any item for Add Before, Add After, Add
   Submenu Item, Delete and Edit Script. Or use the **Menu Editor** (Ctrl+M), after VB5's: type a caption, press
-  Next, indent with the arrows. Either way, the form shows its real menu bar as you design.
+  Next, indent with the arrows. Either way, the form shows its real menu bar as you design. Click the bar's empty
+  space for its own properties: colours, and opening dropdowns on hover.
 - **Bring to Front / Send to Back, Duplicate (Ctrl+D), Delete.**
 - **The property grid** edits whatever is selected: grouped, with checkboxes, dropdowns and colour pickers, and
   live, so it never goes stale. Click the empty form to edit the form itself.

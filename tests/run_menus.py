@@ -103,6 +103,16 @@ def steps():
     eng.cmd_MenuDeleteItem(new)
     check("deleting a menu removes it and its submenu", [a.text() for a in view.menubar.actions()], ["&Project", "&Help"])
 
+    # the bar itself: click its empty space, set colours and open-on-hover
+    empty = view.menubar.geometry().center() + QPoint(view.menubar.width() // 3, 0)
+    QTest.mouseClick(ov, Qt.LeftButton, Qt.NoModifier, empty); settle()
+    check("clicking the bar's empty space selects the bar", view.selected, "menubar")
+    check("grid shows the menu bar's properties", "OpenOnHover" in grid.editors and "HoverBackground" in grid.editors, True)
+    grid.editors["Background"].setText("#1E3A8A"); grid.editors["Background"].editingFinished.emit()
+    grid.editors["Foreground"].setText("White"); grid.editors["Foreground"].editingFinished.emit()
+    grid.editors["OpenOnHover"].setChecked(True); settle()
+    check("bar restyled on the design surface", "#1E3A8A" in view.menubar.styleSheet(), True)
+
     eng.cmd_PreviewDesign("Surface"); settle()
     prev = [w for w in eng.windows if "vml-preview" in w.scope][-1]
     sc = prev.scope
@@ -112,7 +122,31 @@ def steps():
     check("preview: menu item runs its script", eng.store.get_setting("menu_test"), "new clicked")
     check("preview: canvas below the menu, controls in place",
           eng.scopes[sc][btn].host.mapTo(prev.widget, QPoint(0, 0)).y() >= bar.height() + 24, True)
+    check("preview: bar themed", "#1E3A8A" in bar.styleSheet(), True)
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, QPointF
+    help_act = bar.actions()[1]
+    pt = QPointF(bar.actionGeometry(help_act).center())
+    app.sendEvent(bar, QMouseEvent(QEvent.MouseMove, pt, bar.mapToGlobal(pt), Qt.NoButton, Qt.NoButton, Qt.NoModifier)); settle()
+    check("preview: hovering opens a menu", bar.activeAction() is help_act, True)
+    help_act.menu().close()
     prev.widget.grab().save(os.path.join(HERE, "tests", "menus-preview.png"))
+
+    # a fresh form: Add Menu brings the usual suspects, with Exit and About already working
+    eng.cmd_ClearDesign("Surface"); settle()
+    eng.handle("AddMenu", eng.find("CtxAddMenu")); settle()
+    check("usual suspects", [a.text() for a in view.menubar.actions()], ["&File", "&Edit", "&Help"])
+    check("File menu", [a.text() for a in view.menubar.actions()[0].menu().actions() if not a.isSeparator()],
+          ["&New", "&Open...", "&Save", "Save &As...", "E&xit"])
+    check("About has a script", json.loads(eng.cmd_GetDesignScript("menu:mnuAbout", "OnClick"))["code"].startswith('Vml("InfoDialog"'), True)
+    eng.cmd_PreviewDesign("Surface"); settle()
+    prev = [w for w in eng.windows if "vml-preview" in w.scope][-1]
+    shown = []
+    eng.cmd_InfoDialog = lambda msg, title="": shown.append((title, msg))
+    eng.scopes[prev.scope]["mnuAbout"].action.trigger(); settle()
+    check("About works out of the box", shown[:1] and shown[0][0], "About Form1")
+    eng.scopes[prev.scope]["mnuExit"].action.trigger(); settle()
+    check("Exit closes the form (not the designer)", (prev.widget.isVisible(), eng.find("Designer").widget.isVisible()), (False, True))
     print(f"\n{sum(ok)}/{len(ok)} passed")
     app.quit()
 

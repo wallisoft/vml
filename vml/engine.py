@@ -496,6 +496,14 @@ class Engine:
 
     # --- properties
     def cmd_SetProperty(self, name, prop, value=""):
+        if name == "menubar" and self._menubar_surface() is not None:
+            surf = self._menubar_surface()
+            surf.widget.menu_settings[prop] = str(value)
+            surf.widget.apply_menu_settings()
+            surf.widget.emit("OnChanged", {"selected_control": "menubar"})
+            for listener in list(self.listeners):
+                listener("menubar", prop, value)
+            return
         if self._menu_target(name):
             return self._menu_set(name, prop, value)
         outer = self._node(name)
@@ -526,6 +534,8 @@ class Engine:
             node = parent
 
     def cmd_GetProperty(self, name, prop):
+        if name == "menubar" and self._menubar_surface() is not None:
+            return self._menubar_surface().widget.menu_settings.get(prop, "")
         if self._menu_target(name):
             return self._menu_get(name, prop)
         node, prop = self._resolve(self._node(name), prop)
@@ -536,6 +546,8 @@ class Engine:
 
     def cmd_GetControlPropertiesJson(self, name):
         """Reflection: every property this control has, with its live value and editor; composites list their mapped ones first."""
+        if name == "menubar":
+            return self._menubar_props_json()
         if self._menu_target(name):
             return self._menu_props_json(name)
         node = self._node(name)
@@ -556,6 +568,8 @@ class Engine:
         return json.dumps(out)
 
     def cmd_GetControlType(self, name):
+        if name == "menubar":
+            return "Menu"
         if self._menu_target(name):
             return "MenuItem"
         node = self._node(name)
@@ -873,7 +887,9 @@ class Engine:
             self.delete(kid.name, kid.scope)
         surf.widget.select("")
         surf.menu_scripts = {}
+        surf.widget.menu_settings = {}
         surf.widget.set_menu([])
+        surf.widget.apply_menu_settings()
         for k, v in (("FormName", "Form1"), ("FormTitle", "Form1"), ("FormWidth", "640"), ("FormHeight", "480"),
                      ("FormBackground", "#ffffff")):
             self.cmd_SetProperty(surf.name, k, v)
@@ -887,9 +903,16 @@ class Engine:
         mh = surf.widget.menu_h()
         out = [f"# {form}: designed in the VML designer", "", f"@Window {form}", f"Title={g('FormTitle', form)}",
                f"Width={g('FormWidth', 640)}", f"Height={int(float(g('FormHeight', 480))) + mh}", ""]
+        settings = {k: v for k, v in surf.widget.menu_settings.items() if v not in ("", None)}
         if menu:
             out += [f"@DockPanel {form}Root", f"Parent={form}", "",
-                    f"@TinyMenu {form}Menu", f"Parent={form}Root", "DockPanel.Dock=Top", ""]
+                    f"@TinyMenu {form}Menu", f"Parent={form}Root", "DockPanel.Dock=Top"]
+            if str(settings.get("OpenOnHover", "")).lower() == "true":
+                out.append("OpenOnHover=true")
+            out.append("")
+            theme = {k: v for k, v in settings.items() if k != "OpenOnHover"}
+            if theme:
+                out += [f"@MenuTheme {form}MenuTheme", *[f"{k}={v}" for k, v in theme.items()], ""]
         out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight")):
@@ -972,7 +995,15 @@ class Engine:
                 surf.menu_scripts[mp["OnClick"]] = scripts[mp["OnClick"]]
                 item["onclick"] = mp["OnClick"]
             menu.append(item)
+        settings = {}
+        for cid, parent_id, ctype, name in rows:
+            if ctype == "MenuTheme":
+                settings.update(props[cid])
+            elif ctype == "TinyMenu" and props[cid].get("OpenOnHover"):
+                settings["OpenOnHover"] = props[cid]["OpenOnHover"]
+        surf.widget.menu_settings = settings
         surf.widget.set_menu(menu)
+        surf.widget.apply_menu_settings()
         if menu:
             wp = dict(wp, Height=str(int(float(wp.get("Height", 480))) - surf.widget.menu_h()))
         for k, v in (("FormName", window[3]), ("FormTitle", wp.get("Title", window[3])),
@@ -1059,6 +1090,20 @@ class Engine:
     MENU_PROPS = (("Text", "text", "text"), ("Shortcut", "shortcut", "text"), ("IsEnabled", "enabled", "bool"),
                   ("IsSeparator", "separator", "bool"))
 
+    MENUBAR_PROPS = (("Background", "colour"), ("Foreground", "colour"), ("HoverBackground", "colour"),
+                     ("HoverForeground", "colour"), ("PopupBackground", "colour"), ("PopupBorder", "colour"),
+                     ("OpenOnHover", "bool"))
+
+    def _menubar_surface(self):
+        return next((n for n in self.nodes.values() if n.type.name == "DesignSurface"), None)
+
+    def _menubar_props_json(self):
+        surf = self._menubar_surface()
+        st = surf.widget.menu_settings if surf else {}
+        return json.dumps([{"name": p, "value": str(st.get(p, "")), "type": "checkbox" if k == "bool" else
+                            ("colour" if k == "colour" else "text"), "kind": k, "group": "Menu bar", "options": []}
+                           for p, k in self.MENUBAR_PROPS])
+
     def _menu_item(self, target):
         mt = self._menu_target(target)
         if not mt:
@@ -1103,20 +1148,41 @@ class Engine:
                 "kind": kind, "group": "Common", "options": []} for p, key, kind in self.MENU_PROPS]
         return json.dumps(out)
 
+    STARTER_MENU = [("mnuFile", "&File", "", 0), ("mnuNew", "&New", "Ctrl+N", 1), ("mnuOpen", "&Open...", "Ctrl+O", 1),
+                    ("mnuSave", "&Save", "Ctrl+S", 1), ("mnuSaveAs", "Save &As...", "Ctrl+Shift+S", 1),
+                    ("mnuFileSep", "-", "", 1), ("mnuExit", "E&xit", "", 1),
+                    ("mnuEdit", "&Edit", "", 0), ("mnuCut", "Cu&t", "Ctrl+X", 1), ("mnuCopy", "&Copy", "Ctrl+C", 1),
+                    ("mnuPaste", "&Paste", "Ctrl+V", 1),
+                    ("mnuHelp", "&Help", "", 0), ("mnuAbout", "&About...", "", 1)]
+
     def cmd_MenuAddItem(self, target="", where="after", surface="Surface"):
-        """Add a menu item before or after another, as its first submenu item ("child"), or start a menu ("first")."""
+        """Add a menu item before or after another, as its first submenu item ("child"), at the end of the bar
+        ("end"), or, on a form with no menu, start one with the usual File, Edit and Help menus."""
         surf = self._surface(surface)
         items = surf.widget.menu_items
+        if not items and not target:
+            title = str(surf.props.get("FormTitle") or surf.props.get("FormName") or "Form1").replace('"', "'")
+            items[:] = [{"name": n, "text": "" if t == "-" else t, "shortcut": k, "level": lv, "separator": t == "-",
+                         "enabled": True} for n, t, k, lv in self.STARTER_MENU]
+            surf.menu_scripts = {
+                "mnuExit_Click": ("lua", 'Vml("CloseSelf")\n'),
+                "mnuAbout_Click": ("lua", f'Vml("InfoDialog", "{title}\\n\\nVersion 1.0\\nMade with VML", "About {title}")\n'),
+            }
+            for it in items:
+                if f"{it['name']}_Click" in surf.menu_scripts:
+                    it["onclick"] = f"{it['name']}_Click"
+            surf.widget.set_menu(items)
+            surf.widget.select("menu:mnuFile", user=True)
+            surf.widget.emit("OnChanged", {"selected_control": "menu:mnuFile"})
+            return "menu:mnuFile"
         existing = {it["name"] for it in items}
         n = 1
         while f"mnuItem{n}" in existing:
             n += 1
         new = {"name": f"mnuItem{n}", "text": f"Item{n}", "shortcut": "", "level": 0, "separator": False, "enabled": True}
-        _, _, i = self._menu_item(target) if target else (None, None, None)
+        _, _, i = self._menu_item(target) if target and target != "menubar" else (None, None, None)
         if i is None:
-            if not items:
-                new.update(name="mnuFile" if "mnuFile" not in existing else new["name"], text="&File")
-            items.append(new)
+            items.append(new)                              # "end", or the bar's own right-click menu
         else:
             level = items[i]["level"]
             end = i + 1                                    # the end of this item's own submenu
@@ -1134,6 +1200,7 @@ class Engine:
         surf.widget.set_menu(items)
         surf.widget.select("menu:" + new["name"], user=True)
         surf.widget.emit("OnChanged", {"selected_control": "menu:" + new["name"]})
+        QTimer.singleShot(0, lambda: surf.widget.reopen_menu_for(new["name"]))
         return "menu:" + new["name"]
 
     def cmd_MenuDeleteItem(self, target, surface="Surface"):
@@ -1146,10 +1213,13 @@ class Engine:
             end += 1
         for it in items[i:end]:
             getattr(surf, "menu_scripts", {}).pop(it.get("onclick", ""), None)
+        parent = next((items[k]["name"] for k in range(i - 1, -1, -1) if items[k]["level"] < level), None)
         del items[i:end]
         surf.widget.set_menu(items)
         surf.widget.select("", user=True)
         surf.widget.emit("OnChanged", {"selected_control": ""})
+        if parent:
+            QTimer.singleShot(0, lambda: surf.widget.reopen_menu_for(parent))
         return True
 
     # --- design scripts (the script editor's side)

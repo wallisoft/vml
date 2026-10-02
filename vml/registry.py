@@ -806,7 +806,35 @@ def make_menubar(node):
     return bar
 
 
-register(ControlType("TinyMenu", make_menubar, category="Menus"), COMMON, ATTACHED)
+class _HoverOpen(QObject):
+    """Open a menu bar's dropdowns as the pointer passes over them, without a click."""
+
+    def __init__(self, bar):
+        super().__init__(bar)
+        self.bar = bar
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.MouseMove:
+            act = self.bar.actionAt(ev.position().toPoint())
+            if act is not None and act.menu() is not None and self.bar.activeAction() is not act:
+                self.bar.setActiveAction(act)
+        return False
+
+
+def set_open_on_hover(node, value):
+    bar = node.widget
+    on = truthy(value)
+    if on and not getattr(bar, "_hover", None):
+        bar._hover = _HoverOpen(bar)
+        bar.installEventFilter(bar._hover)
+        bar.setMouseTracking(True)
+    elif not on and getattr(bar, "_hover", None):
+        bar.removeEventFilter(bar._hover)
+        bar._hover = None
+
+
+register(ControlType("TinyMenu", make_menubar, category="Menus"), COMMON, ATTACHED,
+         [Prop("OpenOnHover", "bool", "Behaviour", apply=set_open_on_hover)])
 
 
 def theme_sheets(t):

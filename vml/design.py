@@ -17,7 +17,8 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QMenuBar,
                                QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
-from .registry import COMMON, REGISTRY, ControlType, Prop, anchor_set, anchored_rect, colour, num, register, truthy
+from .registry import (COMMON, REGISTRY, ControlType, Prop, anchor_set, anchored_rect, colour, num, register, theme_sheets,
+                       truthy)
 
 GROUP_ORDER = ["Form", "Control", "Common", "Placement", "Layout", "Text", "Appearance", "Behaviour", "Events"]
 # On a canvas form these only matter inside layout panels, so the grid leaves them out; and it uses VB's names.
@@ -83,6 +84,10 @@ class Overlay(QWidget):
             for x in range(f.left(), f.right(), g):
                 for y in range(f.top(), f.bottom(), g):
                     p.drawPoint(x, y)
+        if v.selected == "menubar":
+            p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(v.menubar.geometry().adjusted(0, 0, -1, -1))
         if v.selected.startswith("menu:"):
             act = next((a for a in v.menubar.actions() if a.data() == v.selected[5:]), None)
             if act is not None:
@@ -180,9 +185,10 @@ class Overlay(QWidget):
             local = v.menubar.mapFrom(v.page, pos)
             act = v.menubar.actionAt(local)
             name = act.data() if act is not None else ""
-            v.select(f"menu:{name}" if name else "", user=True)
-            if act is not None and e.button() == Qt.RightButton:
-                v.emit("OnMenuContextMenu", {"selected_control": f"menu:{name}"})
+            target = f"menu:{name}" if name else "menubar"
+            v.select(target, user=True)
+            if e.button() == Qt.RightButton:
+                v.emit("OnMenuContextMenu", {"selected_control": target})
             elif act is not None and act.menu() is not None:
                 geo = v.menubar.actionGeometry(act)
                 act.menu().popup(v.menubar.mapToGlobal(geo.bottomLeft()))
@@ -201,6 +207,10 @@ class Overlay(QWidget):
         pos, v = e.position().toPoint(), self.view
         if self.mode is None:
             self.setCursor(self.cursor_for(pos))
+            if v.menu_items and truthy(v.menu_settings.get("OpenOnHover", "false")) and v.menubar.geometry().contains(pos):
+                act = v.menubar.actionAt(v.menubar.mapFrom(v.page, pos))
+                if act is not None and act.menu() is not None and not act.menu().isVisible():
+                    act.menu().popup(v.menubar.mapToGlobal(v.menubar.actionGeometry(act).bottomLeft()))
             return
         d = pos - self.start
         snap = (lambda n: n) if e.modifiers() & Qt.AltModifier else v.snap
@@ -294,7 +304,7 @@ class SurfaceView(QScrollArea):
         self.form.setObjectName("DesignForm")
         self.form.setAttribute(Qt.WA_StyledBackground, True)
         self.form.move(PAGE_MARGIN, PAGE_MARGIN + TITLE_H)
-        self.menu_items = []
+        self.menu_items, self.menu_settings = [], {}
         self.menubar = QMenuBar(self.page)                  # the designed form's menu, shown as it will look
         self.menubar.setNativeMenuBar(False)
         self.menubar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -386,6 +396,29 @@ class SurfaceView(QScrollArea):
         self.menubar.setVisible(bool(self.menu_items))
         self.set_form_size(self.form.width(), self.form.height())
 
+    def apply_menu_settings(self):
+        """The bar's colours, as the running form will show them (a MenuTheme)."""
+        st = {k: v for k, v in self.menu_settings.items() if v and k != "OpenOnHover"}
+        if st:
+            bar_css, popup_css = theme_sheets(st)
+            self.menubar.setStyleSheet(bar_css + popup_css)
+        else:
+            self.menubar.setStyleSheet("")
+        self.overlay.update()
+
+    def reopen_menu_for(self, name):
+        """After an edit, open the dropdown holding this item again, so you can carry on where you were."""
+        idx = next((i for i, it in enumerate(self.menu_items) if it["name"] == name), None)
+        if idx is None:
+            return
+        top = idx
+        while top > 0 and self.menu_items[top]["level"] > 0:
+            top -= 1
+        top_name = self.menu_items[top]["name"]
+        act = next((a for a in self.menubar.actions() if a.data() == top_name), None)
+        if act is not None and act.menu() is not None and (self.menu_items[idx]["level"] > 0 or idx != top):
+            act.menu().popup(self.menubar.mapToGlobal(self.menubar.actionGeometry(act).bottomLeft()))
+
     def _menu_filter(self, menu):
         from PySide6.QtCore import QEvent, QObject
         view = self
@@ -397,7 +430,7 @@ class SurfaceView(QScrollArea):
                     if act is not None and act.data():
                         if ev.button() == Qt.RightButton:
                             view.select(f"menu:{act.data()}", user=True)
-                            menu.close()
+                            menu.setActiveAction(act)          # stays open; the item menu pops up over it
                             view.emit("OnMenuContextMenu", {"selected_control": f"menu:{act.data()}"})
                             return True
                         if act.menu() is not None or act.isSeparator():   # submenu parents and separators: select them too
@@ -580,6 +613,18 @@ class GridView(QScrollArea):
         if self.target.startswith("menu:"):
             self.rebuild_menu_item(body, lay)
             return
+        if self.target == "menubar":
+            head = QLabel("<b>Menu</b>  <span style='color:#6b7280'>the form's menu bar</span>")
+            head.setStyleSheet("font-size: 13px; padding: 2px 0 6px 0;")
+            lay.addWidget(head)
+            title = QLabel("MENU BAR")
+            title.setStyleSheet("color: #2563eb; font-size: 10px; font-weight: 700; padding: 8px 0 2px 0;")
+            lay.addWidget(title)
+            for p in json.loads(self.engine.cmd_GetControlPropertiesJson("menubar")):
+                lay.addLayout(self.row_layout(p["name"], self.editor(p)))
+            lay.addStretch(1)
+            self.setWidget(body)
+            return
         target = self.engine.find(self.target) if self.target else None
         if target is None:
             msg = QLabel("Select a control to see its properties.")
@@ -711,7 +756,7 @@ class GridView(QScrollArea):
     def commit(self, prop, value):
         if self._loading or not self.target:
             return
-        if self.target.startswith("menu:"):
+        if self.target.startswith("menu:") or self.target == "menubar":
             if str(self.engine.cmd_GetProperty(self.target, prop)) != str(value):
                 self.engine.cmd_SetProperty(self.target, prop, value)
             return

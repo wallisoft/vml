@@ -258,6 +258,27 @@ Parent=MenuItemMenu
 Text=Menu Editor...
 OnClick=OpenMenuEditor
 
+@ContextMenu MenuBarMenu
+
+@MenuItem MbAdd
+Parent=MenuBarMenu
+Text=Add Menu
+OnClick=MenuBarAdd
+
+@MenuItem MbEditor
+Parent=MenuBarMenu
+Text=Menu Editor...
+OnClick=OpenMenuEditor
+
+@MenuItem MbSep
+Parent=MenuBarMenu
+IsSeparator=true
+
+@MenuItem MbRemove
+Parent=MenuBarMenu
+Text=Remove Menu Bar
+OnClick=MenuBarRemove
+
 # ============================================================================ scripts
 
 @Script DesignerInit
@@ -341,7 +362,28 @@ LUA
 @Script ShowMenuItemMenu
 Interpreter=lua
 <<LUA
-Vml("ShowContextMenu", "MenuItemMenu")
+-- the bar's empty space has its own menu; items have theirs
+if Vml("GetProperty", "Surface", "Selected") == "menubar" then
+    Vml("ShowContextMenu", "MenuBarMenu")
+else
+    Vml("ShowContextMenu", "MenuItemMenu")
+end
+LUA
+
+@Script MenuBarAdd
+Interpreter=lua
+<<LUA
+Vml("MenuAddItem", "menubar", "end")
+LUA
+
+@Script MenuBarRemove
+Interpreter=lua
+<<LUA
+if Vml("ConfirmDialog", "Remove the whole menu bar and its scripts?", "Menu") == "true" then
+    Vml("SetDesignMenu", "Surface", "[]")
+    Vml("SetProperty", "Surface", "Selected", "")
+    Vml("RunScript", "SelectionChanged")
+end
 LUA
 
 @Script AddMenu
@@ -388,7 +430,9 @@ Interpreter=lua
 <<LUA
 -- live position and size on the status bar (runs while dragging, resizing and nudging)
 local sel = Vml("GetProperty", "Surface", "Selected")
-if sel:sub(1, 5) == "menu:" then
+if sel == "menubar" then
+    Vml("SetStatusText", "Menu bar    right-click for Add Menu / Remove Menu Bar")
+elseif sel:sub(1, 5) == "menu:" then
     Vml("SetStatusText", "Menu item " .. sel:sub(6) .. "    right-click for Add / Delete / Edit Script")
 elseif sel == "" then
     Vml("SetStatusText", string.format("Form    %s x %s", Vml("GetProperty", "Surface", "FormWidth"),
@@ -404,6 +448,7 @@ Interpreter=lua
 <<LUA
 local sel = Vml("GetProperty", "Surface", "Selected")
 if sel == "" then return end
+if sel == "menubar" then return Vml("RunScript", "MenuBarRemove") end
 if sel:sub(1, 5) == "menu:" then
     Vml("MenuDeleteItem", sel)
     Vml("SetStatusText", "Deleted " .. sel:sub(6))
