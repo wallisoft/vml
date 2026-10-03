@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import sys
 import tempfile
 import time
@@ -841,6 +842,113 @@ class Engine:
     def cmd_Shell(self, command):
         origin = next((o for o in reversed(self._script_stack) if o is not None), None)
         return self.shell(["bash", "-c", command], "shell", origin)
+
+
+    # --- long-running jobs: start, stream output into a control, progress, cancel (for installers etc.)
+    def _init_processes(self):
+        self.processes = {}            # id -> {"proc", "thread", "control", "on_exit", "origin", "code", "running"}
+        self._proc_seq = 0
+
+    def cmd_RunProcess(self, command, output_control="", on_exit="", shell="bash"):
+        """Start a command WITHOUT waiting. Its output streams, line by line, into output_control (a
+        TextBox or ListBox) as it arrives. When it ends, on_exit runs (settings: exit_code, process_id).
+        Returns a job id. shell: bash | powershell | none (run the command as given)."""
+        import shlex
+        if not hasattr(self, "processes"):
+            self._init_processes()
+        sh = str(shell).lower()
+        if sh in ("bash", "sh"):
+            argv = ["bash", "-lc", command]
+        elif sh in ("powershell", "pwsh"):
+            exe = shutil.which("pwsh") or shutil.which("powershell")
+            argv = [exe, "-NoProfile", "-Command", command] if exe else None
+        else:
+            argv = shlex.split(command)
+        if not argv:
+            log("RunProcess: no shell available")
+            return ""
+        try:
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, env=self.env, bufsize=1, text=True, errors="replace")
+        except Exception as exc:
+            log(f"RunProcess: {exc}")
+            return ""
+        self._proc_seq += 1
+        pid = f"proc{self._proc_seq}"
+        origin = next((o for o in reversed(self._script_stack) if o is not None), None)
+        job = {"proc": proc, "control": output_control, "on_exit": on_exit, "origin": origin,
+               "code": None, "running": True, "lines": []}
+        self.processes[pid] = job
+
+        def pump():
+            for line in proc.stdout:                       # blocks in this thread only
+                job["lines"].append(line.rstrip("\n"))
+            proc.wait()
+            job["code"] = proc.returncode
+            job["running"] = False
+        job["thread"] = threading.Thread(target=pump, daemon=True)
+        job["thread"].start()
+        self._watch_process(pid)
+        return pid
+
+    def _watch_process(self, pid):
+        """On the GUI thread: drain new output lines into the control, then finish or check again soon."""
+        job = self.processes.get(pid)
+        if job is None:
+            return
+        if job["lines"]:
+            lines, job["lines"] = job["lines"], []
+            if job["control"] and self.find(job["control"]) is not None:
+                for line in lines:
+                    self._append_line(job["control"], line)
+            for line in lines:
+                log(f"[{pid}] {line}")
+        if job["running"]:
+            QTimer.singleShot(50, lambda: self._watch_process(pid))
+        else:
+            self.store.set_setting("exit_code", str(job["code"]))
+            self.store.set_setting("process_id", pid)
+            if job["on_exit"]:
+                self.handle(job["on_exit"], job["origin"] or self._any_window())
+
+    def _append_line(self, name, line):
+        node = self.find(name)
+        if node is None:
+            return
+        w = node.widget
+        from PySide6.QtWidgets import QComboBox, QLineEdit, QListWidget, QPlainTextEdit
+        if isinstance(w, QListWidget):
+            w.addItem(line)
+            w.scrollToBottom()
+        elif isinstance(w, QPlainTextEdit):
+            w.appendPlainText(line)
+        elif isinstance(w, (QLineEdit, QComboBox)):
+            node.props["Text"] = line
+            self.apply(node, "Text", line)
+        else:                                              # a TextBlock etc.: keep the last ~200 lines
+            prev = (node.props.get("Text", "") or "").split("\n")[-200:]
+            self.cmd_SetProperty(name, "Text", "\n".join(prev + [line]))
+
+    def _any_window(self):
+        return self.windows[-1] if self.windows else None
+
+    def cmd_ProcessRunning(self, pid):
+        job = getattr(self, "processes", {}).get(str(pid))
+        return bool(job and job["running"])
+
+    def cmd_ProcessExitCode(self, pid):
+        job = getattr(self, "processes", {}).get(str(pid))
+        return "" if not job or job["code"] is None else str(job["code"])
+
+    def cmd_CancelProcess(self, pid):
+        job = getattr(self, "processes", {}).get(str(pid))
+        if job and job["running"]:
+            try:
+                job["proc"].terminate()
+            except Exception:
+                pass
+            return True
+        return False
 
     # --- data
     def cmd_SqlQuery(self, sql, *args):

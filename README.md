@@ -260,6 +260,7 @@ python3 tests/run_csharp.py     # C# scripting (skips itself if .NET isn't set u
 python3 tests/run_api.py        # the vml command and Python: calling back, chains across languages, outside programs
 python3 tests/run_web.py        # the HTML renderer in a real browser (needs: pip install playwright)
 python3 tests/run_formscripts.py # the form's own scripts (OnOpened, helpers) survive open, save and preview
+python3 tests/run_process.py    # long-running jobs: live output, exit scripts, cancel
 ```
 
 `tests/run_step2.py` exercises the original Avalonia-era designer from `~/.vml/designer`, if present.
