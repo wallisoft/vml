@@ -1,0 +1,173 @@
+# No-Stick: Download a distro. Reads the community catalogue (wallisoft/nostick-distros) and lets you
+# pick one to download into your library. (Stubbed: lists a built-in starter catalogue for now.)
+
+@Window Download
+Title=Download a distro
+Width=720
+Height=520
+OnOpened=DlLoad
+
+@DockPanel DlRoot
+Parent=Download
+
+@Border DlHeader
+Parent=DlRoot
+DockPanel.Dock=Top
+Height=50
+Background=#1E3A8A
+Padding=16,0
+
+@TextBlock DlTitle
+Parent=DlHeader
+Text=Download a distro
+FontSize=18
+FontWeight=Bold
+Foreground=White
+VerticalAlignment=Center
+
+@Border DlFooter
+Parent=DlRoot
+DockPanel.Dock=Bottom
+Height=52
+Background=#F3F4F6
+BorderBrush=#E5E7EB
+BorderThickness=0,1,0,0
+Padding=14,0
+
+@StackPanel DlFootRow
+Parent=DlFooter
+Orientation=Horizontal
+Spacing=8
+VerticalAlignment=Center
+
+@TextBlock dlInfo
+Parent=DlFootRow
+Text=Choose a distribution
+Foreground=#6B7280
+FontSize=12
+VerticalAlignment=Center
+
+@Button btnDlCancel
+Parent=DlFootRow
+Content=Cancel
+Padding=16,6
+OnClick=CloseSelf
+
+@Button btnDlGet
+Parent=DlFootRow
+Content=Download
+Background=#2563EB
+Foreground=White
+Padding=22,6
+OnClick=DlGet
+
+@StackPanel DlMain
+Parent=DlRoot
+Margin=16
+Spacing=4
+
+@TextBlock DlHint
+Parent=DlMain
+Text=Distributions from the No-Stick community catalogue. The ISO downloads from the project's own official site.
+Foreground=#4B5563
+FontSize=12
+TextWrapping=Wrap
+
+@ListBox distros
+Parent=DlMain
+Height=360
+FontFamily=monospace
+SelectionChanged=DlSelected
+
+@Script DlLoad
+Interpreter=lua
+<<LUA
+-- Try the live community catalogue; fall back to a built-in starter list offline.
+CATALOGUE_URL = "https://raw.githubusercontent.com/wallisoft/nostick-distros/main/distros.json"
+local json = require("dkjson")
+local raw = Vml("Shell", "curl -fsSL --max-time 8 '" .. CATALOGUE_URL .. "' 2>/dev/null")
+local cat = raw ~= "" and json.decode(raw) or nil
+
+if not cat then
+    -- built-in starter catalogue (the usual suspects + the trending immutable distros)
+    cat = {distros = {
+        {name = "Ubuntu 24.04 LTS",     group = "Popular",    size = "6.0G", live = true,  install = true,
+         url = "https://releases.ubuntu.com/24.04/ubuntu-24.04.3-desktop-amd64.iso"},
+        {name = "Linux Mint 22 Cinnamon", group = "Popular",  size = "2.8G", live = true,  install = true,
+         url = "https://mirrors.edge.kernel.org/linuxmint/stable/22/linuxmint-22-cinnamon-64bit.iso"},
+        {name = "Fedora Workstation 41", group = "Popular",    size = "2.2G", live = true,  install = true,
+         url = "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Workstation/x86_64/iso/"},
+        {name = "Debian 13",            group = "Popular",     size = "3.7G", live = true,  install = true,
+         url = "https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/"},
+        {name = "Bazzite",              group = "Immutable (new wave)", size = "5.5G", live = false, install = true,
+         url = "https://bazzite.gg"},
+        {name = "Bluefin",              group = "Immutable (new wave)", size = "5.2G", live = false, install = true,
+         url = "https://projectbluefin.io"},
+        {name = "Aurora (KDE)",         group = "Immutable (new wave)", size = "5.2G", live = false, install = true,
+         url = "https://getaurora.dev"},
+        {name = "Fedora Silverblue 41", group = "Immutable (new wave)", size = "3.1G", live = false, install = true,
+         url = "https://fedoraproject.org/atomic-desktops/silverblue/"},
+        {name = "Vanilla OS",           group = "Immutable (new wave)", size = "4.0G", live = true,  install = true,
+         url = "https://vanillaos.org"},
+        {name = "Arch Linux",           group = "For the brave", size = "1.3G", live = true, install = true,
+         url = "https://archlinux.org/download/"},
+    }}
+end
+
+DISTROS = cat.distros
+local lines, group = {}, nil
+-- preserve a sensible group order
+local order = {"Popular", "Immutable (new wave)", "For the brave", "Other"}
+local seen = {}
+for _, g in ipairs(order) do
+    for _, d in ipairs(DISTROS) do
+        if (d.group or "Other") == g then
+            if group ~= g then
+                lines[#lines + 1] = "-- " .. g .. " --"
+                group = g
+            end
+            d._row = #lines + 1
+            local tags = (d.live and "live" or "") .. (d.live and d.install and " + " or "") .. (d.install and "install" or "")
+            lines[#lines + 1] = string.format("   %-26s %6s   %s", d.name, d.size or "", tags)
+            seen[d] = true
+        end
+    end
+end
+Vml("SetProperty", "distros", "Items", table.concat(lines, ","))
+Vml("SetProperty", "btnDlGet", "IsEnabled", "false")
+Vml("SetStatusText", #DISTROS .. " distributions")
+LUA
+
+@Script DlSelected
+Interpreter=lua
+<<LUA
+local i = (tonumber(Vml("GetProperty", "distros", "SelectedIndex")) or -1) + 1
+-- map the selected visible row back to a distro (skip the group headers)
+local chosen = nil
+for _, d in ipairs(DISTROS or {}) do if d._row == i then chosen = d end end
+SELECTED = chosen
+if chosen then
+    Vml("SetProperty", "dlInfo", "Text", chosen.name .. "  ->  " .. (chosen.url or ""))
+    Vml("SetProperty", "btnDlGet", "IsEnabled", "true")
+else
+    Vml("SetProperty", "dlInfo", "Text", "Choose a distribution")
+    Vml("SetProperty", "btnDlGet", "IsEnabled", "false")
+end
+LUA
+
+@Script DlGet
+Interpreter=lua
+<<LUA
+if not SELECTED then return end
+if not SELECTED.url or not SELECTED.url:match("%.iso$") then
+    -- catalogue entry points at a download PAGE, not a direct .iso (Fedora, Bazzite, etc.)
+    Vml("InfoDialog", SELECTED.name .. " is downloaded from its own site:\n\n" .. (SELECTED.url or "") ..
+        "\n\nSave the .iso, then use 'Add an ISO I have'.", SELECTED.name)
+    return
+end
+-- a direct .iso link: hand it back to the main window to fetch with progress
+local file = SELECTED.url:match("([^/]+)$")
+Vml("SetSetting", "nostick_dl_url", SELECTED.url)
+Vml("SetSetting", "nostick_dl_name", file)
+Vml("CloseSelf")
+LUA

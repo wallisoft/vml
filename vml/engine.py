@@ -538,6 +538,11 @@ class Engine:
         finally:
             self._script_stack.pop()
 
+    def cmd_VmlVersion(self):
+        """The running Visualised runtime version, e.g. "0.17.1". Apps can check they have a new enough engine."""
+        from . import __version__
+        return __version__
+
     def cmd_GetLanguages(self):
         """The script languages this machine can run, for the script editor."""
         from . import csharp
@@ -876,8 +881,9 @@ class Engine:
         self._proc_seq += 1
         pid = f"proc{self._proc_seq}"
         origin = next((o for o in reversed(self._script_stack) if o is not None), None)
+        scope = origin.scope if origin is not None else self.active_scope()
         job = {"proc": proc, "control": output_control, "on_exit": on_exit, "origin": origin,
-               "code": None, "running": True, "lines": []}
+               "scope": scope, "code": None, "running": True, "lines": []}
         self.processes[pid] = job
 
         def pump():
@@ -896,25 +902,35 @@ class Engine:
         job = self.processes.get(pid)
         if job is None:
             return
-        if job["lines"]:
-            lines, job["lines"] = job["lines"], []
-            if job["control"] and self.find(job["control"]) is not None:
-                for line in lines:
-                    self._append_line(job["control"], line)
-            for line in lines:
-                log(f"[{pid}] {line}")
+        if not job["running"] and job["thread"].is_alive():
+            job["thread"].join(0.2)               # let the pump finish appending its last lines first
+        self._drain(pid)
         if job["running"]:
             QTimer.singleShot(50, lambda: self._watch_process(pid))
         else:
+            self._drain(pid)                      # one more, in case lines landed between join and now
             self.store.set_setting("exit_code", str(job["code"]))
             self.store.set_setting("process_id", pid)
             if job["on_exit"]:
                 self.handle(job["on_exit"], job["origin"] or self._any_window())
 
+    def _drain(self, pid):
+        job = self.processes.get(pid)
+        if not job or not job["lines"]:
+            return
+        lines, job["lines"] = job["lines"], []
+        node = self.find(job["control"], job["scope"]) if job["control"] else None
+        for line in lines:
+            if node is not None:
+                self._append_to(node, line)
+            log(f"[{pid}] {line}")
+
     def _append_line(self, name, line):
         node = self.find(name)
-        if node is None:
-            return
+        if node is not None:
+            self._append_to(node, line)
+
+    def _append_to(self, node, line):
         w = node.widget
         from PySide6.QtWidgets import QComboBox, QLineEdit, QListWidget, QPlainTextEdit
         if isinstance(w, QListWidget):
@@ -927,7 +943,8 @@ class Engine:
             self.apply(node, "Text", line)
         else:                                              # a TextBlock etc.: keep the last ~200 lines
             prev = (node.props.get("Text", "") or "").split("\n")[-200:]
-            self.cmd_SetProperty(name, "Text", "\n".join(prev + [line]))
+            node.props["Text"] = "\n".join(prev + [line])
+            self.apply(node, "Text", node.props["Text"])
 
     def _any_window(self):
         return self.windows[-1] if self.windows else None
@@ -1817,6 +1834,12 @@ class Engine:
 
     def cmd_ConfirmDialog(self, message, title="Confirm"):
         return QMessageBox.question(self._parent_window(), str(title), str(message)) == QMessageBox.Yes
+
+    def cmd_PromptDialog(self, title="", prompt="", default=""):
+        """Ask for one line of text. Returns what was typed, or "" if cancelled."""
+        from PySide6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(self._parent_window(), str(title or "Enter a value"), str(prompt), text=str(default))
+        return text if ok else ""
 
     def cmd_FileOpenDialog(self, title="Open", ext=""):
         filt = f"{ext.upper()} files (*.{ext});;All files (*)" if ext else "All files (*)"
