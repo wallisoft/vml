@@ -1,0 +1,33 @@
+#!/usr/bin/ash
+# no-stick: boot from a disk image file on a host partition
+#   vhdhost=<fs UUID of host partition>  vhdfile=<path on that partition>  vhdoffset=<bytes to root fs>
+
+nostick_mount() {
+    mount -o rw "$NOSTICK_LOOP" "$1"
+}
+
+run_hook() {
+    local VHD_FILE="" VHD_HOST="" VHD_OFFSET="" i=0
+    for p in $(cat /proc/cmdline); do
+        case "$p" in
+            vhdfile=*)   VHD_FILE="${p#vhdfile=}" ;;
+            vhdhost=*)   VHD_HOST="${p#vhdhost=}" ;;
+            vhdoffset=*) VHD_OFFSET="${p#vhdoffset=}" ;;
+        esac
+    done
+    [ -z "$VHD_FILE" ] && return 0
+    if [ -z "$VHD_HOST" ] || [ -z "$VHD_OFFSET" ]; then
+        echo "nostick: vhdhost= and vhdoffset= are required"; return 1
+    fi
+    modprobe -q loop
+    modprobe -q ext4
+    while [ ! -e "/dev/disk/by-uuid/$VHD_HOST" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+    mkdir -p /run/nostick/host
+    mount -t ext4 -o rw "/dev/disk/by-uuid/$VHD_HOST" /run/nostick/host || { echo "nostick: host mount failed ($VHD_HOST)"; return 1; }
+    REAL="/run/nostick/host${VHD_FILE}"
+    [ -f "$REAL" ] || { echo "nostick: image not found at $REAL"; return 1; }
+    NOSTICK_LOOP=$(losetup -f)
+    losetup -o "$VHD_OFFSET" "$NOSTICK_LOOP" "$REAL" || { echo "nostick: losetup failed"; return 1; }
+    echo "nostick: $VHD_FILE attached as $NOSTICK_LOOP"
+    mount_handler=nostick_mount
+}

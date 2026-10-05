@@ -1,0 +1,30 @@
+#!/bin/sh
+# no-stick: attach a disk image file (with its partitions) before root is looked for
+#   vhdhost=<fs UUID of host partition>  vhdfile=<path on that partition>
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+. /scripts/functions
+
+VHD_FILE=""; VHD_HOST=""
+for p in $(cat /proc/cmdline); do
+    case "$p" in
+        vhdfile=*) VHD_FILE="${p#vhdfile=}" ;;
+        vhdhost=*) VHD_HOST="${p#vhdhost=}" ;;
+    esac
+done
+[ -z "$VHD_FILE" ] && exit 0
+[ -n "$VHD_HOST" ] || panic "nostick: vhdhost= is required"
+
+modprobe -q loop
+modprobe -q ext4
+i=0
+while [ ! -e "/dev/disk/by-uuid/$VHD_HOST" ] && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done
+mkdir -p /run/nostick/host
+mount -t ext4 -o rw "/dev/disk/by-uuid/$VHD_HOST" /run/nostick/host || panic "nostick: host mount failed ($VHD_HOST)"
+REAL="/run/nostick/host${VHD_FILE}"
+[ -f "$REAL" ] || panic "nostick: image not found at $REAL"
+LOOP=$(/usr/sbin/losetup --find --show --partscan "$REAL") || panic "nostick: losetup failed"
+echo "nostick: $VHD_FILE attached as $LOOP"
+udevadm settle 2>/dev/null || true
+exit 0

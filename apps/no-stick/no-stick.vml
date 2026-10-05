@@ -2,7 +2,7 @@
 # directly, with none of the virtualisation overhead. (Step 2: the read-only library view.)
 
 @Window NoStick
-Title=No-Stick
+Title=No-Stick 0.2.2
 Width=820
 Height=560
 FormMinWidth=640
@@ -586,43 +586,103 @@ LUA
 @Script BuildGrubScript
 Interpreter=lua
 <<LUA
--- returns the bash that writes /etc/grub.d/40_nostick. Each bootable VHD becomes a menuentry using
--- the proven vhdfile= + initramfs-hook method; Windows (if found on an EFI System Partition) gets a
--- chainloader entry so it stays bootable.
+-- returns bash that, for each bootable VHD, inspects the real install (kernel/initrd/UUID, wherever
+-- they are) and writes a correct menuentry. Works for Arch, Ubuntu, Mint, Fedora... automatically.
 local json = require("dkjson")
 local raw = Vml("Shell", "cat /opt/no-stick/vhds/vhd_config.json 2>/dev/null")
 local cfg = (raw ~= "" and json.decode(raw)) or {vhds = {}}
-local entries = {}
+local names = {}
 for name, v in pairs(cfg.vhds or {}) do
-    if v.bootable then
-        entries[#entries + 1] = "cat >> \"$F\" << 'ENTRY'\n" ..
-            "menuentry \"No-Stick: " .. name .. "\" {\n" ..
-            "    insmod part_gpt\n    insmod ext2\n" ..
-            "    search --no-floppy --file --set=host /opt/no-stick/vhds/" .. name .. ".img\n" ..
-            "    loopback loop /opt/no-stick/vhds/" .. name .. ".img\n" ..
-            "    linux (loop,gpt2)/boot/vmlinuz root=/dev/loop0p2 vhdfile=/opt/no-stick/vhds/" .. name .. ".img ro\n" ..
-            "    initrd (loop,gpt2)/boot/initrd.img\n" ..
-            "}\nENTRY\n"
-    end
+    if v.bootable then names[#names + 1] = name end
 end
-local script = "set -e\n" ..
-    "F=/tmp/40_nostick\n" ..
-    "cat > \"$F\" << 'HEAD'\n#!/bin/sh\nexec tail -n +4 \"$0\"\n# No-Stick boot entries - managed by No-Stick, safe to let No-Stick rewrite\nHEAD\n" ..
-    table.concat(entries, "") ..
-    -- Windows chainloader if an EFI Windows bootloader is present
-    "WIN=$(find /boot/efi/EFI -iname 'bootmgfw.efi' 2>/dev/null | head -1 || true)\n" ..
-    "if [ -n \"$WIN\" ]; then\n" ..
-    "  echo 'Found Windows - adding a chainloader entry'\n" ..
-    "  cat >> \"$F\" << 'WINENTRY'\n" ..
-    "menuentry \"Windows Boot Manager\" {\n    insmod part_gpt\n    insmod chain\n    search --no-floppy --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi\n    chainloader /EFI/Microsoft/Boot/bootmgfw.efi\n}\nWINENTRY\n" ..
-    "fi\n" ..
-    "echo 'Installing boot entries...'\n" ..
-    "sudo cp \"$F\" /etc/grub.d/40_nostick\n" ..
-    "sudo chmod +x /etc/grub.d/40_nostick\n" ..
-    "echo 'Updating GRUB...'\n" ..
-    "sudo update-grub 2>&1 || sudo grub-mkconfig -o /boot/grub/grub.cfg 2>&1\n" ..
-    "echo 'Boot menu updated.'\n"
-return script
+-- the script builds 40_nostick by probing each VHD with a shell function
+local probe = [[
+set -e
+F=/tmp/40_nostick
+cat > "$F" << 'HEAD'
+#!/bin/sh
+exec tail -n +4 "$0"
+# No-Stick boot entries - managed by No-Stick, safe to let No-Stick rewrite
+HEAD
+
+add_vhd() {
+    # The proven method (from geek-1): copy the VHD's kernel + initrd onto the HOST, and boot those.
+    # GRUB never reads inside the image (it often can't); the initramfs hook does losetup+mount at boot.
+    name="$1"; img="/opt/no-stick/vhds/$name.img"
+    [ -f "$img" ] || return 0
+    loop=$(sudo losetup -fP --show "$img")
+    sleep 0.3
+    root_part="${loop}p2"
+    ruuid=$(sudo blkid -s UUID -o value "$root_part" 2>/dev/null)
+    bootdir="/boot/no-stick/vhd-$name"
+    sudo mkdir -p "$bootdir"
+    # find kernel+initrd: on the root fs /boot, or on the ESP (p1), and copy them to the host bootdir
+    mp=$(mktemp -d); sudo mount "$root_part" "$mp" 2>/dev/null || true
+    kern=$(sudo sh -c "ls $mp/boot/vmlinuz* 2>/dev/null | head -1")
+    init=$(sudo sh -c "ls $mp/boot/init* 2>/dev/null | head -1")
+    if [ -z "$kern" ]; then
+        esp=$(mktemp -d); sudo mount "${loop}p1" "$esp" 2>/dev/null || true
+        kern=$(sudo sh -c "ls $esp/vmlinuz* 2>/dev/null | head -1")
+        init=$(sudo sh -c "ls $esp/init* 2>/dev/null | head -1")
+        [ -n "$kern" ] && sudo cp "$kern" "$bootdir/vmlinuz"
+        [ -n "$init" ] && sudo cp "$init" "$bootdir/initrd"
+        sudo umount "$esp" 2>/dev/null || true; rmdir "$esp" 2>/dev/null || true
+    else
+        sudo cp "$kern" "$bootdir/vmlinuz"
+        sudo cp "$init" "$bootdir/initrd"
+    fi
+    # which initramfs system? decides how we ask it to loop-mount the image at boot.
+    family="unknown"
+    if [ -f "$mp/etc/arch-release" ]; then family="arch"
+    elif [ -d "$mp/etc/initramfs-tools" ] || [ -f "$mp/etc/debian_version" ]; then family="debian"
+    elif [ -f "$mp/etc/fedora-release" ] || [ -d "$mp/etc/dracut.conf.d" ]; then family="fedora"; fi
+    sudo umount "$mp" 2>/dev/null || true; rmdir "$mp" 2>/dev/null || true
+    sudo losetup -d "$loop" 2>/dev/null || true
+    if [ ! -f "$bootdir/vmlinuz" ] || [ -z "$ruuid" ]; then
+        echo "  (skipped $name: couldn't extract its kernel)"; return 0
+    fi
+    img="/opt/no-stick/vhds/$name.img"
+    # the loop-mount parameter the distro's own initramfs understands (proven in testing)
+    case "$family" in
+        arch)   loopargs="img_loop=$img earlymodules=loop" ;;
+        debian) loopargs="loop=$img" ;;              # initramfs-tools built-in loop= support
+        fedora) loopargs="rd.live.image img_loop=$img" ;;
+        *)      loopargs="img_loop=$img earlymodules=loop" ;;
+    esac
+    echo "  $name: kernel copied to host, root $ruuid, family $family"
+    cat >> "$F" << ENTRY
+menuentry "No-Stick: $name" {
+    insmod ext2
+    linux /boot/no-stick/vhd-$name/vmlinuz root=UUID=$ruuid $loopargs rw
+    initrd /boot/no-stick/vhd-$name/initrd
+}
+ENTRY
+}
+]]
+    for _, name in ipairs(names) do
+        probe = probe .. 'echo "Inspecting ' .. name .. '..."\nadd_vhd "' .. name .. '"\n'
+    end
+    probe = probe .. [[
+WIN=$(find /boot/efi/EFI -iname 'bootmgfw.efi' 2>/dev/null | head -1 || true)
+if [ -n "$WIN" ]; then
+    echo "Found Windows - adding a chainloader entry"
+    cat >> "$F" << 'WINENTRY'
+menuentry "Windows Boot Manager" {
+    insmod part_gpt
+    insmod chain
+    search --no-floppy --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi
+    chainloader /EFI/Microsoft/Boot/bootmgfw.efi
+}
+WINENTRY
+fi
+echo "Installing boot entries..."
+sudo cp "$F" /etc/grub.d/40_nostick
+sudo chmod +x /etc/grub.d/40_nostick
+echo "Updating GRUB..."
+sudo update-grub 2>&1 || sudo grub-mkconfig -o /boot/grub/grub.cfg 2>&1
+echo "Boot menu updated."
+]]
+return probe
 LUA
 
 @Script BootRestartDone

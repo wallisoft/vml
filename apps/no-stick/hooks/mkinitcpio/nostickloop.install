@@ -1,0 +1,10 @@
+#!/bin/bash
+build() {
+    add_module loop
+    add_module ext4
+    add_binary losetup
+    add_runscript
+}
+help() {
+    echo "No-Stick: boot an installed system from a loop-mounted disk image."
+}
