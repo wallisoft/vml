@@ -11,9 +11,9 @@
 # The main GRUB menu only ever holds ONE "No-Stick" entry that opens /boot/no-stick/grub.cfg.
 
 @Window NoStick
-Title=No-Stick 0.4.0
+Title=No-Stick 0.4.2
 Width=820
-Height=700
+Height=740
 FormMinWidth=640
 FormMinHeight=420
 OnOpened=Load
@@ -195,6 +195,12 @@ Content=Auto-boot: off
 Padding=10,7
 OnClick=SetTimeout
 
+@Button btnRepair
+Parent=Buttons
+Content=Repair boot
+Padding=10,7
+OnClick=RepairBoot
+
 @Button btnDelete
 Parent=Buttons
 Content=Delete...
@@ -364,6 +370,7 @@ for _, b in ipairs({"btnBootNow", "btnBootRestart", "btnBackup"}) do
 end
 Vml("SetProperty", "btnRestore", "IsEnabled", "true")   -- restore can make a new VHD any time
 Vml("SetProperty", "btnDelete", "IsEnabled", item and "true" or "false")
+Vml("SetProperty", "btnRepair", "IsEnabled", item and "true" or "false")
 -- the two boot-menu ticks always show the real state of the selected item
 local inmenu = item and item.inmenu
 Vml("SetProperty", "chkInMenu", "IsEnabled", item and "true" or "false")
@@ -542,10 +549,19 @@ local vhds = {}
 for _, it in ipairs(LIBRARY) do if it.kind == "VHD" then vhds[#vhds + 1] = it.name end end
 local target = Vml("PromptDialog", "Install " .. iso.name,
     "Install into which VHD? Type an existing name, or a new name to create one:\n\nExisting: " ..
-    (table.concat(vhds, ", ") == "" and "(none yet)" or table.concat(vhds, ", ")), vhds[1] or "")
+    (table.concat(vhds, ", ") == "" and "(none yet)" or table.concat(vhds, ", ")), "")
 target = target:gsub("%s+", ""):gsub("[^%w%-_]", "")
 if target == "" then return end
 local vhdfile = NS_VHDS .. "/" .. target .. ".img"
+-- never install over an existing disk without saying so
+for _, it in ipairs(LIBRARY) do
+    if it.kind == "VHD" and it.name == target then
+        if Vml("ConfirmDialog", "'" .. target .. "' already exists (" .. it.detail .. ").\n\n" ..
+               "Installing into it ERASES whatever is on it now.\n\nCarry on and overwrite it?", "Overwrite " .. target .. "?") ~= "true" then
+            return
+        end
+    end
+end
 -- make it if it doesn't exist (sparse)
 if Vml("Shell", "test -f '" .. vhdfile .. "' && echo yes") ~= "yes" then
     local gb = Vml("PromptDialog", "New VHD", "'" .. target .. "' doesn't exist yet. Size in GB:", "30")
@@ -718,6 +734,20 @@ else
     ns_job{title = "Adding " .. item.name .. " to the boot menu", name = item.name, file = item.file,
            id = item.id, mode = (item.kind == "VHD") and "prepare" or "iso"}
 end
+LUA
+
+@Script RepairBoot
+Interpreter=lua
+<<LUA
+-- look inside the selected item again and rebuild its boot helper and menu entry from scratch.
+-- Use after a No-Stick update, or when something that used to boot no longer does.
+local i = tonumber(Vml("GetProperty", "library", "SelectedIndex")) or -1
+local item = LIBRARY and LIBRARY[i + 1]
+if not item then return end
+if Vml("ConfirmDialog", "Rebuild the boot setup for '" .. item.name .. "'?\n\nNothing inside it is deleted. " ..
+       "It ends up shown in the boot menu.", "Repair boot") ~= "true" then return end
+ns_job{title = "Repairing boot for " .. item.name, name = item.name, file = item.file, id = item.id,
+       mode = (item.kind == "VHD") and "prepare" or "iso", pre = "rm -f '" .. item.side .. ".off'"}
 LUA
 
 @Script ToggleDefault
@@ -967,7 +997,9 @@ PREREQ=""
 prereqs() { echo "$PREREQ"; }
 case "$1" in prereqs) prereqs; exit 0 ;; esac
 . /usr/share/initramfs-tools/hook-functions
-copy_exec /usr/sbin/losetup
+# Debian's initrd fills /usr/sbin with busybox applets, and its losetup shadows the real one,
+# so the real losetup goes in under a path of its own.
+copy_exec /usr/sbin/losetup /usr/lib/nostick/losetup
 manual_add_modules loop ext4
 NSHOOKA
         cat > "$M/etc/initramfs-tools/scripts/local-top/nostick" << 'NSHOOKB'
@@ -989,7 +1021,7 @@ done
 [ -z "$VHD_FILE" ] && exit 0
 [ -n "$VHD_HOST" ] || panic "nostick: vhdhost= is required"
 
-modprobe -q loop
+modprobe -q loop max_part=15 || modprobe -q loop
 modprobe -q ext4
 i=0
 while [ ! -e "/dev/disk/by-uuid/$VHD_HOST" ] && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done
@@ -997,7 +1029,15 @@ mkdir -p /run/nostick/host
 mount -t ext4 -o rw "/dev/disk/by-uuid/$VHD_HOST" /run/nostick/host || panic "nostick: host mount failed ($VHD_HOST)"
 REAL="/run/nostick/host${VHD_FILE}"
 [ -f "$REAL" ] || panic "nostick: image not found at $REAL"
-LOOP=$(/usr/sbin/losetup --find --show --partscan "$REAL") || panic "nostick: losetup failed"
+LOOP=""
+if [ -x /usr/lib/nostick/losetup ]; then
+    LOOP=$(/usr/lib/nostick/losetup --find --show --partscan "$REAL") || LOOP=""
+fi
+if [ -z "$LOOP" ]; then
+    # busybox losetup: short options only, and it does not print the device
+    LOOP=$(losetup -f) && losetup -P "$LOOP" "$REAL" || LOOP=""
+fi
+[ -n "$LOOP" ] || panic "nostick: could not attach $REAL"
 echo "nostick: $VHD_FILE attached as $LOOP"
 udevadm settle 2>/dev/null || true
 exit 0
@@ -1005,6 +1045,28 @@ NSHOOKB
         chmod 755 "$M/etc/initramfs-tools/hooks/nostick" "$M/etc/initramfs-tools/scripts/local-top/nostick"
         echo "Rebuilding the initramfs (a minute or so)..."
         chroot "$M" update-initramfs -u -k all < /dev/null 2>&1
+
+        # The distro's own /boot/vmlinuz link follows the LAST kernel installed, which is not always the
+        # newest (an older-series update can arrive after a newer kernel). No-Stick boots through that
+        # link, so keep it on the highest version that has an initrd - now, and after every kernel change.
+        mkdir -p "$M/etc/kernel/postinst.d" "$M/etc/kernel/postrm.d"
+        cat > "$M/etc/kernel/postinst.d/zz-nostick" << 'NSHOOKK'
+#!/bin/sh
+# no-stick: keep /boot/vmlinuz and /boot/initrd.img on the newest kernel that has an initrd
+cd /boot || exit 0
+v=""
+for k in $(ls -1 vmlinuz-* 2>/dev/null | sed 's/^vmlinuz-//' | sort -V); do
+    [ -e "initrd.img-$k" ] && v="$k"
+done
+[ -n "$v" ] || exit 0
+ln -sfn "vmlinuz-$v" vmlinuz
+ln -sfn "initrd.img-$v" initrd.img
+exit 0
+NSHOOKK
+        chmod 755 "$M/etc/kernel/postinst.d/zz-nostick"
+        cp -p "$M/etc/kernel/postinst.d/zz-nostick" "$M/etc/kernel/postrm.d/zz-nostick"
+        chroot "$M" /bin/sh /etc/kernel/postinst.d/zz-nostick < /dev/null
+        echo "Newest kernel in $NAME: $(readlink "$M/boot/vmlinuz" 2>/dev/null || echo unknown)"
 
     elif [ -f "$M/etc/mkinitcpio.conf" ]; then
         FAMILY=mkinitcpio
