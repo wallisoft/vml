@@ -34,6 +34,7 @@ main() {
     echo "==> Downloading the latest No-Stick"
     curl -fsSL "$URL" -o "$tmp/no-stick.tar.gz"
     rm -rf "$DEST"
+    rm -rf "$HOME/.local/opt/no-stick"       # where No-Stick 0.2 and earlier lived
     mkdir -p "$DEST"
     tar xzf "$tmp/no-stick.tar.gz" -C "$DEST" --strip-components=1
     echo "==> Installed No-Stick $(cat "$DEST/VERSION" 2>/dev/null || echo "") into $DEST"
@@ -51,7 +52,7 @@ Type=Application
 Name=No-Stick
 Comment=Boot ISOs and virtual disks on real hardware, with no USB stick
 Exec="$VML_BIN" "$DEST/no-stick.vml"
-Icon=drive-harddisk
+Icon=$DEST/no-stick.png
 Terminal=false
 Categories=System;Utility;
 StartupNotify=false

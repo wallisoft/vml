@@ -53,7 +53,7 @@ jobs:
       - name: Package
         run: |
           mkdir -p stage/no-stick
-          cp apps/no-stick/no-stick.vml apps/no-stick/download.vml stage/no-stick/
+          cp apps/no-stick/no-stick.vml apps/no-stick/download.vml apps/no-stick/no-stick.png stage/no-stick/
           echo "${{ steps.v.outputs.version }}" > stage/no-stick/VERSION
           tar czf no-stick.tar.gz -C stage no-stick
           cp apps/no-stick/install.sh install.sh
