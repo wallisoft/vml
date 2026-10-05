@@ -1,10 +1,19 @@
 # No-Stick: a bare-metal VirtualBox. Manage a library of ISOs and VHDs, and boot any of them
-# directly, with none of the virtualisation overhead. (Step 2: the read-only library view.)
+# directly, with none of the virtualisation overhead.
+#
+# Layout (0.3):
+#   ~/.no-stick/isos/NAME.iso      the ISO library
+#   ~/.no-stick/vhds/NAME.img      a virtual disk (sparse file)
+#   ~/.no-stick/vhds/NAME.grub     that disk's boot-menu entry; present = in the menu (.grub.off = prepared, hidden)
+#   ~/.no-stick/isos/NAME.iso.grub a live-boot entry for that ISO, same idea
+#   ~/.no-stick/menu.conf          default=<entry id> and timeout=<seconds> for the No-Stick menu
+#   /boot/no-stick/grub.cfg        the No-Stick menu, generated from the .grub files
+# The main GRUB menu only ever holds ONE "No-Stick" entry that opens /boot/no-stick/grub.cfg.
 
 @Window NoStick
-Title=No-Stick 0.2.2
+Title=No-Stick 0.4.0
 Width=820
-Height=560
+Height=700
 FormMinWidth=640
 FormMinHeight=420
 OnOpened=Load
@@ -162,10 +171,35 @@ Content=Restore...
 Padding=10,7
 OnClick=RestoreVhd
 
+@TextBlock MenuLabel
+Parent=Buttons
+Text=BOOT MENU (SELECTED ITEM)
+FontSize=10
+FontWeight=Bold
+Foreground=#2563EB
+Margin=0,10,0,0
+
+@CheckBox chkInMenu
+Parent=Buttons
+Content=Show in boot menu
+OnClick=ToggleMenu
+
+@CheckBox chkDefault
+Parent=Buttons
+Content=Boot this by default
+OnClick=ToggleDefault
+
+@Button btnTimeout
+Parent=Buttons
+Content=Auto-boot: off
+Padding=10,7
+OnClick=SetTimeout
+
 @Button btnDelete
 Parent=Buttons
 Content=Delete...
 Padding=10,7
+Margin=0,10,0,0
 OnClick=DeleteItem
 
 @DockPanel Main
@@ -206,6 +240,41 @@ SelectionChanged=Selected
 @Script Load
 Interpreter=lua
 <<LUA
+local function run(cmd)
+    return (Vml("Shell", cmd):gsub("%s+$", ""))        -- trim trailing whitespace/newlines
+end
+
+-- every path No-Stick uses lives here, as absolute paths (so they are safe inside quotes)
+NS_HOME = run('echo "$HOME"')
+NS_DIR  = NS_HOME .. "/.no-stick"
+NS_VHDS = NS_DIR .. "/vhds"
+NS_ISOS = NS_DIR .. "/isos"
+run("mkdir -p '" .. NS_VHDS .. "' '" .. NS_ISOS .. "'")
+
+-- boot-menu settings: which entry is the default, and the auto-boot timer (0 = wait for a choice)
+NS_DEFAULT = run("sed -n 's/^default=//p' '" .. NS_DIR .. "/menu.conf' 2>/dev/null | head -1")
+NS_TIMEOUT = tonumber(run("sed -n 's/^timeout=//p' '" .. NS_DIR .. "/menu.conf' 2>/dev/null | head -1")) or 0
+
+function ns_save_conf()
+    Vml("Shell", "printf 'default=%s\\ntimeout=%s\\n' '" .. (NS_DEFAULT or "") .. "' '" ..
+        (NS_TIMEOUT or 0) .. "' > '" .. NS_DIR .. "/menu.conf'")
+end
+
+-- start a boot-menu job. mode: "menu" (just rewrite the menu), "prepare" (a VHD), "iso" (a live entry)
+function ns_job(t)
+    Vml("SetSetting", "ns_job_title", t.title or "Updating the boot menu")
+    Vml("SetSetting", "ns_job_name", t.name or "")
+    Vml("SetSetting", "ns_job_file", t.file or "")
+    Vml("SetSetting", "ns_job_id", t.id or "")
+    Vml("SetSetting", "ns_job_mode", t.mode or "menu")
+    Vml("SetSetting", "ns_job_pre", t.pre or "")
+    Vml("SetSetting", "ns_job_reboot", t.reboot and "1" or "0")
+    Vml("RunScript", "StartPrepare")
+end
+
+Vml("SetProperty", "btnTimeout", "Content",
+    "Auto-boot: " .. ((NS_TIMEOUT > 0) and (NS_TIMEOUT .. "s") or "off"))
+
 -- No-Stick needs a Visualised runtime new enough to have RunProcess (0.17+)
 local ver = Vml("VmlVersion")
 local function too_old(v)
@@ -219,7 +288,8 @@ if ver == "" or too_old(ver) then
     Vml("SetStatusText", "Needs Visualised 0.17+ - please update")
     Vml("SetProperty", "library", "Items", "(this Visualised runtime is too old - please update)")
     for _, b in ipairs({"btnDownload", "btnAddIso", "btnNewVhd", "btnTryLive", "btnInstallVhd",
-                        "btnInstallPart", "btnBootNow", "btnBootRestart", "btnDelete"}) do
+                        "btnInstallPart", "btnBootNow", "btnBootRestart", "btnDelete",
+                        "chkInMenu", "chkDefault", "btnTimeout"}) do
         Vml("SetProperty", b, "IsEnabled", "false")
     end
     return
@@ -228,51 +298,54 @@ end
 -- read the No-Stick library on this machine and list it. Reads only; changes nothing.
 LIBRARY = {}
 
-local function run(cmd)
-    return (Vml("Shell", cmd):gsub("%s+$", ""))        -- trim trailing whitespace/newlines
-end
-
 local function human(path)                             -- real disk usage, e.g. "3.1G" (empty if missing)
     return run("du -h '" .. path .. "' 2>/dev/null | head -1 | cut -f1"):gsub("[^%w%.]", "")
 end
 
--- VHDs, from the config the old No-Stick already keeps
-local json = require("dkjson")
-local raw = run("cat /opt/no-stick/vhds/vhd_config.json 2>/dev/null")
-if raw ~= "" then
-    local cfg = json.decode(raw)
-    if cfg and cfg.vhds then
-        local names = {}
-        for name in pairs(cfg.vhds) do names[#names + 1] = name end
-        table.sort(names)
-        for _, name in ipairs(names) do
-            local v = cfg.vhds[name]
-            local used = human(v.file or "")
-            LIBRARY[#LIBRARY + 1] = {kind = "VHD", name = name, file = v.file,
-                detail = (v.size_gb or "?") .. "GB disk" .. (used ~= "" and ("  -  " .. used .. " used") or "") ..
-                         (v.bootable and "  -  bootable" or ""), bootable = v.bootable}
-        end
+-- "on" = entry file present (in the menu), "off" = prepared but hidden, "" = never prepared
+local function menu_state(side)
+    return run("if [ -f '" .. side .. "' ]; then echo on; elif [ -f '" .. side .. ".off' ]; then echo off; fi")
+end
+
+-- VHDs: every .img in the vhds folder
+local imgs = run("ls -1 '" .. NS_VHDS .. "'/*.img 2>/dev/null")
+for path in (imgs .. "\n"):gmatch("([^\n]+)") do
+    local name = path:match("([^/]+)%.img$")
+    if name then
+        local bytes = tonumber(run("stat -c %s '" .. path .. "' 2>/dev/null")) or 0
+        local gb = math.floor(bytes / 1073741824 + 0.5)
+        local used = human(path)
+        local side = NS_VHDS .. "/" .. name .. ".grub"
+        local st = menu_state(side)
+        LIBRARY[#LIBRARY + 1] = {kind = "VHD", name = name, file = path, side = side, id = "nostick-" .. name,
+            inmenu = (st == "on"), prepared = (st ~= ""), bootable = (st == "on"),
+            detail = gb .. "GB disk" .. (used ~= "" and ("  -  " .. used .. " used") or "")}
     end
 end
 
 -- ISOs in the library folder
-local isos = run("ls -1 ~/.config/no-stick/isos/*.iso /opt/no-stick/isos/*.iso 2>/dev/null")
+local isos = run("ls -1 '" .. NS_ISOS .. "'/*.iso 2>/dev/null")
 for path in (isos .. "\n"):gmatch("([^\n]+)") do
     if path ~= "" then
         local base = path:match("([^/]+)$")
-        LIBRARY[#LIBRARY + 1] = {kind = "ISO", name = base, file = path, detail = human(path)}
+        local side = path .. ".grub"
+        local st = menu_state(side)
+        local id = "nostick-iso-" .. ((base:gsub("%.iso$", "")):gsub("[^%w%._%-]", "-"))
+        LIBRARY[#LIBRARY + 1] = {kind = "ISO", name = base, file = path, side = side, id = id,
+            inmenu = (st == "on"), prepared = (st ~= ""), detail = human(path)}
     end
 end
 
 local lines = {}
 for i, item in ipairs(LIBRARY) do
-    lines[i] = string.format("[%s]  %-28s  %s", item.kind, item.name, (item.detail:gsub(",", ";")))
+    local detail = item.detail .. ((item.inmenu and item.id == NS_DEFAULT) and "  -  DEFAULT" or "")
+    lines[i] = string.format("%s %s  %-28s  %s", item.inmenu and "[x]" or "[ ]", item.kind, item.name, (detail:gsub(",", ";")))
 end
 if #lines == 0 then
     lines = {"(nothing yet - add an ISO or create a VHD to begin)"}
 end
 Vml("SetProperty", "library", "Items", table.concat(lines, ","))
-Vml("SetStatusText", #LIBRARY .. " item(s) in your library")
+Vml("SetStatusText", #LIBRARY .. " item(s) in your library   -   [x] = shown in the boot menu")
 Vml("RunScript", "Selected")
 LUA
 
@@ -291,6 +364,12 @@ for _, b in ipairs({"btnBootNow", "btnBootRestart", "btnBackup"}) do
 end
 Vml("SetProperty", "btnRestore", "IsEnabled", "true")   -- restore can make a new VHD any time
 Vml("SetProperty", "btnDelete", "IsEnabled", item and "true" or "false")
+-- the two boot-menu ticks always show the real state of the selected item
+local inmenu = item and item.inmenu
+Vml("SetProperty", "chkInMenu", "IsEnabled", item and "true" or "false")
+Vml("SetProperty", "chkInMenu", "IsChecked", inmenu and "true" or "false")
+Vml("SetProperty", "chkDefault", "IsEnabled", inmenu and "true" or "false")
+Vml("SetProperty", "chkDefault", "IsChecked", (inmenu and item.id == NS_DEFAULT) and "true" or "false")
 if item then Vml("SetStatusText", item.kind .. ":  " .. item.file) end
 LUA
 
@@ -307,8 +386,8 @@ Vml("SetProperty", "JobBar", "IsVisible", "true")
 Vml("SetProperty", "jobTitle", "Text", "Downloading " .. name)
 Vml("SetProperty", "joblog", "Items", "")
 -- curl with a progress line every second into the log; lands in the ISO library
-local cmd = "mkdir -p ~/.config/no-stick/isos\n" ..
-    "cd ~/.config/no-stick/isos\n" ..
+local cmd = "mkdir -p '" .. NS_ISOS .. "'\n" ..
+    "cd '" .. NS_ISOS .. "'\n" ..
     "echo 'Fetching " .. name .. "...'\n" ..
     "curl -fL --progress-bar -o '" .. name .. ".part' '" .. url .. "' 2>&1 | stdbuf -oL tr '\\r' '\\n' | grep -v '^$'\n" ..
     "mv '" .. name .. ".part' '" .. name .. "'\n" ..
@@ -331,21 +410,25 @@ LUA
 @Script AddIso
 Interpreter=lua
 <<LUA
+-- The library always owns its ISOs, so tidying up Downloads can never remove one.
+-- Same partition: a hard link (instant, no extra space, survives the original being deleted).
+-- Different partition: a real copy.
 local path = Vml("FileOpenDialog", "Choose an ISO you've already downloaded", "iso")
 if path == "" then return end
 local base = path:match("([^/]+)$")
--- large files: offer to link instead of copy, so we don't duplicate several GB
-local link = Vml("ConfirmDialog", "Add '" .. base .. "' to your library.\n\nLink to it where it is? (Yes = link, keeps one copy; No = copy into the library)", "Add ISO") == "true"
+local dest = NS_ISOS .. "/" .. base
 Vml("SetProperty", "JobBar", "IsVisible", "true")
-Vml("SetProperty", "jobTitle", "Text", (link and "Linking " or "Copying ") .. base)
+Vml("SetProperty", "jobTitle", "Text", "Adding " .. base)
 Vml("SetProperty", "joblog", "Items", "")
-local dest = "~/.config/no-stick/isos/" .. base
-local cmd = "mkdir -p ~/.config/no-stick/isos\n"
-if link then
-    cmd = cmd .. "ln -sf '" .. path .. "' " .. dest .. "\necho 'Linked.'\n"
-else
-    cmd = cmd .. "cp -v '" .. path .. "' " .. dest .. "\necho 'Copied.'\n"
-end
+local cmd = "set -e\n" ..
+    "mkdir -p '" .. NS_ISOS .. "'\n" ..
+    "if ln '" .. path .. "' '" .. dest .. "' 2>/dev/null; then\n" ..
+    "    echo 'Added instantly (shares disk space with the original; deleting the original will not remove it).'\n" ..
+    "else\n" ..
+    "    echo 'Copying into the library...'\n" ..
+    "    cp -v '" .. path .. "' '" .. dest .. "'\n" ..
+    "    echo 'Copied.'\n" ..
+    "fi\n"
 CURRENT_JOB = Vml("RunProcess", cmd, "joblog", "AddIsoDone", "bash")
 LUA
 
@@ -367,27 +450,22 @@ Interpreter=lua
 local name = Vml("PromptDialog", "New VHD", "Name for the virtual disk (letters, numbers, dashes):", "")
 name = name:gsub("%s+", ""):gsub("[^%w%-_]", "")
 if name == "" then return end
-if Vml("Shell", "test -f /opt/no-stick/vhds/" .. name .. ".img && echo yes") ~= "" then
+local file = NS_VHDS .. "/" .. name .. ".img"
+if Vml("Shell", "test -f '" .. file .. "' && echo yes") ~= "" then
     return Vml("ErrorDialog", "A VHD called '" .. name .. "' already exists.", "New VHD")
 end
-local size = Vml("PromptDialog", "New VHD", "Size in GB (the file only uses what's written):", "20")
+local size = Vml("PromptDialog", "New VHD", "Size in GB (the file only uses what's written):", "30")
 size = tonumber(size)
 if not size or size < 1 then return end
 NEW_VHD_NAME = name
-NEW_VHD_SIZE = size
 Vml("SetProperty", "JobBar", "IsVisible", "true")
 Vml("SetProperty", "jobTitle", "Text", "Creating VHD: " .. name .. " (" .. size .. "GB)")
 Vml("SetProperty", "joblog", "Items", "")
--- sparse file: instant, uses no space until written (same method as the proven No-Stick)
+-- sparse file: instant, uses no space until written. The installer partitions it itself.
 local cmd = "set -e\n" ..
-    "sudo mkdir -p /opt/no-stick/vhds\n" ..
+    "mkdir -p '" .. NS_VHDS .. "'\n" ..
     "echo 'Allocating " .. size .. "GB sparse disk...'\n" ..
-    "sudo truncate -s " .. size .. "G /opt/no-stick/vhds/" .. name .. ".img\n" ..
-    "echo 'Partitioning (EFI + root)...'\n" ..
-    "sudo parted -s /opt/no-stick/vhds/" .. name .. ".img mklabel gpt\n" ..
-    "sudo parted -s /opt/no-stick/vhds/" .. name .. ".img mkpart ESP fat32 1MiB 513MiB\n" ..
-    "sudo parted -s /opt/no-stick/vhds/" .. name .. ".img set 1 boot on\n" ..
-    "sudo parted -s /opt/no-stick/vhds/" .. name .. ".img mkpart root ext4 513MiB 100%\n" ..
+    "truncate -s " .. size .. "G '" .. file .. "'\n" ..
     "echo 'Done.'\n"
 CURRENT_JOB = Vml("RunProcess", cmd, "joblog", "NewVhdDone", "bash")
 Vml("SetProperty", "btnJobCancel", "IsEnabled", "true")
@@ -398,15 +476,6 @@ Interpreter=lua
 <<LUA
 local code = Vml("GetSetting", "exit_code")
 if code == "0" then
-    -- record it in the config the library reads
-    local json = require("dkjson")
-    local raw = Vml("Shell", "cat /opt/no-stick/vhds/vhd_config.json 2>/dev/null")
-    local cfg = (raw ~= "" and json.decode(raw)) or {vhds = {}, attachments = {}}
-    cfg.vhds = cfg.vhds or {}
-    cfg.vhds[NEW_VHD_NAME] = {file = "/opt/no-stick/vhds/" .. NEW_VHD_NAME .. ".img",
-        size_gb = NEW_VHD_SIZE, type = "empty", bootable = false, created = os.date("!%Y-%m-%dT%H:%M:%S")}
-    local out = json.encode(cfg, {indent = true})
-    Vml("Shell", "cat > /tmp/nostick-cfg.json << 'ENDCFG'\n" .. out .. "\nENDCFG\nsudo cp /tmp/nostick-cfg.json /opt/no-stick/vhds/vhd_config.json")
     Vml("SetStatusText", "Created VHD: " .. NEW_VHD_NAME)
 else
     Vml("ErrorDialog", "VHD creation failed (exit " .. code .. "). See the log.", "New VHD")
@@ -426,8 +495,8 @@ LUA
 @Script TryLive
 Interpreter=lua
 <<LUA
--- boot the selected ISO live, nothing installed (kexec or next-restart)
-Vml("SetStatusText", "Try it live: coming next")
+-- boot the selected ISO live at the next restart: nothing is installed, the ISO is not changed
+Vml("RunScript", "BootRestart")
 LUA
 
 @Script InstallVhd
@@ -468,7 +537,7 @@ Interpreter=lua
 local i = tonumber(Vml("GetProperty", "library", "SelectedIndex")) or -1
 local iso = LIBRARY and LIBRARY[i + 1]
 if not iso then return end
--- choose a VHD to install into: an existing empty one, or make a new one
+-- choose a VHD to install into: an existing one, or make a new one
 local vhds = {}
 for _, it in ipairs(LIBRARY) do if it.kind == "VHD" then vhds[#vhds + 1] = it.name end end
 local target = Vml("PromptDialog", "Install " .. iso.name,
@@ -476,22 +545,13 @@ local target = Vml("PromptDialog", "Install " .. iso.name,
     (table.concat(vhds, ", ") == "" and "(none yet)" or table.concat(vhds, ", ")), vhds[1] or "")
 target = target:gsub("%s+", ""):gsub("[^%w%-_]", "")
 if target == "" then return end
-local vhdfile = "/opt/no-stick/vhds/" .. target .. ".img"
--- make it if it doesn't exist (20GB sparse)
+local vhdfile = NS_VHDS .. "/" .. target .. ".img"
+-- make it if it doesn't exist (sparse)
 if Vml("Shell", "test -f '" .. vhdfile .. "' && echo yes") ~= "yes" then
-    local gb = Vml("PromptDialog", "New VHD", "'" .. target .. "' doesn't exist yet. Size in GB:", "20")
+    local gb = Vml("PromptDialog", "New VHD", "'" .. target .. "' doesn't exist yet. Size in GB:", "30")
     gb = tonumber(gb)
     if not gb then return end
-    Vml("Shell", "sudo mkdir -p /opt/no-stick/vhds && sudo truncate -s " .. gb .. "G '" .. vhdfile .. "'")
-    NEW_VHD_NAME, NEW_VHD_SIZE = target, gb
-    -- record it
-    local json = require("dkjson")
-    local raw = Vml("Shell", "cat /opt/no-stick/vhds/vhd_config.json 2>/dev/null")
-    local cfg = (raw ~= "" and json.decode(raw)) or {vhds = {}, attachments = {}}
-    cfg.vhds = cfg.vhds or {}
-    cfg.vhds[target] = {file = vhdfile, size_gb = gb, type = "empty", bootable = false, created = os.date("!%Y-%m-%dT%H:%M:%S")}
-    Vml("Shell", "cat > /tmp/nscfg.json << 'ENDCFG'\n" .. json.encode(cfg, {indent = true}) ..
-        "\nENDCFG\nsudo cp /tmp/nscfg.json /opt/no-stick/vhds/vhd_config.json")
+    Vml("Shell", "mkdir -p '" .. NS_VHDS .. "' && truncate -s " .. gb .. "G '" .. vhdfile .. "'")
 end
 Vml("SetProperty", "JobBar", "IsVisible", "true")
 Vml("SetProperty", "jobTitle", "Text", "Guided install: " .. iso.name .. " -> " .. target .. "  (installer opens in a window)")
@@ -512,25 +572,16 @@ LUA
 @Script GuidedInstallDone
 Interpreter=lua
 <<LUA
-Vml("SetProperty", "JobBar", "IsVisible", "false")
+-- the installer VM has closed: prepare the VHD for real hardware and add it to the boot menu
 local target = Vml("GetSetting", "ns_install_vhd")
 if Vml("GetSetting", "exit_code") == "0" then
-    -- mark it bootable; the GRUB entry (next feature) makes it boot on real hardware
-    local json = require("dkjson")
-    local raw = Vml("Shell", "cat /opt/no-stick/vhds/vhd_config.json 2>/dev/null")
-    local cfg = (raw ~= "" and json.decode(raw)) or {vhds = {}}
-    if cfg.vhds and cfg.vhds[target] then
-        cfg.vhds[target].bootable = true
-        cfg.vhds[target].installed_date = os.date("!%Y-%m-%dT%H:%M:%S")
-        Vml("Shell", "cat > /tmp/nscfg.json << 'ENDCFG'\n" .. json.encode(cfg, {indent = true}) ..
-            "\nENDCFG\nsudo cp /tmp/nscfg.json /opt/no-stick/vhds/vhd_config.json")
-    end
-    Vml("InfoDialog", "Installed into '" .. target .. "'.\n\nNext: use 'Boot at restart' to add it to your boot menu, or 'Boot now' to try it.", "Install complete")
-    Vml("SetStatusText", "Installed into " .. target)
+    ns_job{title = "Preparing " .. target, name = target, file = NS_VHDS .. "/" .. target .. ".img",
+           id = "nostick-" .. target, mode = "prepare"}
 else
+    Vml("SetProperty", "JobBar", "IsVisible", "false")
     Vml("ErrorDialog", "The installer VM reported a problem. See the log.", "Install to a VHD")
+    Vml("RunScript", "Load")
 end
-Vml("RunScript", "Load")
 LUA
 
 @Script InstallPartition
@@ -564,137 +615,505 @@ LUA
 @Script BootRestart
 Interpreter=lua
 <<LUA
--- add the selected VHD to the boot menu so it boots on real hardware at next restart.
--- writes ONE file No-Stick owns (/etc/grub.d/40_nostick) listing every bootable VHD, plus a
--- Windows chainloader entry if Windows is found. Never touches your other GRUB entries.
+-- boot the selected VHD (or ISO, live) at the next restart, once. Adds it to the boot menu first if needed.
 local i = tonumber(Vml("GetProperty", "library", "SelectedIndex")) or -1
 local item = LIBRARY and LIBRARY[i + 1]
-if not item or item.kind ~= "VHD" then return end
-if not item.bootable then
-    return Vml("ErrorDialog", "'" .. item.name .. "' has no OS installed yet.\n\nUse 'Install to a VHD' first.", "Boot at restart")
-end
-if Vml("ConfirmDialog", "Add your bootable VHDs to the boot menu?\n\nThis updates GRUB (one file No-Stick owns). " ..
-       "Your existing boot entries are not touched. You'll see the new entries at your next restart.", "Boot at restart") ~= "true" then
-    return
-end
-Vml("SetProperty", "JobBar", "IsVisible", "true")
-Vml("SetProperty", "jobTitle", "Text", "Updating the boot menu")
-Vml("SetProperty", "joblog", "Items", "")
-CURRENT_JOB = Vml("RunProcess", Vml("RunScript", "BuildGrubScript"), "joblog", "BootRestartDone", "bash")
-LUA
-
-@Script BuildGrubScript
-Interpreter=lua
-<<LUA
--- returns bash that, for each bootable VHD, inspects the real install (kernel/initrd/UUID, wherever
--- they are) and writes a correct menuentry. Works for Arch, Ubuntu, Mint, Fedora... automatically.
-local json = require("dkjson")
-local raw = Vml("Shell", "cat /opt/no-stick/vhds/vhd_config.json 2>/dev/null")
-local cfg = (raw ~= "" and json.decode(raw)) or {vhds = {}}
-local names = {}
-for name, v in pairs(cfg.vhds or {}) do
-    if v.bootable then names[#names + 1] = name end
-end
--- the script builds 40_nostick by probing each VHD with a shell function
-local probe = [[
-set -e
-F=/tmp/40_nostick
-cat > "$F" << 'HEAD'
-#!/bin/sh
-exec tail -n +4 "$0"
-# No-Stick boot entries - managed by No-Stick, safe to let No-Stick rewrite
-HEAD
-
-add_vhd() {
-    # The proven method (from geek-1): copy the VHD's kernel + initrd onto the HOST, and boot those.
-    # GRUB never reads inside the image (it often can't); the initramfs hook does losetup+mount at boot.
-    name="$1"; img="/opt/no-stick/vhds/$name.img"
-    [ -f "$img" ] || return 0
-    loop=$(sudo losetup -fP --show "$img")
-    sleep 0.3
-    root_part="${loop}p2"
-    ruuid=$(sudo blkid -s UUID -o value "$root_part" 2>/dev/null)
-    bootdir="/boot/no-stick/vhd-$name"
-    sudo mkdir -p "$bootdir"
-    # find kernel+initrd: on the root fs /boot, or on the ESP (p1), and copy them to the host bootdir
-    mp=$(mktemp -d); sudo mount "$root_part" "$mp" 2>/dev/null || true
-    kern=$(sudo sh -c "ls $mp/boot/vmlinuz* 2>/dev/null | head -1")
-    init=$(sudo sh -c "ls $mp/boot/init* 2>/dev/null | head -1")
-    if [ -z "$kern" ]; then
-        esp=$(mktemp -d); sudo mount "${loop}p1" "$esp" 2>/dev/null || true
-        kern=$(sudo sh -c "ls $esp/vmlinuz* 2>/dev/null | head -1")
-        init=$(sudo sh -c "ls $esp/init* 2>/dev/null | head -1")
-        [ -n "$kern" ] && sudo cp "$kern" "$bootdir/vmlinuz"
-        [ -n "$init" ] && sudo cp "$init" "$bootdir/initrd"
-        sudo umount "$esp" 2>/dev/null || true; rmdir "$esp" 2>/dev/null || true
+if not item then return end
+local mode, pre = "menu", ""
+if not item.inmenu then
+    if item.prepared then
+        pre = "mv -f '" .. item.side .. ".off' '" .. item.side .. "'"
     else
-        sudo cp "$kern" "$bootdir/vmlinuz"
-        sudo cp "$init" "$bootdir/initrd"
-    fi
-    # which initramfs system? decides how we ask it to loop-mount the image at boot.
-    family="unknown"
-    if [ -f "$mp/etc/arch-release" ]; then family="arch"
-    elif [ -d "$mp/etc/initramfs-tools" ] || [ -f "$mp/etc/debian_version" ]; then family="debian"
-    elif [ -f "$mp/etc/fedora-release" ] || [ -d "$mp/etc/dracut.conf.d" ]; then family="fedora"; fi
-    sudo umount "$mp" 2>/dev/null || true; rmdir "$mp" 2>/dev/null || true
-    sudo losetup -d "$loop" 2>/dev/null || true
-    if [ ! -f "$bootdir/vmlinuz" ] || [ -z "$ruuid" ]; then
-        echo "  (skipped $name: couldn't extract its kernel)"; return 0
-    fi
-    img="/opt/no-stick/vhds/$name.img"
-    # the loop-mount parameter the distro's own initramfs understands (proven in testing)
-    case "$family" in
-        arch)   loopargs="img_loop=$img earlymodules=loop" ;;
-        debian) loopargs="loop=$img" ;;              # initramfs-tools built-in loop= support
-        fedora) loopargs="rd.live.image img_loop=$img" ;;
-        *)      loopargs="img_loop=$img earlymodules=loop" ;;
-    esac
-    echo "  $name: kernel copied to host, root $ruuid, family $family"
-    cat >> "$F" << ENTRY
-menuentry "No-Stick: $name" {
-    insmod ext2
-    linux /boot/no-stick/vhd-$name/vmlinuz root=UUID=$ruuid $loopargs rw
-    initrd /boot/no-stick/vhd-$name/initrd
-}
-ENTRY
-}
-]]
-    for _, name in ipairs(names) do
-        probe = probe .. 'echo "Inspecting ' .. name .. '..."\nadd_vhd "' .. name .. '"\n'
+        mode = (item.kind == "VHD") and "prepare" or "iso"
     end
-    probe = probe .. [[
-WIN=$(find /boot/efi/EFI -iname 'bootmgfw.efi' 2>/dev/null | head -1 || true)
-if [ -n "$WIN" ]; then
-    echo "Found Windows - adding a chainloader entry"
-    cat >> "$F" << 'WINENTRY'
-menuentry "Windows Boot Manager" {
-    insmod part_gpt
-    insmod chain
-    search --no-floppy --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi
-    chainloader /EFI/Microsoft/Boot/bootmgfw.efi
-}
-WINENTRY
-fi
-echo "Installing boot entries..."
-sudo cp "$F" /etc/grub.d/40_nostick
-sudo chmod +x /etc/grub.d/40_nostick
-echo "Updating GRUB..."
-sudo update-grub 2>&1 || sudo grub-mkconfig -o /boot/grub/grub.cfg 2>&1
-echo "Boot menu updated."
-]]
-return probe
+end
+local msg = "Boot '" .. item.name .. "'" .. (item.kind == "ISO" and " live" or "") .. " at the next restart?\n\n" ..
+    "It boots by itself after a 3 second pause, this once. Restarts after that go back to normal.\n" ..
+    "Your normal boot entries are not touched."
+if mode == "prepare" then
+    msg = msg .. "\n\nIt isn't in the boot menu yet, so No-Stick will first look inside it and add the small boot helper it needs (a minute or two)."
+end
+if Vml("ConfirmDialog", msg, "Boot at restart") ~= "true" then return end
+ns_job{title = "Setting up the next restart: " .. item.name, name = item.name, file = item.file,
+       id = item.id, mode = mode, pre = pre, reboot = true}
 LUA
 
-@Script BootRestartDone
+@Script StartPrepare
 Interpreter=lua
 <<LUA
-Vml("SetProperty", "JobBar", "IsVisible", "false")
-if Vml("GetSetting", "exit_code") == "0" then
-    Vml("InfoDialog", "Your boot menu is updated.\n\nRestart and choose a 'No-Stick:' entry to boot your VHD on real hardware.", "Boot at restart")
-    Vml("SetStatusText", "Boot menu updated - restart to use it")
-else
-    Vml("ErrorDialog", "Couldn't update the boot menu. See the log.\n\nYour existing boot entries are unchanged.", "Boot at restart")
+-- runs the root helper: [prepare the image / ISO] -> rewrite the No-Stick menu -> [point next restart at it]
+-- driven by the ns_job_* settings (see ns_job in Load)
+local title  = Vml("GetSetting", "ns_job_title")
+local name   = Vml("GetSetting", "ns_job_name")
+local file   = Vml("GetSetting", "ns_job_file")
+local id     = Vml("GetSetting", "ns_job_id")
+local mode   = Vml("GetSetting", "ns_job_mode")
+local pre    = Vml("GetSetting", "ns_job_pre")
+local reboot = Vml("GetSetting", "ns_job_reboot") == "1"
+Vml("SetProperty", "JobBar", "IsVisible", "true")
+Vml("SetProperty", "jobTitle", "Text", title)
+Vml("SetProperty", "joblog", "Items", "")
+local cmd = "set -e\n" ..
+    "T=$(mktemp)\n" ..
+    "trap 'rm -f \"$T\"' EXIT\n" ..
+    "cat > \"$T\" << 'NSROOT'\n" .. Vml("RunScript", "RootScript") .. "\nNSROOT\n"
+if pre ~= "" then cmd = cmd .. pre .. "\n" end
+if mode == "prepare" then
+    cmd = cmd .. "sudo bash \"$T\" prepare '" .. file .. "' '" .. name .. "' \"$(id -un)\" < /dev/null\n"
+elseif mode == "iso" then
+    cmd = cmd .. "sudo bash \"$T\" iso '" .. file .. "' '" .. id .. "' \"$(id -un)\" < /dev/null\n"
 end
+cmd = cmd .. "sudo bash \"$T\" menu '" .. NS_DIR .. "' < /dev/null\n"
+if reboot then
+    cmd = cmd .. "sudo bash \"$T\" bootnext '" .. id .. "' < /dev/null\n"
+end
+cmd = cmd .. "echo 'Done.'\n"
+CURRENT_JOB = Vml("RunProcess", cmd, "joblog", "PrepareDone", "bash")
+LUA
+
+@Script PrepareDone
+Interpreter=lua
+<<LUA
+local name = Vml("GetSetting", "ns_job_name")
+local reboot = Vml("GetSetting", "ns_job_reboot") == "1"
+if Vml("GetSetting", "exit_code") == "0" then
+    Vml("SetProperty", "JobBar", "IsVisible", "false")
+    if reboot then
+        Vml("InfoDialog", "Restart when you're ready.\n\nThe next restart boots '" .. name ..
+            "' by itself after a 3 second pause. Restarts after that go back to normal.", "Boot at restart")
+        Vml("SetStatusText", "Next restart boots " .. name)
+    else
+        Vml("SetStatusText", "Boot menu updated")
+    end
+else
+    -- leave the log on screen so the reason can be read; Cancel closes it
+    Vml("SetProperty", "jobTitle", "Text", "Failed - the reason is in the log below (Cancel closes this)")
+    Vml("ErrorDialog", "Couldn't finish that. The log at the bottom of the window says why.\n\nYour normal boot entries are unchanged.", "No-Stick")
+end
+Vml("RunScript", "Load")
+LUA
+
+@Script ToggleMenu
+Interpreter=lua
+<<LUA
+-- the "Show in boot menu" tick. On: prepare if needed, then add. Off: hide (stays prepared, so on again is instant).
+local i = tonumber(Vml("GetProperty", "library", "SelectedIndex")) or -1
+local item = LIBRARY and LIBRARY[i + 1]
+if not item then return end
+if item.inmenu then
+    if item.id == NS_DEFAULT then NS_DEFAULT = ""; ns_save_conf() end
+    ns_job{title = "Removing " .. item.name .. " from the boot menu", name = item.name,
+           pre = "mv -f '" .. item.side .. "' '" .. item.side .. ".off'"}
+elseif item.prepared then
+    ns_job{title = "Adding " .. item.name .. " to the boot menu", name = item.name,
+           pre = "mv -f '" .. item.side .. ".off' '" .. item.side .. "'"}
+else
+    local what = (item.kind == "VHD")
+        and "No-Stick will look inside it, add the small boot helper it needs, and add it to the No-Stick menu. This takes a minute or two."
+        or  "No-Stick will add a live-boot entry for this ISO. The ISO itself is not changed."
+    if Vml("ConfirmDialog", "Add '" .. item.name .. "' to the boot menu?\n\n" .. what ..
+           "\n\nYour normal boot entries are not touched.", "Boot menu") ~= "true" then
+        return Vml("RunScript", "Selected")              -- put the tick back how it was
+    end
+    ns_job{title = "Adding " .. item.name .. " to the boot menu", name = item.name, file = item.file,
+           id = item.id, mode = (item.kind == "VHD") and "prepare" or "iso"}
+end
+LUA
+
+@Script ToggleDefault
+Interpreter=lua
+<<LUA
+-- the "Boot this by default" tick: the highlighted entry in the No-Stick menu, and the one the timer boots
+local i = tonumber(Vml("GetProperty", "library", "SelectedIndex")) or -1
+local item = LIBRARY and LIBRARY[i + 1]
+if not item or not item.inmenu then return Vml("RunScript", "Selected") end
+if item.id == NS_DEFAULT then NS_DEFAULT = "" else NS_DEFAULT = item.id end
+ns_save_conf()
+ns_job{title = "Updating the boot menu", name = item.name}
+LUA
+
+@Script SetTimeout
+Interpreter=lua
+<<LUA
+-- auto-boot timer for the No-Stick menu: after this many seconds the default entry boots by itself
+local s = Vml("PromptDialog", "Auto-boot",
+    "Seconds the No-Stick menu waits before booting the default by itself.\n0 = wait until I choose.", tostring(NS_TIMEOUT or 0))
+local n = tonumber(s)
+if not n or n < 0 then return end
+NS_TIMEOUT = math.floor(n)
+ns_save_conf()
+if NS_TIMEOUT > 0 and (NS_DEFAULT or "") == "" then
+    Vml("InfoDialog", "Saved. The timer starts working once you tick 'Boot this by default' on something - " ..
+        "with no default, the menu always waits for you.", "Auto-boot")
+end
+ns_job{title = "Updating the boot menu", name = "boot menu"}
+LUA
+
+@Script RootScript
+Interpreter=lua
+<<LUA
+-- Returns the root helper (bash). Run as:  sudo bash FILE prepare IMG NAME OWNER
+--                                          sudo bash FILE iso ISOFILE ENTRY_ID OWNER
+--                                          sudo bash FILE menu NOSTICK_DIR
+--                                          sudo bash FILE bootnext [ENTRY_ID]
+-- prepare: finds the installed system in the image, installs the boot hook for its initramfs family,
+--          rebuilds the initramfs, and writes NAME.grub (the menu entry) beside the image.
+-- iso:     looks inside the ISO, works out how its live system boots, and writes ISOFILE.grub.
+-- menu:    rebuilds /boot/no-stick/grub.cfg from every .grub file (vhds and isos) plus menu.conf, and
+--          makes sure the main GRUB menu has the single "No-Stick" entry.
+-- bootnext: the next restart opens No-Stick and boots ENTRY_ID by itself, once.
+return [==[
+set -eu
+MODE="${1:-}"
+
+ensure_main_entry() {
+    if grep -qs 'no-stick/grub.cfg' /boot/grub/grub.cfg; then return 0; fi
+    echo "Adding the single No-Stick entry to your main boot menu..."
+    BM=$(findmnt -no TARGET -T /boot/no-stick)
+    BU=$(findmnt -no UUID -T /boot/no-stick)
+    CP=/boot/no-stick/grub.cfg
+    if [ "$BM" != "/" ]; then CP="${CP#"$BM"}"; fi
+    cat > /etc/grub.d/40_nostick << NSMAIN
+#!/bin/sh
+exec tail -n +3 "\$0"
+# The single No-Stick entry. Everything else lives in /boot/no-stick/grub.cfg
+menuentry "No-Stick" --class gnu-linux --id no-stick {
+    search --no-floppy --fs-uuid --set=root $BU
+    configfile $CP
+}
+NSMAIN
+    chmod 755 /etc/grub.d/40_nostick
+    update-grub 2>&1 || grub-mkconfig -o /boot/grub/grub.cfg 2>&1
+}
+
+do_menu() {
+    DIR="$1"
+    OUT=/boot/no-stick/grub.cfg
+    mkdir -p /boot/no-stick
+    DEF=""; TMO=""
+    if [ -f "$DIR/menu.conf" ]; then
+        DEF=$(sed -n 's/^default=//p' "$DIR/menu.conf" | head -1 | tr -cd 'A-Za-z0-9._-')
+        TMO=$(sed -n 's/^timeout=//p' "$DIR/menu.conf" | head -1 | tr -cd '0-9')
+    fi
+    # the timer only runs when there is a default to boot; otherwise the menu waits
+    if [ -z "$DEF" ] || [ -z "$TMO" ] || [ "$TMO" -le 0 ]; then TMO=-1; fi
+    {
+        echo "# No-Stick menu - generated from the .grub files in $DIR/vhds and $DIR/isos"
+        echo "# Do not edit: it is rewritten whenever the library or its boot-menu ticks change."
+        if [ -n "$DEF" ]; then echo "set default=\"$DEF\""; else echo "set default=0"; fi
+        echo "set timeout=$TMO"
+        echo '# "Boot at restart": boot one chosen entry by itself, once'
+        echo 'if [ -n "${nostick_once}" ]; then'
+        echo '    set default="${nostick_once}"'
+        echo '    set timeout=3'
+        echo '    set nostick_once='
+        echo '    save_env nostick_once'
+        echo 'fi'
+        echo
+        for s in "$DIR"/vhds/*.grub "$DIR"/isos/*.grub; do
+            [ -f "$s" ] || continue
+            [ -f "${s%.grub}.img" ] || [ -f "${s%.grub}" ] || continue
+            cat "$s"
+            echo
+        done
+        echo 'menuentry "<- Back to main menu" {'
+        echo '    configfile $prefix/grub.cfg'
+        echo '}'
+    } > "$OUT"
+    N=$(grep -c '^menuentry' "$OUT")
+    echo "No-Stick menu written: $((N - 1)) entr$( [ "$N" -eq 2 ] && echo y || echo ies )."
+    ensure_main_entry
+}
+
+do_bootnext() {
+    ID=$(printf '%s' "${1:-}" | tr -cd 'A-Za-z0-9._-')
+    if ! command -v grub-reboot >/dev/null 2>&1; then
+        echo "(grub-reboot not found: choose No-Stick from the boot menu yourself)"; return 0
+    fi
+    if [ -n "$ID" ] && command -v grub-editenv >/dev/null 2>&1; then
+        grub-editenv /boot/grub/grubenv set "nostick_once=$ID"
+    fi
+    grub-reboot no-stick
+    echo "The next restart will open No-Stick${ID:+ and boot $ID}."
+}
+
+do_iso() {
+    ISO="$1"; ID=$(printf '%s' "$2" | tr -cd 'A-Za-z0-9._-'); OWNER="$3"
+    SIDE="$ISO.grub"
+    [ -f "$ISO" ] || { echo "ISO not found: $ISO"; exit 2; }
+    HOSTUUID=$(findmnt -no UUID -T "$ISO")
+    HOSTMNT=$(findmnt -no TARGET -T "$ISO")
+    if [ "$HOSTMNT" = "/" ]; then REL="$ISO"; else REL="${ISO#"$HOSTMNT"}"; fi
+    TITLE=$(basename "$ISO" .iso | tr -cd 'A-Za-z0-9 ._()-')
+
+    M=$(mktemp -d /tmp/nostick.XXXXXX)
+    cleanup() { umount "$M" 2>/dev/null || true; rmdir "$M" 2>/dev/null || true; }
+    trap cleanup EXIT
+    mount -o loop,ro "$ISO" "$M"
+
+    K=""; I=""
+    if [ -f "$M/casper/vmlinuz" ]; then
+        # Ubuntu, Mint and relatives
+        K=/casper/vmlinuz
+        for c in initrd initrd.lz initrd.gz initrd.img; do
+            if [ -z "$I" ] && [ -f "$M/casper/$c" ]; then I="/casper/$c"; fi
+        done
+        ARGS="boot=casper iso-scan/filename=$REL noprompt noeject ---"
+        KIND="Ubuntu/Mint live"
+    elif ls "$M"/live/vmlinuz* >/dev/null 2>&1; then
+        # Debian live
+        kf=$(ls "$M"/live/vmlinuz* | head -1); inf=$(ls "$M"/live/initrd* 2>/dev/null | head -1)
+        K="/live/${kf##*/}"; [ -n "$inf" ] && I="/live/${inf##*/}"
+        ARGS="boot=live components findiso=$REL"
+        KIND="Debian live"
+    elif [ -f "$M/arch/boot/x86_64/vmlinuz-linux" ]; then
+        K=/arch/boot/x86_64/vmlinuz-linux
+        [ -f "$M/arch/boot/x86_64/initramfs-linux.img" ] && I=/arch/boot/x86_64/initramfs-linux.img
+        ARGS="archisobasedir=arch img_dev=/dev/disk/by-uuid/$HOSTUUID img_loop=$REL earlymodules=loop"
+        KIND="Arch live"
+    fi
+    if [ -z "$K" ] || [ -z "$I" ]; then
+        echo "No-Stick doesn't know how to live-boot this ISO yet (supported: Ubuntu, Mint, Debian live, Arch)."; exit 4
+    fi
+
+    cat > "$SIDE" << NSENTRY
+menuentry "Live: $TITLE" --id "$ID" {
+    insmod part_gpt
+    insmod part_msdos
+    insmod ext2
+    insmod iso9660
+    insmod loopback
+    search --no-floppy --fs-uuid --set=isohost $HOSTUUID
+    loopback iso (\$isohost)$REL
+    linux (iso)$K $ARGS
+    initrd (iso)$I
+}
+NSENTRY
+    chown "$OWNER": "$SIDE"
+    echo "$TITLE: $KIND entry written."
+}
+
+do_prepare() {
+    IMG="$1"; NAME="$2"; OWNER="$3"
+    SIDE="${IMG%.img}.grub"
+    [ -f "$IMG" ] || { echo "Image not found: $IMG"; exit 2; }
+
+    # where the image lives, as GRUB and the initramfs will see it
+    HOSTFS=$(findmnt -no FSTYPE -T "$IMG")
+    HOSTUUID=$(findmnt -no UUID -T "$IMG")
+    HOSTMNT=$(findmnt -no TARGET -T "$IMG")
+    if [ "$HOSTFS" != "ext4" ]; then
+        echo "The image is on a $HOSTFS partition. Only ext4 is supported so far."; exit 5
+    fi
+    if [ "$HOSTMNT" = "/" ]; then REL="$IMG"; else REL="${IMG#"$HOSTMNT"}"; fi
+
+    M=$(mktemp -d /tmp/nostick.XXXXXX)
+    LOOP=$(losetup --find --show --partscan "$IMG")
+    sleep 1
+    cleanup() {
+        umount -R "$M" 2>/dev/null || true
+        losetup -d "$LOOP" 2>/dev/null || true
+        rmdir "$M" 2>/dev/null || true
+    }
+    trap cleanup EXIT
+
+    case "$(blkid -s PTTYPE -o value "$LOOP" 2>/dev/null || true)" in
+        gpt) GP=gpt ;;
+        dos) GP=msdos ;;
+        *)   echo "No partition table in $NAME - has anything been installed into it yet?"; exit 3 ;;
+    esac
+
+    # the root partition is the one holding os-release
+    echo "Looking for the installed system in $NAME..."
+    ROOTP=""
+    for p in "$LOOP"p*; do
+        [ -b "$p" ] || continue
+        [ "$(blkid -s TYPE -o value "$p" 2>/dev/null || true)" = "ext4" ] || continue
+        if mount -o ro "$p" "$M" 2>/dev/null; then
+            if [ -e "$M/etc/os-release" ]; then ROOTP="$p"; fi
+            umount "$M"
+        fi
+        [ -n "$ROOTP" ] && break
+    done
+    if [ -z "$ROOTP" ]; then
+        echo "No installed system found in $NAME (was the install finished? only ext4 root is supported so far)."; exit 3
+    fi
+    ROOTUUID=$(blkid -s UUID -o value "$ROOTP")
+    mount "$ROOTP" "$M"
+    PRETTY=$(sed -n 's/^PRETTY_NAME=//p' "$M/etc/os-release" | head -1 | tr -cd 'A-Za-z0-9 ._()/-')
+    [ -n "$PRETTY" ] || PRETTY="Linux"
+    echo "Found $PRETTY on partition ${ROOTP##*p}"
+
+    # a separate /boot partition inside the image (Arch often puts /boot on the EFI partition)
+    BOOTP="$ROOTP"
+    BUUID=$(awk '$1 ~ /^UUID=/ && $2 == "/boot" { sub(/^UUID=/, "", $1); print $1 }' "$M/etc/fstab" 2>/dev/null | head -1)
+    if [ -n "$BUUID" ]; then
+        for p in "$LOOP"p*; do
+            if [ "$(blkid -s UUID -o value "$p" 2>/dev/null || true)" = "$BUUID" ]; then
+                BOOTP="$p"; mount "$p" "$M/boot"
+            fi
+        done
+    fi
+
+    for d in dev dev/pts proc sys run; do mount --bind "/$d" "$M/$d"; done
+
+    if [ -d "$M/etc/initramfs-tools" ]; then
+        FAMILY=initramfs-tools
+        ARGS="ro noresume"
+        echo "Boot system: initramfs-tools (Debian, Ubuntu, Mint). Installing the No-Stick hook..."
+        cat > "$M/etc/initramfs-tools/hooks/nostick" << 'NSHOOKA'
+#!/bin/sh
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+. /usr/share/initramfs-tools/hook-functions
+copy_exec /usr/sbin/losetup
+manual_add_modules loop ext4
+NSHOOKA
+        cat > "$M/etc/initramfs-tools/scripts/local-top/nostick" << 'NSHOOKB'
+#!/bin/sh
+# no-stick: attach a disk image file (with its partitions) before root is looked for
+#   vhdhost=<fs UUID of host partition>  vhdfile=<path on that partition>
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+. /scripts/functions
+
+VHD_FILE=""; VHD_HOST=""
+for p in $(cat /proc/cmdline); do
+    case "$p" in
+        vhdfile=*) VHD_FILE="${p#vhdfile=}" ;;
+        vhdhost=*) VHD_HOST="${p#vhdhost=}" ;;
+    esac
+done
+[ -z "$VHD_FILE" ] && exit 0
+[ -n "$VHD_HOST" ] || panic "nostick: vhdhost= is required"
+
+modprobe -q loop
+modprobe -q ext4
+i=0
+while [ ! -e "/dev/disk/by-uuid/$VHD_HOST" ] && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done
+mkdir -p /run/nostick/host
+mount -t ext4 -o rw "/dev/disk/by-uuid/$VHD_HOST" /run/nostick/host || panic "nostick: host mount failed ($VHD_HOST)"
+REAL="/run/nostick/host${VHD_FILE}"
+[ -f "$REAL" ] || panic "nostick: image not found at $REAL"
+LOOP=$(/usr/sbin/losetup --find --show --partscan "$REAL") || panic "nostick: losetup failed"
+echo "nostick: $VHD_FILE attached as $LOOP"
+udevadm settle 2>/dev/null || true
+exit 0
+NSHOOKB
+        chmod 755 "$M/etc/initramfs-tools/hooks/nostick" "$M/etc/initramfs-tools/scripts/local-top/nostick"
+        echo "Rebuilding the initramfs (a minute or so)..."
+        chroot "$M" update-initramfs -u -k all < /dev/null 2>&1
+
+    elif [ -f "$M/etc/mkinitcpio.conf" ]; then
+        FAMILY=mkinitcpio
+        ARGS="rw"
+        echo "Boot system: mkinitcpio (Arch). Installing the No-Stick hook..."
+        mkdir -p "$M/etc/initcpio/hooks" "$M/etc/initcpio/install"
+        cat > "$M/etc/initcpio/hooks/nostickloop" << 'NSHOOKC'
+#!/usr/bin/ash
+# no-stick: attach a disk image file (with its partitions) before root is looked for
+#   vhdhost=<fs UUID of host partition>  vhdfile=<path on that partition>
+run_hook() {
+    local f="" h="" i=0 p dev
+    for p in $(cat /proc/cmdline); do
+        case "$p" in
+            vhdfile=*) f="${p#vhdfile=}" ;;
+            vhdhost=*) h="${p#vhdhost=}" ;;
+        esac
+    done
+    [ -z "$f" ] && return 0
+    [ -n "$h" ] || { echo "nostick: vhdhost= is required"; return 1; }
+    modprobe -q loop
+    modprobe -q ext4
+    while [ ! -e "/dev/disk/by-uuid/$h" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+    mkdir -p /run/nostick/host
+    mount -t ext4 -o rw "/dev/disk/by-uuid/$h" /run/nostick/host || { echo "nostick: host mount failed ($h)"; return 1; }
+    [ -f "/run/nostick/host$f" ] || { echo "nostick: image not found at /run/nostick/host$f"; return 1; }
+    dev=$(losetup -f)
+    losetup -P "$dev" "/run/nostick/host$f" || { echo "nostick: losetup failed"; return 1; }
+    echo "nostick: $f attached as $dev"
+    udevadm settle 2>/dev/null || true
+}
+NSHOOKC
+        chmod 755 "$M/etc/initcpio/hooks/nostickloop"
+        if [ ! -f "$M/etc/initcpio/install/nostickloop" ]; then
+            cat > "$M/etc/initcpio/install/nostickloop" << 'NSHOOKD'
+#!/bin/bash
+build() {
+    add_module loop
+    add_module ext4
+    add_binary losetup
+    add_runscript
+}
+help() {
+    echo "no-stick: boot from a disk image file on a host partition (vhdhost= vhdfile=)"
+}
+NSHOOKD
+        fi
+        if ! grep -q '^HOOKS=.*nostickloop' "$M/etc/mkinitcpio.conf"; then
+            sed -i '/^HOOKS=/ s/ filesystems/ nostickloop filesystems/' "$M/etc/mkinitcpio.conf"
+        fi
+        echo "Rebuilding the initramfs (a minute or so)..."
+        chroot "$M" mkinitcpio -P < /dev/null 2>&1 || echo "(mkinitcpio returned a warning status - usually just missing-firmware notes)"
+
+    else
+        echo "$PRETTY uses a boot system No-Stick doesn't support yet (Fedora-style dracut is on the list)."
+        exit 4
+    fi
+
+    # find the kernel and initrd, preferring the 'latest' symlinks so kernel updates inside the image just work
+    K=""; I=""
+    if [ -e "$M/boot/vmlinuz" ] && [ -e "$M/boot/initrd.img" ]; then
+        K=/boot/vmlinuz; I=/boot/initrd.img
+    elif [ -e "$M/vmlinuz" ] && [ -e "$M/initrd.img" ]; then
+        K=/vmlinuz; I=/initrd.img
+    else
+        kf=$(ls -v "$M"/boot/vmlinuz-* 2>/dev/null | tail -1)
+        if [ -n "$kf" ]; then
+            v="${kf##*/vmlinuz-}"
+            for c in "initrd.img-$v" "initramfs-$v.img"; do
+                if [ -e "$M/boot/$c" ]; then K="/boot/vmlinuz-$v"; I="/boot/$c"; fi
+            done
+        fi
+    fi
+    if [ -z "$K" ]; then echo "Couldn't find a kernel and initrd inside $NAME."; exit 6; fi
+
+    # a path inside the installed system -> where GRUB finds it inside the image file
+    gpath() {
+        case "$1" in
+            /boot/*)
+                if [ "$BOOTP" != "$ROOTP" ]; then echo "(vhd,$GP${BOOTP##*p})${1#/boot}"; return 0; fi ;;
+        esac
+        echo "(vhd,$GP${ROOTP##*p})$1"
+    }
+
+    cat > "$SIDE" << NSENTRY
+menuentry "$PRETTY ($NAME)" --id "nostick-$NAME" {
+    insmod part_gpt
+    insmod part_msdos
+    insmod ext2
+    insmod fat
+    insmod loopback
+    search --no-floppy --fs-uuid --set=vhdhost $HOSTUUID
+    loopback vhd (\$vhdhost)$REL
+    linux $(gpath "$K") root=UUID=$ROOTUUID $ARGS vhdhost=$HOSTUUID vhdfile=$REL
+    initrd $(gpath "$I")
+}
+NSENTRY
+    chown "$OWNER": "$SIDE"
+    echo "$NAME prepared ($FAMILY). Kernel is read straight from the image: $(gpath "$K")"
+}
+
+case "$MODE" in
+    prepare)  do_prepare "$2" "$3" "$4" ;;
+    iso)      do_iso "$2" "$3" "$4" ;;
+    menu)     do_menu "$2" ;;
+    bootnext) do_bootnext "${2:-}" ;;
+    *)        echo "usage: prepare IMG NAME OWNER | iso FILE ID OWNER | menu DIR | bootnext [ID]"; exit 1 ;;
+esac
+]==]
 LUA
 
 @Script DeleteItem
@@ -705,17 +1124,12 @@ local item = LIBRARY and LIBRARY[i + 1]
 if not item then return end
 if Vml("ConfirmDialog", "Delete " .. item.kind .. " '" .. item.name .. "'?\n\n" .. item.file ..
        "\n\nThis removes the file permanently.", "Delete") ~= "true" then return end
-if item.kind == "VHD" then
-    local json = require("dkjson")
-    local raw = Vml("Shell", "cat /opt/no-stick/vhds/vhd_config.json 2>/dev/null")
-    local cfg = (raw ~= "" and json.decode(raw)) or {vhds = {}}
-    if cfg.vhds then cfg.vhds[item.name] = nil end
-    local out = json.encode(cfg, {indent = true})
-    Vml("Shell", "cat > /tmp/nostick-cfg.json << 'ENDCFG'\n" .. out .. "\nENDCFG\n" ..
-        "sudo cp /tmp/nostick-cfg.json /opt/no-stick/vhds/vhd_config.json\n" ..
-        "sudo rm -f '" .. item.file .. "'")
-else
-    Vml("Shell", "rm -f '" .. item.file .. "'")
+Vml("Shell", "rm -f '" .. item.file .. "' '" .. item.side .. "' '" .. item.side .. ".off'")
+if item.id == NS_DEFAULT then NS_DEFAULT = ""; ns_save_conf() end
+if item.inmenu then
+    -- it was in the boot menu: rewrite the menu without it
+    Vml("Shell", "T=$(mktemp)\ncat > \"$T\" << 'NSROOT'\n" .. Vml("RunScript", "RootScript") ..
+        "\nNSROOT\nsudo bash \"$T\" menu '" .. NS_DIR .. "' < /dev/null\nrm -f \"$T\"")
 end
 Vml("SetStatusText", "Deleted " .. item.name)
 Vml("RunScript", "Load")
