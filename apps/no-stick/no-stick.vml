@@ -11,7 +11,7 @@
 # The main GRUB menu only ever holds ONE "No-Stick" entry that opens /boot/no-stick/grub.cfg.
 
 @Window NoStick
-Title=No-Stick 0.4.2
+Title=No-Stick 0.5.0
 Width=820
 Height=740
 FormMinWidth=640
@@ -260,6 +260,11 @@ run("mkdir -p '" .. NS_VHDS .. "' '" .. NS_ISOS .. "'")
 -- boot-menu settings: which entry is the default, and the auto-boot timer (0 = wait for a choice)
 NS_DEFAULT = run("sed -n 's/^default=//p' '" .. NS_DIR .. "/menu.conf' 2>/dev/null | head -1")
 NS_TIMEOUT = tonumber(run("sed -n 's/^timeout=//p' '" .. NS_DIR .. "/menu.conf' 2>/dev/null | head -1")) or 0
+
+-- Root steps: a terminal user with sudo already unlocked keeps using it; everyone else (anyone who
+-- started No-Stick from the app menu) gets the desktop's own password dialog via pkexec.
+NS_ASROOT = 'as_root() { if sudo -n true 2>/dev/null; then sudo "$@"; ' ..
+            'elif command -v pkexec >/dev/null 2>&1; then pkexec "$@"; else sudo "$@"; fi; }\n'
 
 function ns_save_conf()
     Vml("Shell", "printf 'default=%s\\ntimeout=%s\\n' '" .. (NS_DEFAULT or "") .. "' '" ..
@@ -521,7 +526,8 @@ if Vml("Shell", "command -v qemu-system-x86_64 >/dev/null 2>&1 && echo ok") ~= "
     Vml("SetProperty", "JobBar", "IsVisible", "true")
     Vml("SetProperty", "jobTitle", "Text", "Installing QEMU")
     Vml("SetProperty", "joblog", "Items", "")
-    CURRENT_JOB = Vml("RunProcess", "sudo apt-get install -y qemu-system-x86 qemu-utils", "joblog", "QemuInstalled", "bash")
+    CURRENT_JOB = Vml("RunProcess", NS_ASROOT .. "as_root apt-get install -y qemu-system-x86 qemu-utils < /dev/null",
+                      "joblog", "QemuInstalled", "bash")
     return
 end
 Vml("RunScript", "DoGuidedInstall")
@@ -669,21 +675,25 @@ local reboot = Vml("GetSetting", "ns_job_reboot") == "1"
 Vml("SetProperty", "JobBar", "IsVisible", "true")
 Vml("SetProperty", "jobTitle", "Text", title)
 Vml("SetProperty", "joblog", "Items", "")
-local cmd = "set -e\n" ..
-    "T=$(mktemp)\n" ..
-    "trap 'rm -f \"$T\"' EXIT\n" ..
-    "cat > \"$T\" << 'NSROOT'\n" .. Vml("RunScript", "RootScript") .. "\nNSROOT\n"
-if pre ~= "" then cmd = cmd .. pre .. "\n" end
+-- everything that needs root goes into ONE small script, so there is one password prompt, not three
+local steps = "set -e\n"
 if mode == "prepare" then
-    cmd = cmd .. "sudo bash \"$T\" prepare '" .. file .. "' '" .. name .. "' \"$(id -un)\" < /dev/null\n"
+    steps = steps .. "bash \"$T\" prepare '" .. file .. "' '" .. name .. "' \"$ME\"\n"
 elseif mode == "iso" then
-    cmd = cmd .. "sudo bash \"$T\" iso '" .. file .. "' '" .. id .. "' \"$(id -un)\" < /dev/null\n"
+    steps = steps .. "bash \"$T\" iso '" .. file .. "' '" .. id .. "' \"$ME\"\n"
 end
-cmd = cmd .. "sudo bash \"$T\" menu '" .. NS_DIR .. "' < /dev/null\n"
+steps = steps .. "bash \"$T\" menu '" .. NS_DIR .. "'\n"
 if reboot then
-    cmd = cmd .. "sudo bash \"$T\" bootnext '" .. id .. "' < /dev/null\n"
+    steps = steps .. "bash \"$T\" bootnext '" .. id .. "'\n"
 end
-cmd = cmd .. "echo 'Done.'\n"
+local cmd = "set -e\n" .. NS_ASROOT ..
+    "T=$(mktemp)\nR=$(mktemp)\nME=$(id -un)\n" ..
+    "trap 'rm -f \"$T\" \"$R\"' EXIT\n" ..
+    "cat > \"$T\" << 'NSROOT'\n" .. Vml("RunScript", "RootScript") .. "\nNSROOT\n" ..
+    (pre ~= "" and (pre .. "\n") or "") ..
+    "cat > \"$R\" << NSRUN\n" .. steps .. "NSRUN\n" ..
+    "as_root bash \"$R\" < /dev/null\n" ..
+    "echo 'Done.'\n"
 CURRENT_JOB = Vml("RunProcess", cmd, "joblog", "PrepareDone", "bash")
 LUA
 
@@ -1189,9 +1199,8 @@ if Vml("ConfirmDialog", "Delete " .. item.kind .. " '" .. item.name .. "'?\n\n" 
 Vml("Shell", "rm -f '" .. item.file .. "' '" .. item.side .. "' '" .. item.side .. ".off'")
 if item.id == NS_DEFAULT then NS_DEFAULT = ""; ns_save_conf() end
 if item.inmenu then
-    -- it was in the boot menu: rewrite the menu without it
-    Vml("Shell", "T=$(mktemp)\ncat > \"$T\" << 'NSROOT'\n" .. Vml("RunScript", "RootScript") ..
-        "\nNSROOT\nsudo bash \"$T\" menu '" .. NS_DIR .. "' < /dev/null\nrm -f \"$T\"")
+    -- it was in the boot menu: rewrite the menu without it (this reloads the library when it finishes)
+    return ns_job{title = "Removing " .. item.name .. " from the boot menu", name = item.name}
 end
 Vml("SetStatusText", "Deleted " .. item.name)
 Vml("RunScript", "Load")

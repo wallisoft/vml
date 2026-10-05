@@ -1,0 +1,75 @@
+name: No-Stick release
+
+# Push a tag like no-stick-v0.5.0 and this checks and packages the No-Stick app (apps/no-stick), then publishes it
+# to the PUBLIC repo wallisoft/no-stick-releases. The source stays in this private repo.
+# No-Stick is a Visualised app: two .vml files, plus an installer that fetches the Visualised runtime if needed.
+# (The Visualised release in release.yml only runs on tags starting with "v", so the two never trigger each other.)
+#
+# Needs:  secret RELEASES_TOKEN with Contents read/write on wallisoft/no-stick-releases (as well as vml-releases)
+
+on:
+  push:
+    tags: ["no-stick-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Tag must match the version in the window title
+        run: |
+          TAG="${GITHUB_REF_NAME#no-stick-v}"
+          CODE=$(grep -m1 '^Title=No-Stick ' apps/no-stick/no-stick.vml | awk '{print $2}')
+          echo "tag=$TAG code=$CODE"
+          [ "$TAG" = "$CODE" ] || { echo "::error::Tag no-stick-v$TAG doesn't match 'Title=No-Stick $CODE' in no-stick.vml"; exit 1; }
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Check the scripts (Lua and shell syntax)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4
+          mkdir chk
+          for f in no-stick download; do
+            awk -v pre="chk/$f-" '/^@Script /{name=$2} /^<<LUA$/{inb=1; out=pre name ".lua"; next} /^LUA$/{inb=0; next} inb{print > out}' "apps/no-stick/$f.vml"
+          done
+          for f in chk/*.lua; do luac5.4 -p "$f" || { echo "::error::Lua syntax error in $f"; exit 1; }; done
+          lua5.4 -e 'io.write(loadfile("chk/no-stick-RootScript.lua")())' > chk/root.sh
+          bash -n chk/root.sh
+          bash -n apps/no-stick/install.sh
+          echo "$(ls chk/*.lua | wc -l) Lua scripts, the root helper and the installer are all valid"
+      - name: Check the forms open in the current Visualised runtime
+        run: |
+          sudo apt-get install -y -qq libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0
+          mkdir rt                                   # (a folder called "vml" already exists: the source)
+          curl -fsSL https://github.com/wallisoft/vml-releases/releases/latest/download/vml-linux-x86_64.tar.gz | tar xz -C rt
+          for f in no-stick download; do
+            QT_QPA_PLATFORM=offscreen ./rt/vml/vml parse "apps/no-stick/$f.vml" | grep -q "INSERT INTO ui_tree" \
+              || { echo "::error::$f.vml did not parse in the released Visualised runtime"; exit 1; }
+          done
+          echo "both forms parse in the released runtime"
+      - name: Package
+        run: |
+          mkdir -p stage/no-stick
+          cp apps/no-stick/no-stick.vml apps/no-stick/download.vml stage/no-stick/
+          echo "${{ steps.v.outputs.version }}" > stage/no-stick/VERSION
+          tar czf no-stick.tar.gz -C stage no-stick
+          cp apps/no-stick/install.sh install.sh
+          tar tzf no-stick.tar.gz
+      - uses: softprops/action-gh-release@v2
+        with:
+          repository: wallisoft/no-stick-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: v${{ steps.v.outputs.version }}
+          name: No-Stick ${{ steps.v.outputs.version }}
+          body: |
+            **Linux (Ubuntu, Mint, Debian and similar, booting with GRUB):**
+            `curl -fsSL https://github.com/wallisoft/no-stick-releases/releases/latest/download/install.sh | bash`
+
+            Installs into your home folder and adds No-Stick to your app menu. It fetches the Visualised runtime first if you don't have it.
+            Windows is not supported yet.
+          files: |
+            no-stick.tar.gz
+            install.sh
