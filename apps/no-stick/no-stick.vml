@@ -11,8 +11,8 @@
 # The main GRUB menu only ever holds ONE "No-Stick" entry that opens /boot/no-stick/grub.cfg.
 
 @Window NoStick
-Title=No-Stick 0.5.0
-Width=820
+Title=No-Stick 0.5.1
+Width=860
 Height=740
 FormMinWidth=640
 FormMinHeight=420
@@ -76,7 +76,7 @@ FontFamily=monospace
 @Border Sidebar
 Parent=Root
 DockPanel.Dock=Right
-Width=180
+Width=205
 Background=#F9FAFB
 BorderBrush=#E5E7EB
 BorderThickness=1,0,0,0
@@ -231,7 +231,7 @@ BorderThickness=1,1,1,1
 Padding=10,0
 Margin=0,6,0,0
 
-@TextBlock status
+@TextBlock statusText
 Parent=StatusWrap
 Text=Loading...
 Foreground=#4B5563
@@ -307,6 +307,7 @@ if ver == "" or too_old(ver) then
 end
 
 -- read the No-Stick library on this machine and list it. Reads only; changes nothing.
+local keep = tonumber(Vml("GetProperty", "library", "SelectedIndex")) or -1
 LIBRARY = {}
 
 local function human(path)                             -- real disk usage, e.g. "3.1G" (empty if missing)
@@ -349,14 +350,18 @@ end
 
 local lines = {}
 for i, item in ipairs(LIBRARY) do
-    local detail = item.detail .. ((item.inmenu and item.id == NS_DEFAULT) and "  -  DEFAULT" or "")
-    lines[i] = string.format("%s %s  %-28s  %s", item.inmenu and "[x]" or "[ ]", item.kind, item.name, (detail:gsub(",", ";")))
+    local mark = "[ ]"
+    if item.inmenu then mark = (item.id == NS_DEFAULT) and "[D]" or "[x]" end
+    lines[i] = string.format("%s %s  %-28s  %s", mark, item.kind, item.name, (item.detail:gsub(",", ";")))
 end
 if #lines == 0 then
     lines = {"(nothing yet - add an ISO or create a VHD to begin)"}
 end
 Vml("SetProperty", "library", "Items", table.concat(lines, ","))
-Vml("SetStatusText", #LIBRARY .. " item(s) in your library   -   [x] = shown in the boot menu")
+Vml("SetStatusText", #LIBRARY .. " item(s)    [x] in the boot menu    [D] the default")
+if keep >= 0 and keep < #LIBRARY then
+    Vml("SetProperty", "library", "SelectedIndex", tostring(keep))   -- re-select what was selected
+end
 Vml("RunScript", "Selected")
 LUA
 
@@ -631,7 +636,40 @@ LUA
 @Script BootNow
 Interpreter=lua
 <<LUA
-Vml("SetStatusText", "Boot now (kexec): coming next")
+-- restart straight into the selected VHD, skipping the firmware and the boot menu (kexec).
+-- Experimental: it is fast, but it skips the hardware reset a normal restart does.
+local i = tonumber(Vml("GetProperty", "library", "SelectedIndex")) or -1
+local item = LIBRARY and LIBRARY[i + 1]
+if not item or item.kind ~= "VHD" then return end
+if not item.prepared then
+    return Vml("InfoDialog", "'" .. item.name .. "' hasn't been set up for booting yet.\n\n" ..
+        "Tick 'Show in boot menu' first, then try again.", "Boot now")
+end
+if Vml("Shell", "command -v kexec >/dev/null 2>&1 || [ -x /usr/sbin/kexec ] || [ -x /sbin/kexec ]; echo $?"):gsub("%s+", "") ~= "0" then
+    if Vml("ConfirmDialog", "Boot now needs a small system tool called kexec.\n\nInstall it now? (kexec-tools)", "Boot now") ~= "true" then return end
+    Vml("SetProperty", "JobBar", "IsVisible", "true")
+    Vml("SetProperty", "jobTitle", "Text", "Installing kexec-tools - click Boot now again when it finishes")
+    Vml("SetProperty", "joblog", "Items", "")
+    CURRENT_JOB = Vml("RunProcess", NS_ASROOT .. "as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y kexec-tools < /dev/null",
+                      "joblog", "KexecInstalled", "bash")
+    return
+end
+if Vml("ConfirmDialog", "Restart straight into '" .. item.name .. "' now?\n\n" ..
+       "SAVE YOUR WORK FIRST: this closes everything and restarts within seconds.\n\n" ..
+       "This is the experimental fast route. If the screen stays black afterwards, hold the power button " ..
+       "and use 'Boot at restart' instead.", "Boot now") ~= "true" then return end
+ns_job{title = "Restarting into " .. item.name, name = item.name, file = item.file, id = item.id, mode = "bootnow"}
+LUA
+
+@Script KexecInstalled
+Interpreter=lua
+<<LUA
+if Vml("GetSetting", "exit_code") == "0" then
+    Vml("SetProperty", "JobBar", "IsVisible", "false")
+    Vml("SetStatusText", "kexec is installed - click Boot now again")
+else
+    Vml("SetProperty", "jobTitle", "Text", "Couldn't install kexec-tools - see the log below (Cancel closes this)")
+end
 LUA
 
 @Script BootRestart
@@ -682,7 +720,11 @@ if mode == "prepare" then
 elseif mode == "iso" then
     steps = steps .. "bash \"$T\" iso '" .. file .. "' '" .. id .. "' \"$ME\"\n"
 end
-steps = steps .. "bash \"$T\" menu '" .. NS_DIR .. "'\n"
+if mode == "bootnow" then
+    steps = steps .. "bash \"$T\" bootnow '" .. file .. "'\n"
+else
+    steps = steps .. "bash \"$T\" menu '" .. NS_DIR .. "'\n"
+end
 if reboot then
     steps = steps .. "bash \"$T\" bootnext '" .. id .. "'\n"
 end
@@ -796,12 +838,14 @@ Interpreter=lua
 --                                          sudo bash FILE iso ISOFILE ENTRY_ID OWNER
 --                                          sudo bash FILE menu NOSTICK_DIR
 --                                          sudo bash FILE bootnext [ENTRY_ID]
+--                                          sudo bash FILE bootnow IMG
 -- prepare: finds the installed system in the image, installs the boot hook for its initramfs family,
 --          rebuilds the initramfs, and writes NAME.grub (the menu entry) beside the image.
 -- iso:     looks inside the ISO, works out how its live system boots, and writes ISOFILE.grub.
 -- menu:    rebuilds /boot/no-stick/grub.cfg from every .grub file (vhds and isos) plus menu.conf, and
 --          makes sure the main GRUB menu has the single "No-Stick" entry.
 -- bootnext: the next restart opens No-Stick and boots ENTRY_ID by itself, once.
+-- bootnow: loads the image's kernel with kexec, using the same boot line as its menu entry, and restarts into it.
 return [==[
 set -eu
 MODE="${1:-}"
@@ -875,6 +919,46 @@ do_bootnext() {
     fi
     grub-reboot no-stick
     echo "The next restart will open No-Stick${ID:+ and boot $ID}."
+}
+
+do_bootnow() {
+    IMG="$1"
+    SIDE="${IMG%.img}.grub"
+    [ -f "$SIDE" ] || SIDE="$SIDE.off"
+    [ -f "$SIDE" ] || { echo "No boot setup found for this disk - tick 'Show in boot menu' first."; exit 2; }
+    KEXEC=$(command -v kexec || true)
+    [ -n "$KEXEC" ] || { echo "kexec is not installed."; exit 2; }
+
+    # the menu entry is the single source of truth: same partition, kernel, initrd and boot line
+    LLINE=$(grep -m1 -E '^ *linux \(vhd,[a-z]+[0-9]+\)' "$SIDE" || true)
+    ILINE=$(grep -m1 -E '^ *initrd \(vhd,[a-z]+[0-9]+\)' "$SIDE" || true)
+    if [ -z "$LLINE" ] || [ -z "$ILINE" ]; then
+        echo "This disk's menu entry is the older kind. Click 'Repair boot' once, then try again."; exit 2
+    fi
+    PART=$(printf '%s\n' "$LLINE" | sed -E 's/^ *linux \(vhd,[a-z]+([0-9]+)\).*/\1/')
+    KPATH=$(printf '%s\n' "$LLINE" | sed -E 's/^ *linux \(vhd,[a-z]+[0-9]+\)([^ ]+).*/\1/')
+    CMDLINE=$(printf '%s\n' "$LLINE" | sed -E 's/^ *linux \(vhd,[a-z]+[0-9]+\)[^ ]+ *//')
+    IPART=$(printf '%s\n' "$ILINE" | sed -E 's/^ *initrd \(vhd,[a-z]+([0-9]+)\).*/\1/')
+    IPATH=$(printf '%s\n' "$ILINE" | sed -E 's/^ *initrd \(vhd,[a-z]+[0-9]+\)([^ ]+).*/\1/')
+    [ "$PART" = "$IPART" ] || { echo "Kernel and initrd are on different partitions - not supported by Boot now yet."; exit 2; }
+
+    M=$(mktemp -d /tmp/nostick.XXXXXX)
+    LOOP=$(losetup --find --show --partscan --read-only "$IMG")
+    sleep 1
+    cleanup() { umount "$M" 2>/dev/null || true; losetup -d "$LOOP" 2>/dev/null || true; rmdir "$M" 2>/dev/null || true; }
+    trap cleanup EXIT
+    mount -o ro,noload "${LOOP}p${PART}" "$M" 2>/dev/null || mount -o ro "${LOOP}p${PART}" "$M"
+    [ -e "$M$KPATH" ] && [ -e "$M$IPATH" ] || { echo "Kernel or initrd not found inside the disk."; exit 2; }
+    echo "Loading $(readlink -f "$M$KPATH" | sed "s|^$M||")"
+    echo "Boot line: $CMDLINE"
+    # -s uses the signed-kernel route (needed with Secure Boot); fall back to the classic one
+    "$KEXEC" -s -l "$M$KPATH" --initrd="$M$IPATH" --command-line="$CMDLINE" 2>/dev/null \
+        || "$KEXEC" -l "$M$KPATH" --initrd="$M$IPATH" --command-line="$CMDLINE" \
+        || { echo "kexec could not load this kernel on this PC. Use 'Boot at restart' instead."; exit 2; }
+    cleanup
+    trap - EXIT
+    echo "Restarting into it now..."
+    systemctl kexec
 }
 
 do_iso() {
@@ -1183,7 +1267,8 @@ case "$MODE" in
     iso)      do_iso "$2" "$3" "$4" ;;
     menu)     do_menu "$2" ;;
     bootnext) do_bootnext "${2:-}" ;;
-    *)        echo "usage: prepare IMG NAME OWNER | iso FILE ID OWNER | menu DIR | bootnext [ID]"; exit 1 ;;
+    bootnow)  do_bootnow "$2" ;;
+    *)        echo "usage: prepare IMG NAME OWNER | iso FILE ID OWNER | menu DIR | bootnext [ID] | bootnow IMG"; exit 1 ;;
 esac
 ]==]
 LUA
