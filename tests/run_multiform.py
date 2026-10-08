@@ -1,6 +1,7 @@
 """Multi-form: modal child talking to its parent, dialog results, per-form Lua, named instances, open-form commands."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("VML_PREFS", os.path.join(__import__("tempfile").mkdtemp(prefix="vml-prefs-"), "prefs.json"))   # never the real settings
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 from vml.engine import Engine

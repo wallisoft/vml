@@ -901,7 +901,15 @@ class FrameWidget(CanvasWidget):
         fm = p.fontMetrics()
         top = fm.height() // 2 if text else 0
         p.setPen(_QPen(border, 1))
-        p.drawRoundedRect(0, top, self.width() - 1, self.height() - 1 - top, 4, 4)
+        sides = thickness(props["BorderThickness"]) if props.get("BorderThickness") not in (None, "") else None
+        if sides is None or (len(set(sides)) == 1 and sides[0] > 0):
+            p.drawRoundedRect(0, top, self.width() - 1, self.height() - 1 - top, 4, 4)
+        else:                                                # only the sides asked for (none at all for 0)
+            p.setRenderHint(_QPainter.Antialiasing, False)
+            r, bt = self.width() - 1, self.height() - 1
+            for on, line in zip(sides, ((0, top, 0, bt), (0, top, r, top), (r, top, r, bt), (0, bt, r, bt))):
+                if on > 0:
+                    p.drawLine(*line)
         if text:
             w = fm.horizontalAdvance(text) + 8
             bg = self.palette().window().color()

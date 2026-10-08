@@ -93,6 +93,45 @@ Text=Save As...
 Shortcut=Ctrl+Shift+S
 OnClick=FileSaveAs
 
+@MenuItem FileImport
+Parent=File
+Text=Import
+
+@MenuItem FileImportSoon
+Parent=FileImport
+Text=Coming soon, with Visualised Pro:
+IsEnabled=false
+
+@MenuItem FileImportVB
+Parent=FileImport
+Text=Visual Basic 5/6 form (.frm)...
+IsEnabled=false
+
+@MenuItem FileImportWinForms
+Parent=FileImport
+Text=Windows Forms (.Designer.cs)...
+IsEnabled=false
+
+@MenuItem FileImportDelphi
+Parent=FileImport
+Text=Delphi form (.dfm)...
+IsEnabled=false
+
+@MenuItem FileImportQt
+Parent=FileImport
+Text=Qt Designer (.ui)...
+IsEnabled=false
+
+@MenuItem FileImportXaml
+Parent=FileImport
+Text=XAML (WPF, Avalonia)...
+IsEnabled=false
+
+@MenuItem FileImportHtml
+Parent=FileImport
+Text=Web page (HTML form)...
+IsEnabled=false
+
 @MenuItem FileExport
 Parent=File
 Text=Export
@@ -184,6 +223,72 @@ OnClick=PreviewBrowser
 Parent=View
 Text=Show Grid
 OnClick=ToggleGrid
+
+@MenuItem Settings
+Parent=MenuBar
+Text=Settings
+
+@MenuItem SetSnap
+Parent=Settings
+Text=Snap to Grid
+OnClick=ToggleSnap
+
+@MenuItem SetGridSize
+Parent=Settings
+Text=Grid Size
+
+@MenuItem SetGrid4
+Parent=SetGridSize
+Text=4 pixels
+OnClick=SetGridSize(4)
+
+@MenuItem SetGrid8
+Parent=SetGridSize
+Text=8 pixels
+OnClick=SetGridSize(8)
+
+@MenuItem SetGrid16
+Parent=SetGridSize
+Text=16 pixels
+OnClick=SetGridSize(16)
+
+@MenuItem SetGrid24
+Parent=SetGridSize
+Text=24 pixels
+OnClick=SetGridSize(24)
+
+@MenuItem SetSep1
+Parent=Settings
+IsSeparator=true
+
+@MenuItem SetLicenceInfo
+Parent=Settings
+Text=Licence: Community
+OnClick=LicenceShow
+
+@MenuItem SetLicenceEnter
+Parent=Settings
+Text=Enter Licence Key...
+OnClick=LicenceEnter
+
+@MenuItem SetLicenceRemove
+Parent=Settings
+Text=Remove Licence Key
+OnClick=LicenceRemove
+
+@MenuItem SetLicenceUpgrade
+Parent=Settings
+Text=Upgrade Licence...
+OnClick=LicenceUpgrade
+
+@MenuItem SetSep2
+Parent=Settings
+IsSeparator=true
+
+@MenuItem SetUpdate
+Parent=Settings
+Text=Check for Updates...
+OnClick=CheckUpdates
 
 @MenuItem Help
 Parent=MenuBar
@@ -326,6 +431,8 @@ end
 Vml("SetSetting", "current_file", "")
 Vml("SetSetting", "dirty", "false")
 Vml("SetProperty", "Props", "Target", "Surface")
+Vml("RunScript", "ApplySettings")
+Vml("RunScript", "ApplyLicence")
 Vml("SetStatusText", "Right-click the form to add a control")
 LUA
 
@@ -516,6 +623,7 @@ if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the cu
 Vml("ClearDesign", "Surface")
 Vml("SetSetting", "current_file", "")
 Vml("SetSetting", "dirty", "false")
+Vml("RunScript", "ApplySettings")
 Vml("RunScript", "SelectionChanged")
 Vml("RunScript", "UpdateTitle")
 LUA
@@ -526,13 +634,21 @@ Interpreter=lua
 local path = Vml("FileOpenDialog", "Open a VML form", "vml")
 if path == "" then return end
 if Vml("ImportVml", path, "Surface") == "true" then
-    Vml("SetSetting", "current_file", path)
-    Vml("SetSetting", "dirty", "false")
+    local converted = Vml("GetSetting", "import_converted") == "true"
+    -- a converted layout form is a new, unsaved canvas form: Save asks for a name, so the original is never overwritten
+    Vml("SetSetting", "current_file", converted and "" or path)
+    Vml("SetSetting", "dirty", converted and "true" or "false")
+    Vml("RunScript", "ApplySettings")
     Vml("RunScript", "SelectionChanged")
     Vml("RunScript", "UpdateTitle")
-    Vml("SetStatusText", "Opened " .. path)
+    if converted then
+        Vml("SetStatusText", "Converted " .. path .. " to a canvas form (the original is untouched)")
+        Vml("InfoDialog", Vml("GetSetting", "import_notes") .. "\n\nThis is a new canvas form: Save will ask for a name, and the original file is untouched.")
+    else
+        Vml("SetStatusText", "Opened " .. path)
+    end
 else
-    Vml("InfoDialog", "That form is laid out with panels rather than on a canvas, so it can't be edited here yet.")
+    Vml("InfoDialog", "That file couldn't be opened as a form.")
 end
 LUA
 
@@ -604,11 +720,145 @@ LUA
 Interpreter=lua
 <<LUA
 local on = Vml("GetProperty", "Surface", "ShowGrid") ~= "false"
-Vml("SetProperty", "Surface", "ShowGrid", on and "false" or "true")
+Vml("SetPreference", "show_grid", on and "false" or "true")
+Vml("RunScript", "ApplySettings")
+LUA
+
+# The designer's own settings are this user's preferences: they are kept between runs and apply to every form.
+@Script ApplySettings
+Interpreter=lua
+<<LUA
+local function pref(key, default)
+    local v = Vml("GetPreference", key, default)
+    return v == "" and default or v
+end
+local snap, grid, show = pref("snap_to_grid", "true"), pref("grid_size", "8"), pref("show_grid", "true")
+Vml("SetProperty", "Surface", "SnapToGrid", snap)
+Vml("SetProperty", "Surface", "GridSize", grid)
+Vml("SetProperty", "Surface", "ShowGrid", show)
+local function tick(on) return on and "\226\156\147  " or "     " end
+Vml("SetMenuItemText", "SetSnap", tick(snap == "true") .. "Snap to Grid")
+Vml("SetMenuItemText", "ViewGrid", tick(show == "true") .. "Show Grid")
+for _, n in ipairs({"4", "8", "16", "24"}) do
+    Vml("SetMenuItemText", "SetGrid" .. n, tick(n == grid) .. n .. " pixels")
+end
+LUA
+
+@Script ToggleSnap
+Interpreter=lua
+<<LUA
+local on = Vml("GetProperty", "Surface", "SnapToGrid") ~= "false"
+Vml("SetPreference", "snap_to_grid", on and "false" or "true")
+Vml("RunScript", "ApplySettings")
+Vml("SetStatusText", on and "Snap to grid is off: controls move freely" or "Snap to grid is on")
+LUA
+
+@Script SetGridSize
+Interpreter=lua
+<<LUA
+Vml("SetPreference", "grid_size", args[1])
+Vml("RunScript", "ApplySettings")
+Vml("SetStatusText", "Grid: " .. args[1] .. " pixels")
+LUA
+
+# Community designs, runs, saves and shares forms. Pro and Enterprise add the exports, and the imports as they arrive.
+@Script ApplyLicence
+Interpreter=lua
+<<LUA
+local raw = Vml("GetLicence")
+if raw == "" then return end
+local lic = require("dkjson").decode(raw)
+local paid = lic.tier ~= "community"
+local exports = {FileExportWeb = "Web page...", FileExportWin = "Windows app...", FileExportLinux = "Linux app..."}
+for item, text in pairs(exports) do
+    Vml("SetMenuItemEnabled", item, paid and "true" or "false")
+    Vml("SetMenuItemText", item, text .. (paid and "" or "   (Pro)"))
+end
+Vml("SetMenuItemText", "SetLicenceInfo", "Licence: " .. lic.label)
+Vml("SetMenuItemText", "SetLicenceEnter", lic.key ~= "" and "Change Licence Key..." or "Enter Licence Key...")
+Vml("SetMenuItemEnabled", "SetLicenceRemove", lic.key ~= "" and "true" or "false")
+local upgrade = {community = "Upgrade to Pro...", pro = "Upgrade to Enterprise...", enterprise = "Upgrade Licence..."}
+Vml("SetMenuItemText", "SetLicenceUpgrade", upgrade[lic.tier])
+Vml("SetMenuItemEnabled", "SetLicenceUpgrade", lic.tier ~= "enterprise" and "true" or "false")
+LUA
+
+@Script LicenceShow
+Interpreter=lua
+<<LUA
+local lic = require("dkjson").decode(Vml("GetLicence"))
+local function day(d) return #d == 8 and (d:sub(7, 8) .. "/" .. d:sub(5, 6) .. "/" .. d:sub(1, 4)) or d end
+local text
+if lic.expired then
+    text = "Your Visualised " .. (lic.was == "enterprise" and "Enterprise" or "Pro") .. " licence ran out on " .. day(lic.expires)
+        .. ", so Visualised is running as Community.\n\nYour forms are untouched. Renew to get the exports back."
+elseif lic.tier == "community" then
+    text = "Visualised Community\n\nDesign, run, save and share forms, free.\n\nVisualised Pro adds exporting a form as a web page "
+        .. "or as a Windows or Linux app, and importing forms from other tools as those arrive."
+else
+    text = "Visualised " .. lic.label .. (lic.name ~= "" and ("\nLicensed to " .. lic.name) or "") .. "\nLicence " .. lic.id
+        .. ", issued " .. day(lic.issued) .. (lic.expires ~= "" and ("\nValid until " .. day(lic.expires)) or "")
+end
+Vml("InfoDialog", text, "Visualised licence")
+LUA
+
+@Script LicenceEnter
+Interpreter=lua
+<<LUA
+local key = Vml("PromptDialog", "Visualised licence", "Paste the licence key from your email:", "")
+if key == "" then return end
+local problem = Vml("SetLicenceKey", key)
+if problem ~= "" then
+    Vml("InfoDialog", problem, "Visualised licence")
+    return
+end
+Vml("RunScript", "ApplyLicence")
+local lic = require("dkjson").decode(Vml("GetLicence"))
+Vml("SetStatusText", "Visualised " .. lic.label .. " is active")
+Vml("InfoDialog", "Visualised " .. lic.label .. " is active on this computer.", "Visualised licence")
+LUA
+
+@Script LicenceRemove
+Interpreter=lua
+<<LUA
+if Vml("ConfirmDialog", "Remove the licence key from this computer and go back to Visualised Community?\n\nKeep a copy of the key: you can enter it again at any time.") ~= "true" then return end
+Vml("RemoveLicenceKey")
+Vml("RunScript", "ApplyLicence")
+Vml("SetStatusText", "Licence key removed: Visualised Community")
+LUA
+
+@Script LicenceUpgrade
+Interpreter=lua
+<<LUA
+local lic = require("dkjson").decode(Vml("GetLicence"))
+if lic.tier == "community" then
+    Vml("OpenUrl", lic.buy_url)
+else
+    Vml("OpenUrl", "mailto:hello@tiny-web.uk?subject=Visualised%20Enterprise")
+end
+LUA
+
+@Script CheckUpdates
+Interpreter=lua
+<<LUA
+Vml("SetStatusText", "Checking for a newer Visualised...")
+local u = require("dkjson").decode(Vml("CheckForUpdate"))
+if u.error ~= "" or u.latest == "" then
+    Vml("SetStatusText", "Couldn't check for updates")
+    Vml("InfoDialog", "Couldn't check for updates just now. You have Visualised " .. u.current .. ".", "Updates")
+elseif u.newer then
+    Vml("SetStatusText", "Visualised " .. u.latest .. " is available")
+    if Vml("ConfirmDialog", "Visualised " .. u.latest .. " is available (you have " .. u.current .. ").\n\nOpen the download page?", "Updates") == "true" then
+        Vml("OpenUrl", u.url)
+    end
+else
+    Vml("SetStatusText", "Visualised " .. u.current .. " is the latest")
+    Vml("InfoDialog", "You have the latest Visualised (" .. u.current .. ").", "Updates")
+end
 LUA
 
 @Script About
 Interpreter=lua
 <<LUA
-Vml("InfoDialog", "Visualised\n\nDesign desktop and web apps.\nThe designer is itself a VML form: designer.vml.\n\nhttps://visualised.io\nMade by Wallisoft.", "About Visualised")
+local lic = require("dkjson").decode(Vml("GetLicence"))
+Vml("InfoDialog", "Visualised " .. Vml("VmlVersion") .. " (" .. lic.label .. ")\n\nDesign desktop and web apps.\nThe designer is itself a VML form: designer.vml.\n\nhttps://visualised.io\nMade by Wallisoft.", "About Visualised")
 LUA

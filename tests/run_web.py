@@ -1,6 +1,7 @@
 """The HTML renderer, in a real (headless) browser: layout, anchors on resize, Lua scripts, menus, events."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("VML_PREFS", os.path.join(__import__("tempfile").mkdtemp(prefix="vml-prefs-"), "prefs.json"))   # never the real settings
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:

@@ -293,7 +293,7 @@ class SurfaceView(QScrollArea):
     def __init__(self, node):
         super().__init__()
         self.node, self.engine = node, node.engine
-        self.handlers, self.selected, self.grid, self.show_grid = {}, "", 8, True
+        self.handlers, self.selected, self.grid, self.show_grid, self.snap_on = {}, "", 8, True, True
         self.setWidgetResizable(False)
         self.setFrameShape(QFrame.NoFrame)
         self.page = QWidget()
@@ -358,7 +358,7 @@ class SurfaceView(QScrollArea):
 
     # geometry
     def snap(self, n):
-        return int(round(n / self.grid) * self.grid) if self.grid > 1 else int(n)
+        return int(round(n / self.grid) * self.grid) if self.snap_on and self.grid > 1 else int(n)
 
     def menu_h(self):
         return self.menubar.sizeHint().height() if self.menu_items else 0
@@ -538,6 +538,10 @@ def set_grid(node, v):
     node.widget.overlay.update()
 
 
+def set_snap(node, v):
+    node.widget.snap_on = truthy(v) if v not in (None, "") else True
+
+
 def set_show_grid(node, v):
     node.widget.show_grid = truthy(v) if v not in (None, "") else True
     node.widget.overlay.update()
@@ -563,6 +567,7 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
           Prop("FormMaxWidth", "number", "Form"), Prop("FormMaxHeight", "number", "Form"),
           Prop("GridSize", "number", "Behaviour", default="8", apply=set_grid),
           Prop("ShowGrid", "bool", "Behaviour", default="true", apply=set_show_grid),
+          Prop("SnapToGrid", "bool", "Behaviour", default="true", apply=set_snap),
           Prop("Selected", "text", "Behaviour", apply=lambda n, v: n.widget.select(str(v or "")),
                read=lambda n: n.widget.selected)])
 REGISTRY["DesignSurface"].design_only = True

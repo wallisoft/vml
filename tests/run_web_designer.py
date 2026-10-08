@@ -1,6 +1,7 @@
 """Designed in the designer, exported from it, used in a browser."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("VML_PREFS", os.path.join(__import__("tempfile").mkdtemp(prefix="vml-prefs-"), "prefs.json"))   # never the real settings
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:
@@ -12,6 +13,7 @@ from vml.engine import Engine
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 eng = Engine().load(os.path.join(HERE, "designer", "designer.vml"))
+eng.licence_override = "pro"                     # exporting is a Pro feature
 app, ok = QApplication.instance(), []
 
 def check(label, got, want):

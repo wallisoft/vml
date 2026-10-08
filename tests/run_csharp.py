@@ -1,6 +1,7 @@
 """C# scripting (needs .NET and the built host): State, Vml calls, C# -> Lua -> C#, errors, and the designer."""
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("VML_PREFS", os.path.join(__import__("tempfile").mkdtemp(prefix="vml-prefs-"), "prefs.json"))   # never the real settings
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 from vml import csharp

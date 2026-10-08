@@ -20,14 +20,15 @@ import time
 from pathlib import Path
 
 from lupa import lua54
-from PySide6.QtCore import QEventLoop, Qt, QTimer
-from PySide6.QtGui import QCursor
+from PySide6.QtCore import QEventLoop, Qt, QTimer, QUrl
+from PySide6.QtGui import QCursor, QDesktopServices
 from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QMessageBox, QVBoxLayout, QWidget
 
 from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout_remove, make_box, theme_sheets,
                        truthy)
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
 from .store import LUA_DIR, PARSER_LOG, Store
+from . import licence as licences
 
 # Every Python script starts with this: Vml() talks straight to the engine over its local socket.
 PYTHON_PRELUDE = """import sys, os, json, socket
@@ -99,6 +100,7 @@ class Engine:
         self.scopes: dict[str, dict[str, Node]] = {}
         self.windows, self.templates, self.themes, self.menubars = [], {}, {}, {}
         self.current_control = ""
+        self.licence_override = None           # tests set a tier here; nothing a script can reach
         self.listeners = []                    # called (name, prop, value) after every SetProperty
         self._quiet = 0                        # >0 while scripts set properties: Qt signals then aren't user events
         self._script_stack, self._scope_stack = [], []
@@ -716,6 +718,86 @@ class Engine:
     def cmd_SetSetting(self, key, value=""):
         self.store.set_setting(key, value)
 
+    # --- this user's preferences and licence: kept between runs, unlike settings, which belong to the open form
+    def cmd_GetPreference(self, key, default=""):
+        """A preference this user set earlier (snap to grid, grid size...), or `default` if they never have."""
+        return str(licences.load_prefs().get(str(key), default))
+
+    def cmd_SetPreference(self, key, value=""):
+        prefs = licences.load_prefs()
+        prefs[str(key)] = str(value)
+        licences.save_prefs(prefs)
+
+    def licence(self):
+        """The licence in force, as a dict with at least 'tier': community, pro or enterprise."""
+        info = licences.current()
+        if self.licence_override:
+            info = dict(info, tier=self.licence_override)
+        return info
+
+    def cmd_GetLicence(self):
+        """The licence as JSON: tier, label, name (who it is licensed to), id, issued, expires, key, expired, was."""
+        info = self.licence()
+        return json.dumps({"tier": info["tier"], "label": licences.TIER_NAMES[info["tier"]], "name": info.get("name", ""),
+                           "id": info.get("id", ""), "issued": info.get("issued", ""), "expires": info.get("expires", ""),
+                           "key": info.get("key", ""), "expired": bool(info.get("expired")), "was": info.get("was", ""),
+                           "buy_url": licences.BUY_URL})
+
+    def cmd_GetLicenceTier(self):
+        return self.licence()["tier"]
+
+    def cmd_LicenceAllows(self, feature):
+        """"true" if this licence includes a feature ("export", "import"), else "false"."""
+        return "true" if licences.allows(str(feature), self.licence()["tier"]) else "false"
+
+    def cmd_SetLicenceKey(self, key):
+        """Store a licence key. Returns "" if it was accepted, otherwise why not."""
+        info = licences.read_licence(key)
+        if not info:
+            return "That isn't a valid Visualised licence key. Paste the whole key from your email; it starts with VSL1-."
+        if info["expired"]:
+            return f"That licence ran out on {info['expires'][6:8]}/{info['expires'][4:6]}/{info['expires'][0:4]}."
+        self.cmd_SetPreference("licence_key", info["key"])
+        log(f"licence accepted: {info['tier']}")
+        return ""
+
+    def cmd_RemoveLicenceKey(self):
+        prefs = licences.load_prefs()
+        prefs.pop("licence_key", None)
+        licences.save_prefs(prefs)
+
+    def needs(self, feature, doing):
+        """True if the licence includes a feature. If not, say so (what the user was `doing`) and return False."""
+        if licences.allows(feature, self.licence()["tier"]):
+            return True
+        self.cmd_InfoDialog(f"{doing} is part of Visualised Pro.\n\nVisualised Community designs, runs, saves and "
+                            "shares forms. See Settings, Upgrade Licence.", "Visualised Pro")
+        return False
+
+    def cmd_CheckForUpdate(self):
+        """Ask whether a newer Visualised has been released. JSON: current, latest, newer, url, and error if the
+        check couldn't be made."""
+        from . import __version__
+        import urllib.request
+        out = {"current": __version__, "latest": "", "newer": False,
+               "url": "https://github.com/wallisoft/vml-releases/releases/latest", "error": ""}
+        try:
+            req = urllib.request.Request("https://api.github.com/repos/wallisoft/vml-releases/releases/latest",
+                                         headers={"User-Agent": f"Visualised/{__version__}"})
+            with urllib.request.urlopen(req, timeout=6) as r:
+                out["latest"] = str(json.load(r).get("tag_name", "")).lstrip("v")
+            number = lambda v: tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+            out["newer"] = bool(out["latest"]) and number(out["latest"]) > number(__version__)
+        except Exception as exc:
+            out["error"] = str(exc)
+        return json.dumps(out)
+
+    def cmd_OpenUrl(self, url):
+        """Open a web page (or a mailto: link) in the user's own browser or mail program."""
+        url = str(url)
+        if url.startswith(("https://", "http://", "mailto:")):
+            QDesktopServices.openUrl(QUrl(url))
+
     # --- controls
     def cmd_CreateControl(self, ctype, name, parent_name=""):
         parent = self.find(parent_name) if parent_name else None
@@ -1142,6 +1224,7 @@ class Engine:
         surf.widget.select("")
         surf.menu_scripts = {}
         surf.design_scripts, surf.form_scripts = {}, {}
+        surf.export_names, surf.carried = {}, []
         for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
             surf.props.pop(ev, None)
         surf.widget.menu_settings = {}
@@ -1179,6 +1262,7 @@ class Engine:
                 end = out.index("", out.index(f"@Window {form}"))   # the end of the window's own lines
                 out.insert(end, f"{key}={v}")
         first = ["Canvas.Left", "Canvas.Top", "Width", "Height"]
+        real = lambda n: getattr(surf, "export_names", {}).get(n, n)   # a working name back to the form's own name
 
         def walk(container, parent_name):
             for kid in container.children:
@@ -1189,13 +1273,16 @@ class Engine:
         for kid, parent_name in everything:
             ctype = getattr(kid, "template", None) or kid.type.name
             skip = dict(self.templates[ctype].parts[0][3]) if ctype in self.templates else {}
-            out += ["", f"@{ctype} {kid.name}", f"Parent={parent_name}"]
+            out += ["", f"@{ctype} {real(kid.name)}", f"Parent={real(parent_name)}"]
             keys = [k for k in first if k in kid.props] + sorted(k for k in kid.props if k not in first)
             for k in keys:
                 v = str(kid.props.get(k, ""))
                 if k in ("Name", "X", "Y", "IsHitTestVisible", "Focusable") or v == "" or skip.get(k) == v:
                     continue
                 out.append(f"{k}={v.replace(chr(10), ' ')}")
+        for ctype, name, parent, cprops in getattr(surf, "carried", []):     # right-click menus, exactly as they came
+            out += ["", f"@{ctype} {name}"] + ([f"Parent={parent}"] if parent else [])
+            out += [f"{k}={str(v).replace(chr(10), ' ')}" for k, v in cprops.items() if str(v) != ""]
         parents = {}
         for it in menu:                                 # top-level items go on the menu bar; others under their parent
             parents[it["level"]] = it["name"]
@@ -1217,7 +1304,7 @@ class Engine:
         written = set()
         for kid in [surf] + [k for k, _ in everything]:
             for event, (interp, code) in getattr(kid, "design_scripts", {}).items():
-                name = kid.props.get(event) or f"{kid.name}_{event}"
+                name = kid.props.get(event) or f"{real(kid.name)}_{event}"
                 term = "END_" + re.sub(r"\W", "_", name).upper()
                 out += ["", f"@Script {name}", f"Interpreter={interp}", f"<<{term}", *code.rstrip("\n").split("\n"), term]
                 written.add(name)
@@ -1240,14 +1327,50 @@ class Engine:
         if window is not None and canvas is None:            # a form with a menu: Window > DockPanel > Canvas
             dock = next((r for r in rows if r[1] == window[0] and r[2] == "DockPanel"), None)
             canvas = next((r for r in rows if dock and r[1] == dock[0] and r[2] == "Canvas"), None)
+        notes = None
+        if window is not None and canvas is None:           # laid out with panels: measure it and put it on a canvas
+            from .flatten import layout_to_canvas
+            flat = layout_to_canvas(self, path, rows, props, scripts, window, log)
+            if flat:
+                rows, props, canvas, notes = flat
+        self.store.set_setting("import_converted", "true" if notes else "false")
+        self.store.set_setting("import_notes", "")
         if window is None or canvas is None:
-            log(f"{path}: only forms laid out on a Canvas can be designed here (this one uses layout panels)")
+            log(f"{path}: couldn't be opened as a form (no Window, or its layout couldn't be measured)")
             return False
+        # A designed control with the same name as one of the designer's own (Root, Props, ...) would be mistaken for
+        # it, so it gets a new name here, and the scripts that address it by name follow.
+        rows, own, renamed = list(rows), self.scopes.get(surf.scope, {}), {}
+        taken = {r[3] for r in rows}
+        for i, (cid, parent_id, ctype, name) in enumerate(rows):
+            if name in own and cid not in (window[0], canvas[0]) and ctype not in ("MenuItem", "MenuTheme", "TinyMenu", "ContextMenu"):
+                n = 2
+                while f"{name}{n}" in own or f"{name}{n}" in taken:
+                    n += 1
+                renamed[name] = f"{name}{n}"
+                taken.add(renamed[name])
+                rows[i] = (cid, parent_id, ctype, renamed[name])
+        if renamed:
+            log("shown under a working name, because the designer has controls of its own with these names "
+                "(they are saved under their real names): " + ", ".join(f"{a} as {b}" for a, b in renamed.items()))
+        # Right-click menus aren't something the designer edits yet: carry them through untouched, so that saving
+        # the form doesn't lose them (and so their items don't turn up on the form's menu bar).
+        by_row = {r[0]: r for r in rows}
+        def in_context_menu(cid):
+            while cid in by_row:
+                if by_row[cid][2] == "ContextMenu":
+                    return True
+                cid = by_row[cid][1]
+            return False
+        carried_ids = {r[0] for r in rows if r[2] in ("ContextMenu", "MenuItem") and in_context_menu(r[0])}
+        carried = [(r[2], r[3], by_row[r[1]][3] if r[1] in by_row else None, dict(props.get(r[0], {})))
+                   for r in rows if r[0] in carried_ids]
         self.cmd_ClearDesign(surf.name)
+        surf.export_names, surf.carried = {new: old for old, new in renamed.items()}, carried
         wp, cp = props[window[0]], props[canvas[0]]
         by_id, menu = {r[0]: r for r in rows}, []
         for cid, parent_id, ctype, name in rows:
-            if ctype != "MenuItem":
+            if ctype != "MenuItem" or cid in carried_ids:
                 continue
             level, p_id = 0, parent_id
             while p_id in by_id and by_id[p_id][2] == "MenuItem":
@@ -1297,6 +1420,8 @@ class Engine:
             count += 1
         used = set()
         for cid, parent_id, ctype, name in rows:
+            if cid in carried_ids:                           # their scripts are kept with the form's own
+                continue
             for k, v in props.get(cid, {}).items():
                 if v in scripts:
                     used.add(v)
@@ -1308,6 +1433,20 @@ class Engine:
                 self.cmd_SetEvent(surf.name, ev, handler)
         surf.form_scripts = {n: v for n, v in scripts.items() if n not in used}
         log(f"opened {path}: {count} controls")
+        if notes:
+            said = [f"Converted from a panel layout: {notes['controls']} controls placed, {notes['frames']} panels kept as "
+                    f"frames, {notes['dissolved']} layout-only panels removed."]
+            if notes["hidden"]:
+                said.append("Starts hidden, so check where it sits: " + ", ".join(notes["hidden"]) + ".")
+            if notes["partial"]:
+                said.append("Shared space in proportion, which anchors can't do exactly: " + ", ".join(notes["partial"]) + ".")
+            if notes["scroll"]:
+                said.append("Scrolling areas were flattened: " + ", ".join(notes["scroll"]) + ".")
+            if renamed:
+                said.append("Shown under a working name because the designer has its own control of that name (saved "
+                            "under the real name): " + ", ".join(f"{a} as {b}" for a, b in renamed.items()) + ".")
+            self.store.set_setting("import_notes", " ".join(said))
+            log(" ".join(said))
         return True
 
 
@@ -1586,7 +1725,12 @@ class Engine:
         return script_name
 
     def cmd_ExportHtml(self, source="Surface", out=""):
-        """Write a form as one self-contained web page. source: a design surface, or a .vml file."""
+        """Write a form as one self-contained web page. source: a design surface, or a .vml file. (Pro.)"""
+        if not self.needs("export", "Exporting a form as a web page"):
+            return ""
+        return self._export_html(source, out)
+
+    def _export_html(self, source="Surface", out=""):
         from .html import export_html
         node = self.find(source) if source and not str(source).lower().endswith(".vml") else None
         if node is not None and node.type.name == "DesignSurface":
@@ -1651,6 +1795,8 @@ class Engine:
         platform = str(platform).lower()
         if platform not in self.RUNTIMES:
             raise ValueError(f"unknown platform {platform!r} (windows or linux)")
+        if not self.needs("export", "Exporting a form as an app"):
+            return ""
         surf = self._surface(surface)
         name = re.sub(r"[^A-Za-z0-9_-]", "", str(surf.props.get("FormName") or "MyApp")) or "MyApp"
         _, exe, suffix = self.RUNTIMES[platform]
@@ -1693,7 +1839,7 @@ class Engine:
         folder = Path(tempfile.gettempdir()) / "vml-web"
         folder.mkdir(exist_ok=True)
         out = folder / f"{node.name}.html"
-        self.cmd_ExportHtml(node.name, str(out))
+        self._export_html(node.name, str(out))          # previewing is for everyone; keeping the page is Pro
         url = f"{self._web_server(folder)}/{out.name}"
         import webbrowser
         webbrowser.open(url)

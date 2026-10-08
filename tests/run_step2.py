@@ -1,6 +1,7 @@
 """Step 2 on the real designer.vml: menus, composites via AddControlScript, reflection -> RefreshProperties, modal forms."""
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("VML_PREFS", os.path.join(__import__("tempfile").mkdtemp(prefix="vml-prefs-"), "prefs.json"))   # never the real settings
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 from vml.engine import Engine
