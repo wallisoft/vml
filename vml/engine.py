@@ -1456,6 +1456,33 @@ class Engine:
         base = re.sub(r"[^A-Za-z0-9]", "", str(text).replace("&", "")) or "Item"
         return "mnu" + base[0].upper() + base[1:]
 
+    def cmd_ImportForm(self, kind, path, surface="Surface"):
+        """Bring a form made in another tool onto the design surface. kind: "winforms" (a Visual Studio Windows Forms
+        form, VB.NET or C#: any of its files will do). Returns "true" if it opened; the setting import_notes then
+        says what was and was not brought across. (Pro.)"""
+        if not self.needs("import", "Importing forms from other tools"):
+            return ""
+        if str(kind).lower() != "winforms":
+            raise ValueError(f"unknown kind of form {kind!r} (winforms)")
+        from . import import_winforms
+        source = import_winforms.designer_file_for(os.path.expanduser(str(path)))
+        try:
+            text, notes = import_winforms.convert(source)
+        except (OSError, ValueError) as exc:
+            log(f"{path}: couldn't be imported ({exc})")
+            self.store.set_setting("import_notes", str(exc))
+            return ""
+        name = re.search(r"^@Window (\w+)", text, re.M).group(1)
+        folder = Path(tempfile.mkdtemp(prefix="vml-import-"))
+        target = folder / f"{name}.vml"
+        target.write_text(text, encoding="utf-8")
+        opened = self.cmd_ImportVml(str(target), surface)
+        shutil.rmtree(folder, ignore_errors=True)
+        self.store.set_setting("import_converted", "true")          # it is a new form: Save will ask where to put it
+        self.store.set_setting("import_notes", "\n\n".join(notes))
+        log(f"imported {source.name}: {notes[0] if notes else ''}")
+        return "true" if opened else ""
+
     def cmd_GetDesignMenu(self, surface="Surface"):
         surf = self._surface(surface)
         return json.dumps(surf.widget.menu_items)
@@ -1988,7 +2015,11 @@ class Engine:
         return text if ok else ""
 
     def cmd_FileOpenDialog(self, title="Open", ext=""):
-        filt = f"{ext.upper()} files (*.{ext});;All files (*)" if ext else "All files (*)"
+        kinds = [e.strip().lstrip(".") for e in str(ext).split(",") if e.strip()]       # "vml", or "vb,cs" for several
+        if len(kinds) > 1:
+            filt = f"{' and '.join(k.upper() for k in kinds)} files ({' '.join('*.' + k for k in kinds)});;All files (*)"
+        else:
+            filt = f"{ext.upper()} files (*.{ext});;All files (*)" if ext else "All files (*)"
         return QFileDialog.getOpenFileName(self._parent_window(), str(title), "", filt)[0]
 
     def cmd_FileSaveDialog(self, title="Save", default="", ext=""):

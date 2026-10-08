@@ -97,19 +97,23 @@ OnClick=FileSaveAs
 Parent=File
 Text=Import
 
+@MenuItem FileImportWinForms
+Parent=FileImport
+Text=Windows Forms (Visual Studio, VB or C#)...
+OnClick=ImportWinForms
+
+@MenuItem FileImportSep
+Parent=FileImport
+IsSeparator=true
+
 @MenuItem FileImportSoon
 Parent=FileImport
-Text=Coming soon, with Visualised Pro:
+Text=Coming soon:
 IsEnabled=false
 
 @MenuItem FileImportVB
 Parent=FileImport
 Text=Visual Basic 5/6 form (.frm)...
-IsEnabled=false
-
-@MenuItem FileImportWinForms
-Parent=FileImport
-Text=Windows Forms (.Designer.cs)...
 IsEnabled=false
 
 @MenuItem FileImportDelphi
@@ -652,6 +656,26 @@ else
 end
 LUA
 
+@Script ImportWinForms
+Interpreter=lua
+<<LUA
+if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the current form?") ~= "true" then return end
+local path = Vml("FileOpenDialog", "Import a Windows Forms form: choose its .Designer.vb or .Designer.cs file", "vb,cs")
+if path == "" then return end
+if Vml("ImportForm", "winforms", path, "Surface") == "true" then
+    Vml("SetSetting", "current_file", "")
+    Vml("SetSetting", "dirty", "true")
+    Vml("RunScript", "ApplySettings")
+    Vml("RunScript", "SelectionChanged")
+    Vml("RunScript", "UpdateTitle")
+    Vml("SetStatusText", "Imported " .. path .. " (the original is untouched)")
+    Vml("InfoDialog", Vml("GetSetting", "import_notes") .. "\n\nThis is a new form: Save will ask for a name, and the original files are untouched.", "Imported from Windows Forms")
+else
+    local why = Vml("GetSetting", "import_notes")
+    if why ~= "" then Vml("InfoDialog", "That file couldn't be imported: " .. why, "Import") end
+end
+LUA
+
 @Script FileSave
 Interpreter=lua
 <<LUA
@@ -774,6 +798,8 @@ for item, text in pairs(exports) do
     Vml("SetMenuItemEnabled", item, paid and "true" or "false")
     Vml("SetMenuItemText", item, text .. (paid and "" or "   (Pro)"))
 end
+Vml("SetMenuItemEnabled", "FileImportWinForms", paid and "true" or "false")
+Vml("SetMenuItemText", "FileImportWinForms", "Windows Forms (Visual Studio, VB or C#)..." .. (paid and "" or "   (Pro)"))
 Vml("SetMenuItemText", "SetLicenceInfo", "Licence: " .. lic.label)
 Vml("SetMenuItemText", "SetLicenceEnter", lic.key ~= "" and "Change Licence Key..." or "Enter Licence Key...")
 Vml("SetMenuItemEnabled", "SetLicenceRemove", lic.key ~= "" and "true" or "false")
