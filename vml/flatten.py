@@ -74,6 +74,22 @@ def _anchor(a, b, pa, pb):
     return ",".join(v + h), partial
 
 
+def _forget(eng, path, win):
+    """Take the measuring copy of a form back out of the engine.
+
+    This is a function, not lines in the `finally` that calls it, on purpose: Nuitka (which compiles Visualised)
+    crashes on a list built inside a `finally` block that an early `return` also has to run.
+    """
+    if win is not None:
+        win.widget.hide()
+    roots = [n for n in list(eng.scopes.get(path, {}).values()) if n.parent is None]
+    for n in roots:
+        eng.delete(n.name, path)
+    eng.scopes.pop(path, None)
+    eng.luas.pop(path, None)
+    getattr(eng, "themes", {}).pop(path, None)
+
+
 def layout_to_canvas(eng, path, rows, props, scripts, window, log=print):
     """(rows, props, canvas row, notes) describing the same form on a canvas, or None if it can't be measured."""
     # Measured from a copy beside the original (so pictures and other forms it refers to are still found). That way
@@ -113,13 +129,7 @@ def layout_to_canvas(eng, path, rows, props, scripts, window, log=print):
             b, _ = _snapshot(eng, win)
         window_bg = w.palette().window().color().name()
     finally:
-        if win is not None:
-            win.widget.hide()
-        for n in [n for n in list(eng.scopes.get(path, {}).values()) if n.parent is None]:
-            eng.delete(n.name, path)
-        eng.scopes.pop(path, None)
-        eng.luas.pop(path, None)
-        getattr(eng, "themes", {}).pop(path, None)
+        _forget(eng, path, win)             # in a function of its own: see _forget
 
     kids = defaultdict(list)
     for r in rows:

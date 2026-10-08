@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 from vml import licence as L
 L.PREFS_FILE = Path(HOME) / ".vml" / "prefs.json"
 from vml.engine import Engine
+from vml import __version__ as V
 import vml.engine as E
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -102,7 +103,7 @@ check("Pro: exporting a web page really writes one", os.path.exists(out) and os.
 said.clear(); click(eng2, "SetLicenceInfo")
 check("the licence line shows who it is licensed to and when", ("Licensed to steve@example.com" in said[-1], "Licence V1A2B3, issued 08/10/2026" in said[-1]), (True, True))
 said.clear(); click(eng2, "HelpAbout")
-check("About shows the version and the tier", said[-1].startswith("Visualised 0.18.0 (Pro)"))
+check("About shows the version and the tier", said[-1].startswith(f"Visualised {V} (Pro)"))
 eng3 = designer()
 check("the licence is remembered the next time Visualised starts", (text(eng3, "SetLicenceInfo"), enabled(eng3, "FileExportWin")), ("Licence: Pro", True))
 designer.prompt = ENT; click(eng3, "SetLicenceEnter")
@@ -121,12 +122,12 @@ class Reply(io.BytesIO):
     def __enter__(self): return self
     def __exit__(self, *a): return False
 def releases(tag): urllib.request.urlopen = lambda req, timeout=0: Reply(json.dumps({"tag_name": tag}).encode())
-releases("v0.19.2"); said.clear(); opened.clear(); designer.confirm = True; click(eng3, "SetUpdate")
-check("a newer release is offered, and Yes opens the download page", ("0.19.2 is available (you have 0.18.0)" in said[-1], opened), (True, ["https://github.com/wallisoft/vml-releases/releases/latest"]))
-releases("v0.18.0"); said.clear(); opened.clear(); click(eng3, "SetUpdate")
-check("when up to date it says so and opens nothing", (said[-1], opened), ("You have the latest Visualised (0.18.0).", []))
+releases("v99.0.0"); said.clear(); opened.clear(); designer.confirm = True; click(eng3, "SetUpdate")
+check("a newer release is offered, and Yes opens the download page", (f"99.0.0 is available (you have {V})" in said[-1], opened), (True, ["https://github.com/wallisoft/vml-releases/releases/latest"]))
+releases("v" + V); said.clear(); opened.clear(); click(eng3, "SetUpdate")
+check("when up to date it says so and opens nothing", (said[-1], opened), (f"You have the latest Visualised ({V}).", []))
 releases("v0.9.9"); said.clear(); click(eng3, "SetUpdate")
-check("0.18 is rightly seen as newer than 0.9", said[-1], "You have the latest Visualised (0.18.0).")
+check("this version is rightly seen as newer than 0.9.9", said[-1], f"You have the latest Visualised ({V}).")
 def offline(req, timeout=0): raise OSError("no network")
 urllib.request.urlopen = offline; said.clear(); click(eng3, "SetUpdate")
 check("with no network it says it couldn't check, without an error", said[-1].startswith("Couldn't check for updates just now"))
