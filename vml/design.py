@@ -836,4 +836,6 @@ DESIGN_DEFAULTS = {
     "Rectangle": {"Width": "120", "Height": "80", "Fill": "#BFDBFE", "Stroke": "#2563EB", "StrokeThickness": "1"},
     "ScrollViewer": {"Width": "200", "Height": "120"},
     "Frame": {"Width": "240", "Height": "160"},
+    "Timer": {"Interval": "1000"},
+    "ProgressBar": {"Width": "200", "Height": "18", "Value": "40"},
 }

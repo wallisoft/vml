@@ -309,9 +309,18 @@ Height=28
 Content=Test
 OnClick=DbTestNow
 
-@Button btnDbCopy
+@Button btnDbBrowse2
 Parent=DbBody
 Canvas.Left=434
+Canvas.Top=396
+Width=96
+Height=28
+Content=Browse...
+OnClick=DbBrowseData
+
+@Button btnDbCopy
+Parent=DbBody
+Canvas.Left=538
 Canvas.Top=396
 Width=200
 Height=28
@@ -532,6 +541,10 @@ elseif wanted ~= "" then
 else
     DB.show(project and not first and "main" or "", project and not first and "sqlite:data.db" or "")
 end
+local odbc = json.decode(Vml("DbOdbcState"))
+if not odbc.ready and not DB.absent then
+    DB.say("ODBC isn't set up on this computer yet (" .. odbc.why .. "), so only SQLite files can be used for now. Get a driver... shows the one line that sets it up.", true)
+end
 LUA
 
 @Script DbNames
@@ -722,6 +735,15 @@ else
 end
 LUA
 
+@Script DbBrowseData
+Interpreter=lua
+<<LUA
+-- look inside the database whose address is on screen, saved or not
+local address = DB.trim(DB.get("txtDbAddress"))
+if address == "" then return DB.say("There's no address to browse yet.", true) end
+Vml("RunScript", "BrowseData", DB.trim(DB.get("txtDbName")), address)
+LUA
+
 @Script DbSave
 Interpreter=lua
 <<LUA
@@ -798,16 +820,24 @@ LUA
 Interpreter=lua
 <<LUA
 local windows = package.config:sub(1, 1) == "\\"
-local text
+local state = DB.json.decode(Vml("DbOdbcState"))
 if windows then
-    text = "A database is reached through its ODBC driver, which comes from whoever makes the database. Once installed it appears in the list here.\n\n"
+    local text = "A database is reached through its ODBC driver, which comes from whoever makes the database. Once installed it appears in the list here.\n\n"
         .. "SQL Server: Microsoft ODBC Driver for SQL Server\nAccess (.mdb, .accdb): Microsoft Access Database Engine (the 64-bit one)\nMySQL: MySQL Connector/ODBC\nPostgreSQL: psqlODBC\nOracle: Oracle Instant Client ODBC\n\n"
         .. "Visualised is a 64-bit program, so it needs 64-bit drivers. Data sources (DSNs) are set up in Windows: search the Start menu for ODBC Data Sources (64-bit).\n\nOpen Microsoft's page of ODBC drivers?"
     if Vml("ConfirmDialog", text, "Get a driver") == "true" then Vml("OpenUrl", "https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server") end
 else
-    text = "A database is reached through its ODBC driver. On Linux, ODBC itself is unixODBC, and each database has a package for its driver. In a terminal:\n\n"
-        .. "ODBC itself:     sudo apt install unixodbc\nAccess files:    sudo apt install odbc-mdbtools\nPostgreSQL:      sudo apt install odbc-postgresql\nMySQL, MariaDB:  sudo apt install odbc-mariadb\nSQLite:          sudo apt install libsqliteodbc\nSQL Server:      Microsoft's msodbcsql18 package (see Microsoft's instructions)\n\n"
-        .. "Then close this window and open it again: the driver appears in the list. Data sources (DSNs) are kept in ~/.odbc.ini."
-    Vml("InfoDialog", text, "Get a driver")
+    -- one line that sets up ODBC itself and the drivers that are a package away; whatever is missing here goes first
+    local command = OdbcSetupLine()                             -- (in the designer's settings module)
+    local text = (state.ready and "" or ("ODBC isn't set up on this computer yet: " .. state.why .. ".\n\n"))
+        .. "On Linux, ODBC itself is unixODBC, and each database has a package for its driver. This one line, in a terminal, sets up ODBC "
+        .. "and the drivers for Access files, SQLite, PostgreSQL and MySQL or MariaDB:\n\n" .. command
+        .. "\n\nSQL Server's driver is Microsoft's own package, msodbcsql18 (see Microsoft's instructions). A driver that came as a file "
+        .. "can be chosen with Browse. Data sources (DSNs) are kept in ~/.odbc.ini.\n\nCopy that line, ready to paste into a terminal?"
+    if Vml("ConfirmDialog", text, "Get a driver") == "true" then
+        Vml("ClipboardSet", command)
+        DB.say("Copied. Paste it into a terminal; when it has finished, press Get a driver again (or reopen this window) and the list fills.")
+    end
 end
+for _, list in ipairs({ "lstDrivers", "lstSources", "cboDriver", "cboDsn" }) do Vml("Requery", list) end     -- whatever has been installed since
 LUA

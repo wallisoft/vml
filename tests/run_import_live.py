@@ -33,9 +33,9 @@ def settle(n=8):
 # ---------------------------------------------------------------- the steps themselves
 rt = eng.lua_state("steps-test")
 rt.execute("package.path = ... .. '/?.lua;' .. package.path", os.path.join(HERE, "designer", "importers", "lib").replace("\\", "/"))
-steps_of = rt.eval('''function(text, net, closing, alone)
+steps_of = rt.eval('''function(text, net, closing, alone, opening)
     local kit = require("importkit")
-    local ctx = { form = "frmMain", net = net, closing = closing, forms = not alone and { frmabout = "frmAbout" } or nil,
+    local ctx = { form = "frmMain", net = net, closing = closing, opening = opening, forms = not alone and { frmabout = "frmAbout" } or nil,
         controls = { cmdok = { name = "cmdOK", kind = "Button", text = "Content" }, lblstate = { name = "lblState", kind = "TextBlock", text = "Text" },
                      ["cmdqty(1)"] = { name = "cmdQty_1", kind = "Button", text = "Content" }, mnuexit = { name = "mnuExit", kind = "MenuItem" } } }
     local out, n = kit.basic_steps(kit.lines(text), ctx)
@@ -44,16 +44,21 @@ steps_of = rt.eval('''function(text, net, closing, alone)
     return table.concat(live, "\\n") .. "|" .. n .. "|" .. #out
 end''')
 
-def steps(body, net=False, closing=False, alone=False):
+def steps(body, net=False, closing=False, alone=False, opening=False):
     text = "Private Sub x_Click()\n" + body + "\nEnd Sub"
-    live, n, lines = str(steps_of(text, net, closing, alone)).rsplit("|", 2)
+    live, n, lines = str(steps_of(text, net, closing, alone, opening)).rsplit("|", 2)
     assert int(lines) == len(text.splitlines())            # a line out for every line in: nothing is lost
     return live.split("\n") if live else []
 
 check("showing a form opens it, modal if it was",
       steps("frmAbout.Show\nfrmAbout.Show vbModal, Me\nfrmAbout.Show 1\nCall frmOther.Show"),
       ['Vml("FormOpen", "frmAbout")', 'Vml("FormOpenModal", "frmAbout")', 'Vml("FormOpenModal", "frmAbout")'])
-check("closing this form, another form, and the app", steps("Unload frmAbout\nMe.Hide\nUnload Me"), ['Vml("CloseForm", "frmAbout")', 'Vml("CloseSelf")', 'Vml("CloseSelf")'])
+check("closing this form and another form", steps("Unload frmAbout\nUnload Me"), ['Vml("CloseForm", "frmAbout")', 'Vml("CloseSelf")'])
+check("hiding is not closing: Hide is left alone, and nothing after it is taken for certain", steps("Me.Hide\nfrmAbout.Show\nMe.Show"), [])
+check("nor is another form's Hide", steps("frmAbout.Hide"), [])
+check("the handler that opens a form may not close it or end the app, though its other plain steps run",
+      steps('cmdOK.Enabled = False\nUnload Me\nEnd', opening=True), ['Vml("SetProperty", "cmdOK", "IsEnabled", "false")'])
+check(".NET: the same in a Load handler", steps('Me.Text = "Shop"\nMe.Close()\nApplication.Exit()', net=True, opening=True), ['Vml("SetProperty", "frmMain", "Title", "Shop")'])
 check("End ends the app", steps("End"), ['Vml("AppExit")'])
 check("a message whose words are written out is shown, title and all; one that is worked out is left",
       steps('MsgBox "Saved: ""all"" done." & vbCrLf & "Bye", vbInformation, "Shop"\nMsgBox "Total " & n\nMsgBox Err.Description'),

@@ -1,0 +1,240 @@
+# ============================================================================
+# Data browser: look inside any database a project uses, SQLite or ODBC. Its
+# tables on the left; click one for its first rows; or write a SELECT of your
+# own. It only reads. Project > Browse Data, or Browse in the Databases screen.
+# ============================================================================
+
+@Window Browser
+Title=Data
+Width=980
+Height=620
+BorderBrush=#1E3A8A
+OnOpened=BrLoad
+OnClosing=BrClose
+
+@DockPanel BrRoot
+Parent=Browser
+
+@Border BrHeader
+Parent=BrRoot
+DockPanel.Dock=Top
+Background=#1E3A8A
+Padding=12,8
+
+@TextBlock lblBrTitle
+Parent=BrHeader
+Text=Data
+FontSize=14
+FontWeight=Bold
+Foreground=White
+
+@DockPanel BrTop
+Parent=BrRoot
+DockPanel.Dock=Top
+Height=40
+Background=#F3F4F6
+
+@TextBlock lblBrDb
+Parent=BrTop
+DockPanel.Dock=Left
+Text=Database
+Margin=12,11,8,0
+
+@ComboBox cboBrDb
+Parent=BrTop
+DockPanel.Dock=Left
+Width=220
+Margin=0,6,12,6
+ItemsSource=BrDatabases
+SelectionChanged=BrPickDb
+
+@TextBlock lblBrInfo
+Parent=BrTop
+Text=
+Foreground=#6B7280
+Margin=0,11,12,0
+
+@DockPanel BrQuery
+Parent=BrRoot
+DockPanel.Dock=Bottom
+Height=42
+Background=#F3F4F6
+
+@Button btnBrRun
+Parent=BrQuery
+DockPanel.Dock=Right
+Width=96
+Margin=8,6,12,6
+Content=Run
+Background=#2563EB
+Foreground=White
+OnClick=BrRun
+
+@TextBox txtBrSql
+Parent=BrQuery
+Margin=12,6,0,6
+FontFamily=monospace
+FontSize=12
+Watermark=SELECT ... FROM ...     (your own query: this browser only reads)
+
+@Border BrStatusBar
+Parent=BrRoot
+DockPanel.Dock=Bottom
+Background=#FFFFFF
+BorderBrush=#E5E7EB
+BorderThickness=0,1,0,0
+Padding=12,5
+
+@TextBlock lblBrStatus
+Parent=BrStatusBar
+Text=Choose a table.
+Foreground=#374151
+
+@ListBox lstBrTables
+Parent=BrRoot
+DockPanel.Dock=Left
+Width=230
+ItemsSource=BrTables
+SelectionChanged=BrPickTable
+
+@Splitter BrSplit
+Parent=BrRoot
+DockPanel.Dock=Left
+MinSize=120
+
+@DataGrid grdBr
+Parent=BrRoot
+
+@Script BrLoad
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+BR = { json = json, conn = "vml_browse", limit = 200 }
+function BR.say(text, bad)
+    Vml("SetProperty", "lblBrStatus", "Foreground", bad and "#B91C1C" or "#374151")
+    Vml("SetProperty", "lblBrStatus", "Text", text)
+end
+function BR.number(n) return (tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) end
+
+-- The address to connect with: a SQLite file given without a folder is in the project's folder.
+function BR.address(address, folder)
+    local kind, rest = address:match("^%s*(%a+)%s*:(.*)$")
+    local file = (kind and kind:lower() == "sqlite") and rest or ((not kind and not address:find("=", 1, true)) and address or nil)
+    if file and folder and file ~= ":memory:" and not file:match("^[/\\]") and not file:match("^%a:[/\\]") and not file:match("^~") then
+        return "sqlite:" .. folder:gsub("\\", "/"):gsub("/+$", "") .. "/" .. file:gsub("^%s+", "")
+    end
+    return address
+end
+
+-- Open a database by its name in the list and show its tables.
+function BR.open(name)
+    Vml("DbClose", BR.conn)
+    BR.tables = {}
+    Vml("Requery", "lstBrTables")
+    Vml("GridSetData", "grdBr", "[]")
+    local address = BR.addresses[name]
+    if not address then return end
+    Vml("SetProperty", "lblBrInfo", "Text", "")
+    if Vml("DbOpen", BR.conn, BR.address(address, BR.folder)) ~= "true" then
+        return BR.say("That database couldn't be opened: " .. Vml("DbError"), true)
+    end
+    BR.tables = json.decode(Vml("DbTables", BR.conn)) or {}
+    local shown = {}
+    for _, t in ipairs(BR.tables) do
+        if not t:match("^MSys") and not t:match("^~") then shown[#shown + 1] = t end
+    end
+    BR.tables = shown
+    Vml("Requery", "lstBrTables")
+    Vml("SetProperty", "lblBrInfo", "Text", (address:lower():match("^%s*odbc") or address:find("=", 1, true)) and "ODBC" or "SQLite file")
+    BR.say(#shown == 0 and "There are no tables in this database." or (#shown .. (#shown == 1 and " table or view." or " tables and views.") .. " Choose one."))
+end
+
+-- Show what a table's name or a SELECT gives, and say how much of it is on screen.
+function BR.show(source, what)
+    BR.say("Reading...")
+    local r = json.decode(Vml("DbShow", "grdBr", BR.conn, source, BR.limit))
+    if r.error ~= "" then return BR.say(r.error, true) end
+    local of = ""
+    if r.total > r.shown then of = " of " .. BR.number(r.total)
+    elseif r.total < 0 and r.shown >= BR.limit then of = " (there are more)" end
+    BR.say(what .. ": " .. (r.shown == 0 and "no rows" or ((r.total > r.shown or (r.total < 0 and r.shown >= BR.limit)) and ("the first " .. BR.number(r.shown) .. " rows" .. of) or (BR.number(r.shown) .. (r.shown == 1 and " row" or " rows"))))
+        .. ", " .. r.columns .. (r.columns == 1 and " column." or " columns."))
+end
+
+-- which databases: the project's, and the address the Databases screen handed over (not saved anywhere yet)
+BR.addresses, BR.names, BR.tables, BR.folder = {}, {}, {}, nil
+local raw = Vml("ProjectInfo")
+if raw ~= "" then
+    local project = json.decode(raw)
+    BR.folder = project.folder
+    for line in (Vml("FileRead", project.file) .. "\n"):gmatch("(.-)\r?\n") do
+        local name = line:match("^%s*[Dd]atabase%s*=%s*([%a_][%w_]*)%s*=")
+        if name and project.databases[name] and not BR.addresses[name] then BR.names[#BR.names + 1] = name; BR.addresses[name] = project.databases[name] end
+    end
+    for name, address in pairs(project.databases) do
+        if not BR.addresses[name] then BR.names[#BR.names + 1] = name; BR.addresses[name] = address end
+    end
+    Vml("SetProperty", "lblBrTitle", "Text", "Data - " .. project.name)
+end
+local name, address = Vml("GetSetting", "db_browse_name"), Vml("GetSetting", "db_browse_address")
+Vml("SetSetting", "db_browse_name", ""); Vml("SetSetting", "db_browse_address", "")
+if address ~= "" then
+    if name == "" or (BR.addresses[name] and BR.addresses[name] ~= address) then name = (name ~= "" and name or "this address") .. " (not saved)" end
+    if not BR.addresses[name] then table.insert(BR.names, 1, name) end
+    BR.addresses[name] = address
+end
+BR.start = (name ~= "" and BR.addresses[name]) and name or BR.names[1]
+Vml("Requery", "cboBrDb")
+if BR.start then
+    Vml("SetProperty", "cboBrDb", "SelectedItem", BR.start)
+    BR.current = BR.start
+    BR.open(BR.start)
+else
+    BR.say("This project names no databases yet: add one in Settings > Databases (ODBC).", true)
+end
+LUA
+
+@Script BrDatabases
+Interpreter=lua
+<<LUA
+return require("dkjson").encode(BR and BR.names or {})
+LUA
+
+@Script BrTables
+Interpreter=lua
+<<LUA
+return require("dkjson").encode(BR and BR.tables or {})
+LUA
+
+@Script BrPickDb
+Interpreter=lua
+<<LUA
+if not BR then return end
+local name = Vml("GetProperty", "cboBrDb", "SelectedItem")
+if name ~= "" and name ~= BR.current then
+    BR.current = name
+    BR.open(name)
+end
+LUA
+
+@Script BrPickTable
+Interpreter=lua
+<<LUA
+if not BR then return end
+local t = Vml("GetProperty", "lstBrTables", "SelectedItem")
+if t ~= "" then BR.show(t, t) end
+LUA
+
+@Script BrRun
+Interpreter=lua
+<<LUA
+local sql = Vml("GetProperty", "txtBrSql", "Text"):gsub("^%s+", ""):gsub("%s+$", "")
+if sql == "" then return BR.say("Write a SELECT in the box first, or choose a table.", true) end
+BR.show(sql, "Your query")
+LUA
+
+@Script BrClose
+Interpreter=lua
+<<LUA
+if BR then Vml("DbClose", BR.conn) end
+LUA

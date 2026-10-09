@@ -43,6 +43,7 @@ local CONTROLS = {
     ["vb.image"] = { "Image" },
     ["vb.shape"] = { "Rectangle", nil, "a shape becomes a rectangle (rounded where it was round)" },
     ["vb.line"] = { "Rectangle", nil, "a line becomes a thin rectangle" },
+    ["vb.timer"] = { "Timer" },                      -- not seen when the form runs; its Timer event is OnTick
 }
 
 -- Controls from the OCX files that came with Visual Basic, by their class name whichever library it was in
@@ -57,11 +58,12 @@ local OCX = {
     richtextbox = { "TextBox", "Text", "rich text becomes a plain multi-line box" },
     maskedbox = { "TextBox", "Text", "an input mask is not carried over" },
     dtpicker = { "TextBox", nil, "a date picker becomes a text box" },
+    progressbar = { "ProgressBar" },
     dblist = { "ListBox" }, datalist = { "ListBox" }, dbcombo = { "ComboBox" }, datacombo = { "ComboBox" },
 }
 
 -- Never seen when the program runs (or, for a data control, of no use here): not placed, listed in the notes
-local SILENT = { ["vb.timer"] = true, ["vb.data"] = true, commondialog = true, imagelist = true, winsock = true,
+local SILENT = { ["vb.data"] = true, commondialog = true, imagelist = true, winsock = true,
                  inet = true, mscomm = true, adodc = true, msrdc = true }
 local DATA_CONTROLS = { ["vb.data"] = true, adodc = true, msrdc = true }
 
@@ -87,7 +89,7 @@ local SUPPORTS = {
     DataGrid = with({}, { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" }),
     TreeView = with({}, { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" }),
     Image = POINTER, TextBlock = POINTER, Frame = POINTER, Rectangle = POINTER,
-    MenuItem = { OnClick = true },
+    MenuItem = { OnClick = true }, Timer = { OnTick = true }, ProgressBar = POINTER,
     Window = { OnOpened = true, OnClosing = true, OnKeyDown = true, OnKeyUp = true },
 }
 
@@ -474,10 +476,12 @@ end
 -- Write the scripts that were kept: the plain steps (open a form, close this one, a message, a simple setting)
 -- as Lua that runs, and every other line as the comment it was.
 local CLOSING = { unload = true, queryunload = true, terminate = true }
+local OPENING = { load = true, activate = true, initialize = true }
 local function write_scripts(s)
     local ctx = { form = s.name, forms = s.forms, controls = s.names }
     for _, kept in ipairs(s.kept) do
         ctx.closing = CLOSING[kept.event] == true
+        ctx.opening = OPENING[kept.event] == true
         local lines, made = kit.basic_steps(kept.lines, ctx)
         local body = kept.body
         if made > 0 then
@@ -498,6 +502,7 @@ end
 local function our_event(kind, event)
     event = event:lower()
     if kind == "Window" then return WINDOW_EVENTS[event] or EVENTS[event] end
+    if kind == "Timer" then return event == "timer" and "OnTick" or nil end
     if event == "click" then
         if kind == "ComboBox" or kind == "ListBox" or kind == "DataGrid" then return "SelectionChanged" end
         return SUPPORTS[kind].OnClick and "OnClick" or "OnPointerPressed"     -- a label or picture used as a button
@@ -750,6 +755,20 @@ local function control(s, node, parent, scale, in_tabs)
     end
     if kind == "ComboBox" or kind == "ListBox" then list_items(s, node, name, props) end
     if kind == "CheckBox" and number_of(node, "Value") == 1 then add(props, "IsChecked", "true") end
+    if kind == "Timer" then
+        local gap = number_of(node, "Interval") or 0
+        add(props, "Interval", gap > 0 and (math.tointeger(gap // 1)) or 1000)
+        -- Visual Basic's timer is off when Enabled is False, and also when its Interval is 0
+        add(props, "IsEnabled", (is_on(node, "Enabled", true) and gap > 0) and "true" or "false")
+    end
+    if kind == "ProgressBar" then
+        for _, pair in ipairs({ { "Min", "Minimum" }, { "Max", "Maximum" }, { "Value", "Value" } }) do
+            local n = number_of(node, pair[1])
+            if n then add(props, pair[2], math.tointeger(n // 1) or n) end
+        end
+        add(props, "BarStyle", number_of(node, "Scrolling") == 1 and "Solid" or "Blocks")
+        if number_of(node, "Orientation") == 1 then add(props, "Orientation", "Vertical") end
+    end
     if kind == "RadioButton" and is_on(node, "Value", false) then add(props, "IsChecked", "true") end
     if kind == "Image" then
         add(props, "Stretch", is_on(node, "Stretch", false) and "Fill" or "None")
@@ -792,7 +811,7 @@ local function control(s, node, parent, scale, in_tabs)
             .. "front (" .. caption .. "). The controls on the other tabs are there, hidden: set IsVisible on them to see them."
     end
 
-    look(s, node, kind, props, not known)
+    if kind ~= "Timer" then look(s, node, kind, props, not known) end
     wire(s, node.name, node.name, node.name, kind, props)
     s.f:emit(kind, name, parent, props)
     if kind == "Frame" then
@@ -902,7 +921,7 @@ local function report(s, other_lines)
             .. "across unfilled: " .. table.concat(s.fields, ", ") .. ". Fill them from a script with DbQuery."
     end
     if #s.silent > 0 then
-        notes[#notes + 1] = "Not on the form itself, so not brought across (timers, dialogs and the like): "
+        notes[#notes + 1] = "Not on the form itself, so not brought across (dialogs, picture lists and the like): "
             .. table.concat(s.silent, ", ") .. "."
     end
     if s.scripts > 0 then

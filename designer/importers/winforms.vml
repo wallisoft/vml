@@ -52,6 +52,7 @@ local CONTROLS = {
     TabControl = { "Frame", "", "" }, TabPage = { "Frame", "Text", "" },
     NumericUpDown = { "TextBox", "", "a number spinner becomes a text box" },
     DateTimePicker = { "TextBox", "", "a date picker becomes a text box" },
+    ProgressBar = { "ProgressBar", "", "" },
 }
 local function set(list) local s = {} for _, v in ipairs(list) do s[v] = true end return s end
 local STRIPS = set { "MenuStrip", "ContextMenuStrip", "ToolStrip", "StatusStrip" }
@@ -68,6 +69,7 @@ local EVENTS = {
     Enter = "OnGotFocus", GotFocus = "OnGotFocus", Leave = "OnLostFocus", LostFocus = "OnLostFocus",
     MouseDown = "OnPointerPressed", MouseUp = "OnPointerReleased", MouseMove = "OnPointerMoved",
     Load = "OnOpened", Shown = "OnOpened", FormClosing = "OnClosing", Closing = "OnClosing",
+    Tick = "OnTick",
 }
 local POINTER = { "OnPointerPressed", "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus" }
 local function with(first, rest) local s = set(first) for _, v in ipairs(rest or {}) do s[v] = true end return s end
@@ -83,6 +85,7 @@ local SUPPORTS = {
     TreeView = set { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" },
     Image = set(POINTER), TextBlock = set(POINTER), Frame = set(POINTER),
     MenuItem = set { "OnClick" }, Window = set { "OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp" },
+    Timer = set { "OnTick" }, ProgressBar = set(POINTER),
 }
 local SYSTEM_COLOURS = {
     Control = "#f0f0f0", ControlText = "#000000", Window = "#ffffff", WindowText = "#000000",
@@ -487,7 +490,7 @@ function WF.convert(designer, assets, forms)
     local code_file = kit.basename(code_path)
     local handlers, other_code = read_handlers(code_path, f.csharp, f.events)
     local language = f.csharp and "C#" or "Visual Basic"
-    local kept, names, live, live_scripts = {}, {}, 0, 0
+    local kept, names, live, live_scripts, timers = {}, {}, 0, 0, {}
     local form_font = font(f.form.Font)
     local base_font = form_font and form_font[2] or 11
 
@@ -682,6 +685,15 @@ function WF.convert(designer, assets, forms)
         end
         if (vml == "CheckBox" or vml == "RadioButton") and is_true(p.Checked) then props[#props + 1] = { "IsChecked", "true" } end
         if vml == "Image" then picture(name, p, props) end
+        if vml == "ProgressBar" then
+            for _, pair in ipairs({ { "Minimum", "Minimum" }, { "Maximum", "Maximum" }, { "Value", "Value" } }) do
+                local n = p[pair[1]] and numbers(p[pair[1]])[1]
+                if n then props[#props + 1] = { pair[2], math.tointeger(n) or n } end
+            end
+            local style = (p.Style or ""):match("ProgressBarStyle%.(%w+)")
+            if style == "Marquee" then props[#props + 1] = { "IsIndeterminate", "true" }
+            else props[#props + 1] = { "BarStyle", style == "Continuous" and "Solid" or "Blocks" } end
+        end
         if vml == "DataGrid" then
             local heads, any = {}, false
             for i, col in ipairs(f.columns[name] or {}) do
@@ -797,6 +809,21 @@ function WF.convert(designer, assets, forms)
             end
         end
     end
+    local ticking = 0
+    for _, name in ipairs(f.order) do                              -- timers: not seen when the form runs, but they tick
+        if f.types[name] == "Timer" and f.parent[name] == nil then
+            local p = f.props[name] or {}
+            local props = { { "Canvas.Left", 4 + ticking * 32 }, { "Canvas.Top", 4 } }
+            local gap = p.Interval and numbers(p.Interval)[1]
+            props[#props + 1] = { "Interval", gap and (math.tointeger(gap) or gap) or 100 }
+            props[#props + 1] = { "IsEnabled", is_true(p.Enabled) and "true" or "false" }      -- off until the code turns it on, as in Windows Forms
+            wire(name, "Timer", props)
+            names[name:lower()] = { name = name, kind = "Timer" }
+            out:emit("Timer", name, canvas, props)
+            timers[name] = true
+            ticking = ticking + 1
+        end
+    end
     for _, name in ipairs(f.order) do                              -- right-click menus
         if f.types[name] == "ContextMenuStrip" then
             out:emit("ContextMenu", name, "", {})
@@ -807,10 +834,12 @@ function WF.convert(designer, assets, forms)
     -- -- the scripts: the plain steps of Visual Basic (open a form, close this one, a message, a simple setting) as
     -- Lua that runs, and every other line as the comment it was. C# is kept whole, as comments.
     local CLOSING = { FormClosing = true, FormClosed = true, Closing = true, Closed = true, Disposed = true }
+    local OPENING = { Load = true, Shown = true, Activated = true, HandleCreated = true }
     for _, k in ipairs(kept) do
         local lines, n = kit.commented(k.lines), 0
         if not f.csharp then
-            lines, n = kit.basic_steps(k.lines, { form = f.name, forms = forms, controls = names, net = true, closing = CLOSING[k.event] == true })
+            lines, n = kit.basic_steps(k.lines, { form = f.name, forms = forms, controls = names, net = true, closing = CLOSING[k.event] == true,
+                                                 opening = OPENING[k.event] == true })
         end
         if n > 0 then
             live, live_scripts = live + n, live_scripts + 1
@@ -849,13 +878,13 @@ function WF.convert(designer, assets, forms)
     local behind = {}
     for _, n in ipairs(f.order) do
         local t = f.types[n]
-        if f.parent[n] == nil and not STRIPS[t] and not STRIP_ITEMS[t] and not column_parts[n]
+        if f.parent[n] == nil and not timers[n] and not STRIPS[t] and not STRIP_ITEMS[t] and not column_parts[n]
                 and not t:match("Column$") and not t:match("ColumnHeader$") then
             behind[#behind + 1] = n .. " (" .. t .. ")"
         end
     end
     if #behind > 0 then
-        head[#head + 1] = "Not on the form itself, so not brought across (timers, dialogs and the like): " .. table.concat(behind, ", ") .. "."
+        head[#head + 1] = "Not on the form itself, so not brought across (dialogs, picture lists and the like): " .. table.concat(behind, ", ") .. "."
     end
     if #out.scripts > 0 then
         head[#head + 1] = kit.plural(#out.scripts, "event handler") .. " from " .. code_file .. " came across as scripts. The "

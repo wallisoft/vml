@@ -32,6 +32,7 @@ V = eng.vml
 said = []
 eng.cmd_InfoDialog = lambda msg, title="": said.append(str(msg))
 eng.cmd_ConfirmDialog = lambda msg, title="": True
+eng.cmd_ChoiceDialog = lambda msg, title="", buttons="": "Don't Save"
 
 def settle(n=10):
     for _ in range(n):
@@ -39,8 +40,8 @@ def settle(n=10):
 
 # ---------------------------------------------------------------- the designer's own project
 designer = Project.load(os.path.join(DESIGNER, "Designer.vmlproj"))
-check("the designer is a project: five forms, starting at the designer itself", (designer.startup, sorted(designer.forms)),
-      ("designer.vml", ["databases.vml", "designer.vml", "menu-editor.vml", "module-editor.vml", "script-editor.vml"]))
+check("the designer is a project: six forms, starting at the designer itself", (designer.startup, sorted(designer.forms)),
+      ("designer.vml", ["browser.vml", "databases.vml", "designer.vml", "menu-editor.vml", "module-editor.vml", "script-editor.vml"]))
 check("every form and module it names is there", [f for f in designer.forms + designer.modules if not designer.absolute(f).is_file()], [])
 text = open(os.path.join(DESIGNER, "designer.vml"), encoding="utf-8").read()
 check("the designer's form holds its layout and none of its code", ("@Script" in text, len(text.splitlines()) < 700), (False, True))

@@ -46,7 +46,7 @@ class _Bar(QWidget):
 
 
 class Box(QDialog):
-    def __init__(self, parent, title, message, buttons=("OK",), edge="", ask=None):
+    def __init__(self, parent, title, message, buttons=("OK",), edge="", ask=None, picture=None):
         super().__init__(parent)
         self.setWindowTitle(str(title))
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)  # our own bar and edge: one frame, all the way round
@@ -62,6 +62,21 @@ class Box(QDialog):
         frame.addLayout(outer)
         outer.setContentsMargins(22, 18, 22, 14)
         outer.setSpacing(12)
+        self.picture = None
+        if picture:                                             # a picture above the words: a data: address, or a file
+            from PySide6.QtGui import QPixmap
+            pix = QPixmap()
+            text_form = str(picture)
+            if text_form.startswith("data:"):
+                import base64
+                pix.loadFromData(base64.b64decode(text_form.split(",", 1)[1]))
+            else:
+                pix.load(text_form)
+            if not pix.isNull():
+                self.picture = QLabel()
+                self.picture.setPixmap(pix)
+                self.picture.setAlignment(Qt.AlignCenter)
+                outer.addWidget(self.picture)
         text = QLabel(str(message))
         text.setWordWrap(True)
         text.setTextFormat(Qt.PlainText)
@@ -126,8 +141,8 @@ class Box(QDialog):
         return self.answer
 
 
-def message(parent, title, text, edge=""):
-    Box(parent, title, text, ("OK",), edge).run()
+def message(parent, title, text, edge="", picture=None):
+    Box(parent, title, text, ("OK",), edge, picture=picture).run()
 
 
 def confirm(parent, title, text, edge=""):
@@ -139,3 +154,8 @@ def prompt(parent, title, text, default="", edge="", secret=False):
     if secret:
         box.input.setEchoMode(QLineEdit.Password)
     return box.reply if box.run() == "OK" else ""
+
+
+def choose(parent, title, text, buttons, edge=""):
+    """A question with answers of your own. Returns the one pressed ("" if the box was closed another way)."""
+    return Box(parent, title, text, tuple(buttons), edge).run()

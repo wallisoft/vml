@@ -8,7 +8,7 @@ function RefreshProject(...)
     local open = info ~= ""
     Vml("SetProperty", "ProjectPane", "IsVisible", open and "true" or "false")
     Vml("SetProperty", "ProjSplit", "IsVisible", open and "true" or "false")
-    for _, item in ipairs({"ProjClose", "ProjAddNew", "ProjAddForm", "ProjAddModule", "ProjAddDatabase", "ProjStartup", "ProjRemove", "ProjRename"}) do
+    for _, item in ipairs({"ProjClose", "ProjAddNew", "ProjAddForm", "ProjAddModule", "ProjAddDatabase", "ProjBrowseData", "ProjStartup", "ProjRemove", "ProjRename"}) do
         Vml("SetMenuItemEnabled", item, open and "true" or "false")
     end
     Vml("SetMenuItemText", "ViewPreview", open and "Run Project" or "Preview")
@@ -34,7 +34,7 @@ function ProjectNew(...)
 end
 
 function ProjectOpen(...)
-    if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the changes to the current form?") ~= "true" then return end
+    if SaveFirst() ~= "true" then return end
     local path = Vml("FileOpenDialog", "Open a project", "vmlproj")
     if path == "" then return end
     Vml("RunScript", "ProjectLoad", path)
@@ -51,10 +51,12 @@ function ProjectLoad(...)
     else
         Vml("RunScript", "FileNewQuiet")
     end
+    RecentAdd(project.file)
     Vml("SetStatusText", "Opened project " .. project.name .. ": " .. #project.forms .. " forms, " .. #project.modules .. " modules")
 end
 
 function ProjectClose(...)
+    if SaveFirst() ~= "true" then return end
     Vml("ProjectClose")
     Vml("RunScript", "RefreshProject")
     Vml("SetStatusText", "Project closed")
@@ -65,7 +67,7 @@ function ProjOpenItem(...)
     local item = Vml("GetProperty", "ProjTree", "SelectedItem")
     local group, name = item:match("^(%w+)/(.+)$")
     if not group then return end
-    if group == "Databases" then return Vml("RunScript", "ProjectEditDatabase", name) end
+    if group == "Databases" then return Vml("RunScript", "BrowseData", name) end      -- look inside it (right-click to change its address)
     local path = Vml("ProjectPath", item)
     if path == "" then return end
     if group == "Modules" then
@@ -74,12 +76,7 @@ function ProjOpenItem(...)
         return
     end
     if path == Vml("GetSetting", "current_file") then return end
-    if Vml("GetSetting", "dirty") == "true" then
-        if Vml("ConfirmDialog", "Save the changes to the current form first?") == "true" then
-            Vml("RunScript", "FileSave")
-            if Vml("GetSetting", "dirty") == "true" then return end      -- the save was cancelled
-        end
-    end
+    if SaveFirst() ~= "true" then return end
     if Vml("RunScript", "OpenFormFile", path) == "true" then Vml("SetStatusText", "Opened " .. path) end
 end
 
@@ -89,12 +86,13 @@ function ProjShowMenu(...)
     Vml("SetMenuItemEnabled", "PmOpen", group and "true" or "false")
     Vml("SetMenuItemEnabled", "PmStartup", group == "Forms" and "true" or "false")
     Vml("SetMenuItemEnabled", "PmRemove", group and "true" or "false")
+    Vml("SetMenuItemEnabled", "PmAddress", group == "Databases" and "true" or "false")
     Vml("ShowContextMenu", "ProjMenu")
 end
 
 function ProjectAddNewForm(...)
     -- a blank form; saving it into the project's folder adds it to the project
-    if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the changes to the current form?") ~= "true" then return end
+    if SaveFirst() ~= "true" then return end
     Vml("RunScript", "FileNewQuiet")
     local project = require("dkjson").decode(Vml("ProjectInfo"))
     local n = #project.forms + 1
@@ -161,4 +159,11 @@ function ProjectRename(...)
     if name == "" then return end
     Vml("ProjectSetName", name)
     Vml("RunScript", "RefreshProject")
+end
+
+-- right-click a database in the project tree > Address...: the Databases screen, on that one
+function ProjEditAddress(...)
+    local item = Vml("GetProperty", "ProjTree", "SelectedItem")
+    local group, name = item:match("^(%w+)/(.+)$")
+    if group == "Databases" then Vml("RunScript", "ProjectEditDatabase", name) end
 end

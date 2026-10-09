@@ -7,6 +7,7 @@ Databases
     Vml("DbQuery", "main", "SELECT * FROM people WHERE age > ?", 30)      -> JSON, one object per row
     Vml("DbExecute", "main", "UPDATE people SET age = ? WHERE id = ?", 31, 7)
     Vml("DbCopyTable", "sales", "Orders", "main")        a table and its rows, from any database into a SQLite one
+    Vml("DbShow", "grid1", "sales", "Orders")            a table's first rows (or a SELECT's) straight into a DataGrid
     A project can name its databases in the project file, and they open by themselves when first used.
 
 Passwords need not be written down. In any address, ${NAME} is replaced by the environment variable of that name, and
@@ -370,6 +371,66 @@ class DataCommands:
             return json.dumps({"ok": True, "kind": db.kind, "tables": found, "error": ""})
         except Exception as exc:
             return json.dumps({"ok": False, "kind": "", "tables": 0, "error": hide_password(exc)})
+
+    READS = re.compile(r"^\s*(select|with|pragma|explain|show|describe|values)\b", re.I)
+
+    def cmd_DbShow(self, grid, name, source, limit=200):
+        """Show a table (or the rows a SELECT asks for) in a DataGrid, straight from the database: the first
+        rows only (200 unless limit says otherwise), however big it is, with the columns in the database's order.
+        It only reads: anything that isn't a SELECT is refused. Returns JSON: {shown, total, columns, error};
+        total is -1 when the database wasn't asked to count (a query of your own)."""
+        try:
+            db, node = self._db(name), self._node(grid)
+            text = str(source).strip().rstrip(";")
+            cap = max(1, int(float(limit or 200)))
+            known = {t.lower(): t for t in db.tables()}
+            if text.lower() in known:
+                text = known[text.lower()]
+                sql, total = f"SELECT * FROM {db.quoted(text)}", None           # a table's name
+            elif self.READS.match(text) and ";" not in text:
+                sql, total = text, -1
+            else:
+                raise PermissionError("only a table's name or one SELECT can be shown here: this only reads")
+            cur = db.db.cursor()
+            cur.execute(sql)
+            cols = [d[0] for d in cur.description or []]
+            rows = []
+            for row in cur:                                      # one at a time: some drivers go round again if asked for many
+                if len(rows) >= cap:
+                    break
+                rows.append([plain(v) for v in row])
+            more = len(rows) >= cap
+            cur.close()
+            if total is None:
+                try:
+                    total = int(db.query(f"SELECT COUNT(*) FROM {db.quoted(text)}")[1][0][0])
+                except Exception:
+                    total = -1
+            elif not more:
+                total = len(rows)
+            node.widget.set_data(cols, rows)
+            self.db_error = ""
+            return json.dumps({"shown": len(rows), "total": total, "columns": len(cols), "error": ""})
+        except Exception as exc:
+            self.db_error = hide_password(exc)
+            return json.dumps({"shown": 0, "total": 0, "columns": 0, "error": hide_password(exc)})
+
+    def cmd_DbOdbcState(self):
+        """Can this computer use ODBC at all? JSON: {ready, module, library, drivers, why}. module: Python's ODBC
+        module is here; library: so is the system's ODBC (on Linux, unixODBC); why: what is missing, in words."""
+        try:
+            import pyodbc
+        except ImportError as exc:
+            missing_lib = "odbc" in str(exc).lower() and "no module" not in str(exc).lower()
+            return json.dumps({"ready": False, "module": missing_lib, "library": False, "drivers": 0,
+                               "why": "the system's ODBC library (unixODBC) isn't installed" if missing_lib
+                               else "Python's ODBC module (pyodbc) isn't installed"})
+        try:
+            count = len(pyodbc.drivers())
+        except Exception as exc:
+            return json.dumps({"ready": False, "module": True, "library": False, "drivers": 0, "why": str(exc)})
+        return json.dumps({"ready": True, "module": True, "library": True, "drivers": count,
+                           "why": "" if count else "ODBC is here, but no drivers are installed yet"})
 
     def cmd_DbDrivers(self):
         """The ODBC drivers installed on this computer (empty if ODBC itself isn't)."""

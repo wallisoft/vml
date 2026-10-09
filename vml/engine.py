@@ -278,6 +278,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         if hasattr(w, "set_edge") and not node.props.get("BorderBrush") and node.props.get("BorderThickness") in (None, "") \
                 and theme.get("Background"):
             w.set_edge(theme["Background"], 1)               # an edge the colour of its menu bar
+        if hasattr(w, "closeEvent") and isinstance(w, QWidget):
+            w.closing = lambda by_user=False: self._closing(node, by_user)
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
@@ -402,6 +404,25 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
 
     HANDLER_CALL = re.compile(r"^\s*([A-Za-z_]\w*)\s*\((.*)\)\s*$")
     HANDLER_CMD = re.compile(r"^\s*([A-Za-z_]\w*)\s+(.+?)\s*$")
+
+    def _closing(self, node, by_user=False):
+        """A form's window is about to close: run its OnClosing. False keeps it open (the handler called CancelClose).
+        The setting closing_by_user says whether a person closed it (its X, Alt+F4) or the program did."""
+        if not str(node.props.get("OnClosing") or "").strip() or str(node.scope).startswith("design:"):
+            return True
+        self.store.set_setting("closing_by_user", "true" if by_user else "false")
+        self._cancel_close = False
+        try:
+            self.fire(node, "OnClosing", {})
+        except Exception as exc:
+            log(f"OnClosing of {node.name}: {exc}")
+        cancelled, self._cancel_close = self._cancel_close, False
+        return not cancelled
+
+    def cmd_CancelClose(self):
+        """In a form's OnClosing handler: keep the form open after all (VB's Cancel = True)."""
+        self._cancel_close = True
+        return True
 
     def fire(self, node, event, details):
         if self._quiet:
@@ -2048,6 +2069,41 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             self._web_url = f"http://127.0.0.1:{server.server_address[1]}"
         return self._web_url
 
+    def cmd_PreviewOnPhone(self, surface="Surface"):
+        """Put the form being designed where a phone on the same network can open it, and return its address
+        ("" if this computer has no network address). The page is served from a folder that holds nothing else,
+        for as long as Visualised is open; anyone on the network who has the address can open it."""
+        import socket
+        node = self._surface(surface)
+        folder = Path(tempfile.gettempdir()) / "vml-phone"
+        folder.mkdir(exist_ok=True)
+        out = folder / "index.html"                             # so the address is just the computer and a number
+        self._export_html(node.name, str(out))
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe.connect(("10.255.255.255", 1))               # nothing is sent: this only asks which address would be used
+            address = probe.getsockname()[0]
+            probe.close()
+        except OSError:
+            address = ""
+        if not address or address.startswith("127."):
+            return ""
+        if getattr(self, "_phone_server", None) is None:
+            import functools
+            import threading
+            from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+            class Quiet(SimpleHTTPRequestHandler):
+                def log_message(self, *a):
+                    pass
+
+                def end_headers(self):                          # always the newest: a phone keeps old pages hard
+                    self.send_header("Cache-Control", "no-store")
+                    super().end_headers()
+            self._phone_server = ThreadingHTTPServer(("0.0.0.0", 0), functools.partial(Quiet, directory=str(folder)))
+            threading.Thread(target=self._phone_server.serve_forever, daemon=True).start()
+        return f"http://{address}:{self._phone_server.server_address[1]}/"
+
     def cmd_PreviewDesign(self, surface="Surface"):
         """Run the form being designed, for real, in its own window."""
         surf = self._surface(surface)
@@ -2191,8 +2247,21 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         w = self._parent_window()
         return (w.edge_name() if w is not None and hasattr(w, "edge_name") else "") or dialogs.NEUTRAL
 
-    def cmd_InfoDialog(self, message, title="Information"):
-        dialogs.message(self._parent_window(), title, message, self._edge())
+    def cmd_InfoDialog(self, message, title="Information", picture=""):
+        """A message with an OK button. picture: a picture to show above it (a file, or a data: address such as
+        QrCode gives)."""
+        dialogs.message(self._parent_window(), title, message, self._edge(), picture=str(picture or "") or None)
+
+    def cmd_QrCode(self, text, scale=6):
+        """A QR code for some text (an address, usually), as a picture: a data: address to give an Image as its
+        Source, or InfoDialog as its picture. Up to 213 characters. "" if it is too long."""
+        import base64
+        from . import qr
+        try:
+            return "data:image/png;base64," + base64.b64encode(qr.png(str(text), max(1, int(float(scale or 6))))).decode()
+        except ValueError as exc:
+            self.log_line(f"QrCode: {exc}")
+            return ""
 
     def cmd_ErrorDialog(self, message, title="Error"):
         dialogs.message(self._parent_window(), title, message, self._edge())
@@ -2200,10 +2269,24 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
     def cmd_ConfirmDialog(self, message, title="Confirm"):
         return dialogs.confirm(self._parent_window(), title, message, self._edge())
 
+    def cmd_ChoiceDialog(self, message, title="Choose", buttons="Yes|No|Cancel"):
+        """A question with your own answers: buttons is their captions with | between them (the first is the
+        one Enter presses). Returns the caption pressed, or "" if the box was closed without one."""
+        labels = [b.strip() for b in str(buttons).split("|") if b.strip()] or ["OK"]
+        return dialogs.choose(self._parent_window(), title, message, labels, self._edge())
+
     def cmd_PromptDialog(self, title="", prompt="", default="", secret=""):
         """Ask for one line of text. Returns what was typed, or "" if cancelled. secret "true" shows dots, for a password."""
         return dialogs.prompt(self._parent_window(), title or "Enter a value", prompt, default, self._edge(),
                               secret=str(secret).strip().lower() in ("true", "1", "yes"))
+
+    def cmd_ClipboardSet(self, text=""):
+        """Put text on the clipboard, ready to paste."""
+        QApplication.clipboard().setText(str(text))
+        return True
+
+    def cmd_ClipboardGet(self):
+        return QApplication.clipboard().text()
 
     def cmd_FileOpenDialog(self, title="Open", ext=""):
         kinds = [e.strip().lstrip(".") for e in str(ext).split(",") if e.strip()]       # "vml", or "vb,cs" for several

@@ -224,6 +224,29 @@ Vml("CloseSelf")
 Plain control names always mean "my own form", so two forms can both have a `btnOK`. `ShowForm`, `HideForm` and
 `CloseForm` manage open forms by name. Previewing a saved form in the designer finds its child forms next to the file.
 
+### Timer, ProgressBar, Splitter
+
+```vml
+@Timer tmrClock            -- not seen when the form runs; a small clock on the design surface
+Interval=1000              -- milliseconds
+IsEnabled=true             -- false stops it; a script can turn it on and off
+OnTick=ShowTime
+
+@ProgressBar barCopy
+Value=40                   -- between Minimum (0) and Maximum (100)
+BarStyle=Blocks            -- Solid, Blocks or Thin
+ShowText=true              -- the percentage, written on the bar
+IsIndeterminate=false      -- true sweeps to and fro, for work of unknown length
+Foreground=#16A34A         -- the bar; Background is the track behind it
+
+@Splitter split            -- in a DockPanel: drag it to resize the pane docked just before it
+DockPanel.Dock=Left
+```
+
+All three work the same in a web page. A form's `OnClosing` runs when its window closes; `Vml("CancelClose")` in it
+keeps the form open, and `Vml("ChoiceDialog", "Save the changes?", "Unsaved", "Save|Don't Save|Cancel")` asks a
+question with answers of your own.
+
 ### Importers
 
 An importer is not part of the engine. It is a VML file of Lua scripts in `designer/importers` (the ones that come
@@ -283,7 +306,8 @@ Database=main=sqlite:data.db
 
 ### Data
 
-**Settings → Databases (ODBC)…** shows the project's databases, the ODBC drivers and data sources this computer has,
+**Project → Browse Data…** looks inside any database the project names, SQLite or ODBC: its tables, the first rows of
+each, and a SELECT of your own. It only reads. **Settings → Databases (ODBC)…** shows the project's databases, the ODBC drivers and data sources this computer has,
 builds an address from boxes (driver or DSN, server, database, user), tests it, and can copy an ODBC database's
 tables and rows into a SQLite file the app carries with it. A password need not be kept in the project file:
 
@@ -337,7 +361,7 @@ Commonly used `Vml()` commands:
 | Controls | `CreateControl` · `DeleteControl` · `ControlExists` · `GetChildControls` · `ClearChildren` |
 | Shared state | `GetSetting` · `SetSetting` |
 | Scripts | `RunScript` · `ExecuteScript` · `Shell` |
-| Data | `DbOpen` · `DbQuery` (JSON) · `DbExecute` · `DbClose` · `DbTables` · `DbCopyTable` · `DbDrivers` · `DbSources` · `DbTest` · `DbError` · `Requery` · `GridSetData` · `SqlQuery` · `SqlExecute` (the form's own database) |
+| Data | `DbOpen` · `DbQuery` (JSON) · `DbExecute` · `DbClose` · `DbTables` · `DbCopyTable` · `DbShow` · `DbDrivers` · `DbSources` · `DbTest` · `DbError` · `Requery` · `GridSetData` · `SqlQuery` · `SqlExecute` (the form's own database) |
 | Files | `FileExists` · `FileRead` · `FileWrite` · `FileList` · `FileCopy` · `FileSize` · `FileReadBase64` · `FileWriteBase64` · `FolderDialog` |
 | Text | `RegexMatch` · `RegexFindAll` · `RegexReplace` |
 | Forms and dialogs | `FormOpen` · `FormOpenModal` · `SetDialogResult` · `ShowForm` · `HideForm` · `CloseForm` · `CloseSelf` · `InfoDialog` · `ConfirmDialog` · `FileOpenDialog` · `FileSaveDialog` |

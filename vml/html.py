@@ -27,7 +27,7 @@ MENU_H = 26
 WEIGHTS = {"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600,
            "Bold": 700, "ExtraBold": 800, "Black": 900}
 EVENT_NAMES = ("OnClick", "TextChanged", "SelectionChanged", "OnKeyDown", "OnKeyUp", "OnPointerPressed",
-               "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus", "OnChecked", "OnOpened", "OnDoubleClick")
+               "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus", "OnChecked", "OnOpened", "OnDoubleClick", "OnTick")
 FIT = {"Fill": "fill", "UniformToFill": "cover", "None": "none"}        # Image.Stretch -> CSS object-fit
 EMBED_LIMIT = 2_000_000          # a picture file smaller than this goes inside the page, so the page stays one file
 MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".bmp": "image/bmp",
@@ -243,6 +243,19 @@ class Page:
             opts = "".join(f'<option{" selected" if i == sel else ""}>{esc(t)}</option>' for i, t in enumerate(items))
             size = ' size="6"' if ctype == "ListBox" else ""
             return f'<select {attrs}{size} style="{";".join(css)}"{disabled}>{opts}</select>'
+        if ctype == "Timer":                                    # not seen: it ticks (see wire() in the page)
+            on = "false" if str(p.get("IsEnabled", "true")).lower() == "false" else "true"
+            return f'<span {attrs} data-interval="{int(num(p.get("Interval"), 1000))}" data-on="{on}" hidden></span>'
+        if ctype == "ProgressBar":
+            css = [c for c in css if not c.startswith(("background:", "color:"))]
+            style = str(p.get("BarStyle") or "Solid").lower()
+            flags = "".join(f' data-{k}="{v}"' for k, v in (
+                ("value", num(p.get("Value"), 0)), ("min", num(p.get("Minimum"), 0)), ("max", num(p.get("Maximum"), 100)),
+                ("style", style), ("text", str(p.get("ShowText", "")).lower() == "true"),
+                ("busy", str(p.get("IsIndeterminate", "")).lower() == "true"),
+                ("upright", str(p.get("Orientation", "")).lower() == "vertical")))
+            css += [f"--track:{colour(p.get('Background') or '#E5E7EB')}", f"--bar:{colour(p.get('Foreground') or '#2563EB')}"]
+            return f'<div {attrs} class="pbar"{flags} style="{";".join(css)}"><i></i><b></b></div>'
         if ctype == "Rectangle":
             return f'<div {attrs} style="{";".join(css)}"></div>'
         if ctype == "Frame":
@@ -380,7 +393,11 @@ class Page:
         dkjson = (LUA_DIR / "dkjson.lua").read_text(encoding="utf-8")
         self.with_data = self.uses_data()
         main = next(iter(self.project.databases), "") if self.project is not None else ""
+        theme = next((self.props[r[0]] for r in self.rows if r[2] == "MenuTheme"), {})
+        self.bar_colour = colour(theme.get("Background") or wp.get("Background") or "#ffffff")
         data = {"form": win[3], "names": self.names, "scripts": scripts, "onOpened": wp.get("OnOpened", ""),
+                "design": [int(num(wp.get("Width"), 0)), int(num(wp.get("Height"), 0))],     # the size it was drawn at
+                "fit": str(wp.get("PhoneFit") or "Fit"),
                 "modules": self.modules, "project": self.project_name, "sources": self.sources(),
                 "data": self.with_data, "databases": self.databases() if self.with_data else {}, "mainDb": main,
                 "sqljs": SQLJS, "named": list(self.project.databases) if self.project is not None else [],
@@ -390,7 +407,7 @@ class Page:
             .replace("%%THEME%%", self.theme_css()).replace("%%BODY%%", body + self.context_menus()) \
             .replace("%%DATA%%", json.dumps(data).replace("</", "<\\/")) \
             .replace("%%DKJSON%%", json.dumps(dkjson).replace("</", "<\\/")).replace("%%WASMOON%%", WASMOON) \
-            .replace("%%SOURCE%%", esc(self.path.name)) \
+            .replace("%%SOURCE%%", esc(self.path.name)).replace("%%BAR%%", self.bar_colour) \
             .replace("%%BUNDLE%%", self.bundle() if offline else "")
 
     def bundle(self):
@@ -421,11 +438,16 @@ TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="%%BAR%%">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="application-name" content="%%TITLE%%">
 <meta name="generator" content="VML (from %%SOURCE%%)">
 <title>%%TITLE%%</title>
 <style>
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; height: 100%; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+  body.phone { overflow-x: hidden; }
   body { font: 13px system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif; color: #111827; background: %%BG%%; }
   #vml_window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
   #vml_window > * { flex: 1; min-height: 0; }
@@ -447,6 +469,16 @@ TEMPLATE = r"""<!DOCTYPE html>
   .cb { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .tb { overflow: hidden; text-overflow: ellipsis; }
   .canvas > *, .frame > * { box-sizing: border-box; }
+  .pbar { position: absolute; overflow: hidden; display: flex; align-items: center; }
+  .pbar::before { content: ""; position: absolute; inset: 0; background: var(--track); border-radius: 3px; }
+  .pbar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--bar); border-radius: 3px; }
+  .pbar > b { position: relative; width: 100%; text-align: center; font-weight: normal; font-size: 12px; color: #111827; }
+  .pbar[data-style="thin"]::before, .pbar[data-style="thin"] > i { top: calc(50% - 2px); bottom: calc(50% - 2px); border-radius: 2px; }
+  .pbar[data-style="blocks"] > i { background: repeating-linear-gradient(90deg, var(--bar) 0 var(--blk, 10px), transparent var(--blk, 10px) calc(var(--blk, 10px) + 2px)); border-radius: 0; }
+  .pbar[data-upright="True"] > i { top: auto; right: 0; width: auto; height: 0; }
+  .pbar[data-upright="True"][data-style="blocks"] > i { background: repeating-linear-gradient(0deg, var(--bar) 0 var(--blk, 10px), transparent var(--blk, 10px) calc(var(--blk, 10px) + 2px)); }
+  .pbar[data-busy="True"] > i { width: 30%; animation: vmlbusy 1.6s ease-in-out infinite alternate; }
+  @keyframes vmlbusy { from { left: 0; } to { left: 70%; } }
   .frame { position: absolute; }
   .frame > .cap { position: absolute; top: -0.7em; left: 8px; padding: 0 4px; background: inherit; background-color: %%BG%%; line-height: 1.2; }
   .menubar { display: flex; align-items: stretch; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; user-select: none; position: relative; z-index: 10; }
@@ -676,7 +708,20 @@ const commands = {
     const e = name === VML.form ? null : el(name);
     if (name === VML.form || !e) { if (prop === "Title") document.title = value; return ""; }
     const css = { Background: "background", Foreground: "color", Fill: "background" };
-    if (prop === "Text" || prop === "Content" || prop === "Header") setText(e, value);
+    if (e.dataset.type === "Timer" && (prop === "Interval" || prop === "IsEnabled")) {
+      if (prop === "Interval") e.dataset.interval = String(Number(value) || 1000); else e.dataset.on = truthy(value) ? "true" : "false";
+      setTimer(e);
+    }
+    else if (e.matches(".pbar") && (BAR_PROPS[prop] || prop === "Foreground" || prop === "Background")) {
+      if (prop === "Foreground") e.style.setProperty("--bar", value);
+      else if (prop === "Background") e.style.setProperty("--track", value);
+      else if (prop === "BarStyle") e.dataset.style = String(value).toLowerCase();
+      else if (prop === "Orientation") e.dataset.upright = String(value).toLowerCase() === "vertical" ? "True" : "False";
+      else if (prop === "ShowText" || prop === "IsIndeterminate") e.dataset[BAR_PROPS[prop]] = truthy(value) ? "True" : "False";
+      else e.dataset[BAR_PROPS[prop]] = String(Number(value) || 0);
+      drawBar(e);
+    }
+    else if (prop === "Text" || prop === "Content" || prop === "Header") setText(e, value);
     else if (css[prop]) e.style[css[prop]] = value;
     else if (prop === "FontSize") e.style.fontSize = value + "px";
     else if (prop === "IsVisible") e.style.display = truthy(value) ? "" : "none";
@@ -714,6 +759,8 @@ const commands = {
     if (!e) return "";
     if (prop === "Text" || prop === "Content" || prop === "Header") return textOf(e);
     if (prop === "IsChecked") return e.querySelector("input").checked ? "true" : "false";
+    if (e.dataset.type === "Timer") { if (prop === "Interval") return e.dataset.interval; if (prop === "IsEnabled") return e.dataset.on; }
+    if (e.matches(".pbar") && ["Value", "Minimum", "Maximum"].includes(prop)) return e.dataset[BAR_PROPS[prop]];
     if (e.matches(".grid")) {
       if (prop === "SelectedIndex") return String(e._sel);
       if (prop === "SelectedValue") return gridValue(e);
@@ -812,9 +859,61 @@ function keyDetails(e) {
 }
 function pointer(e, target) {
   const r = target.getBoundingClientRect();
-  return { event_x: Math.round(e.clientX - r.left), event_y: Math.round(e.clientY - r.top), mouse_button: ["Left", "Middle", "Right"][e.button] || "Left" };
+  return { event_x: Math.round((e.clientX - r.left) / SCALE), event_y: Math.round((e.clientY - r.top) / SCALE), mouse_button: ["Left", "Middle", "Right"][e.button] || "Left" };
 }
+// a progress bar is drawn from its data- attributes
+function drawBar(e) {
+  const d = e.dataset, lo = Number(d.min), hi = Number(d.max);
+  let f = hi > lo ? Math.max(0, Math.min(1, (Number(d.value) - lo) / (hi - lo))) : 0;
+  const bar = e.querySelector("i"), text = e.querySelector("b"), up = d.upright === "True";
+  if (d.style === "blocks") {                              // whole blocks only, as on the desktop
+    const across = up ? e.clientWidth : e.clientHeight, along = up ? e.clientHeight : e.clientWidth;
+    const blk = Math.max(6, Math.round(across * 0.6)), n = Math.max(1, Math.floor((along + 2) / (blk + 2)));
+    e.style.setProperty("--blk", blk + "px");
+    f = along ? Math.round(f * n) * (blk + 2) / along : 0;
+  }
+  if (d.busy !== "True") { bar.style[up ? "height" : "width"] = (Math.min(1, f) * 100) + "%"; bar.style.left = ""; }
+  const pc = hi > lo ? Math.round(Math.max(0, Math.min(1, (Number(d.value) - lo) / (hi - lo))) * 100) : 0;
+  text.textContent = d.text === "True" && d.style !== "thin" && d.busy !== "True" ? pc + "%" : "";
+  text.style.color = pc > 55 && d.style !== "blocks" ? "#fff" : "#111827";
+}
+const BAR_PROPS = { Value: "value", Minimum: "min", Maximum: "max", BarStyle: "style", ShowText: "text", IsIndeterminate: "busy", Orientation: "upright" };
+
+// timers: each runs its OnTick handler every Interval milliseconds while it is on
+const ticking = {};
+function setTimer(e) {
+  clearInterval(ticking[e.id]);
+  delete ticking[e.id];
+  const h = VML.handlers.find(x => x.id === e.id && x.event === "OnTick");
+  if (h && e.dataset.on === "true") ticking[e.id] = setInterval(() => handle(h.handler, h.name), Math.max(1, Number(e.dataset.interval) || 1000));
+}
+
+// On a screen narrower than the form was drawn (a phone), the whole form is scaled to the screen's width, and given
+// the screen's height at that scale, so what is anchored to the bottom reaches the bottom. PhoneFit=None on the
+// Window turns this off. SCALE is what one form pixel measures on screen.
+let SCALE = 1;
+function fitScreen() {
+  const w = document.getElementById("vml_window"), [dw, dh] = VML.design || [0, 0];
+  const narrow = VML.fit !== "None" && dw > 0 && window.innerWidth < dw;
+  document.body.classList.toggle("phone", narrow);
+  if (!narrow) {
+    if (SCALE !== 1) { SCALE = 1; w.style.cssText = ""; }
+    return;
+  }
+  SCALE = window.innerWidth / dw;
+  const tall = Math.max(window.innerHeight / SCALE, VML.fit === "Width" ? dh : 0);
+  w.style.inset = "auto"; w.style.left = "0"; w.style.top = "0";
+  w.style.width = dw + "px"; w.style.height = tall + "px";
+  w.style.transformOrigin = "0 0"; w.style.transform = `scale(${SCALE})`;
+  document.querySelectorAll(".pbar").forEach(drawBar);
+}
+window.addEventListener("resize", fitScreen);
+window.addEventListener("orientationchange", fitScreen);
+
 function wire() {
+  fitScreen();
+  document.querySelectorAll(".pbar").forEach(drawBar);
+  document.querySelectorAll('[data-type="Timer"]').forEach(setTimer);
   for (const h of VML.handlers) {
     const outer = document.getElementById(h.id);
     if (!outer) continue;

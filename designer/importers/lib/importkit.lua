@@ -204,10 +204,12 @@ end
 -- Most of an event handler has to be rewritten by a person. A few steps mean one thing only, and those are turned
 -- into Lua so an imported app opens its own forms, closes them and says what it said:
 --     frmAbout.Show / .ShowDialog()      Vml("FormOpen" or "FormOpenModal", "frmAbout")
---     Unload Me / Me.Close() / Me.Hide   Vml("CloseSelf")          Unload frmX      Vml("CloseForm", "frmX")
+--     Unload Me / Me.Close()             Vml("CloseSelf")          Unload frmX      Vml("CloseForm", "frmX")
+--     (Hide is left alone: a form that hides means to come back. And the handler that opens a form never closes it.)
 --     End / Application.Exit()           Vml("AppExit")            Exit Sub/Return  do return end
 --     MsgBox "text" / MessageBox.Show    Vml("InfoDialog", ...)    when the text is written out, not worked out
 --     x.Enabled / .Visible = True|False, x.Caption / .Text = "text", Me.Caption = "text"
+--     Timer1.Interval = 500, ProgressBar1.Value / .Min / .Max = 40
 -- Only steps that always happen are turned: nothing inside an If, a loop, a With or a Try, and nothing after a
 -- line that might have left the routine early. Everything else stays as a comment, exactly as it was.
 --
@@ -216,6 +218,7 @@ end
 --   ctx.net       true for Visual Basic .NET                unknown (then any name that isn't a control will do)
 --   ctx.controls  { lower name = { name = its name here, kind = "Button", text = "Content" or nil } }
 --   ctx.closing   true for the handler of the form closing: nothing in it is turned
+--   ctx.opening   true for the handler of the form opening: it may not close the form or end the app
 local TEXT_WORDS = { vbcrlf = "\r\n", vbnewline = "\r\n", vblf = "\n", vbcr = "\r", vbtab = "\t",
     ["environment.newline"] = "\n", ["controlchars.crlf"] = "\r\n", ["controlchars.newline"] = "\r\n",
     ["controlchars.lf"] = "\n", ["controlchars.tab"] = "\t" }
@@ -302,7 +305,7 @@ local OPENS = { "^if%s.*%sthen$", "^for%s", "^do$", "^do%s", "^while%s", "^selec
                 "^synclock%s", "^#if%s" }
 local CLOSES = { "^end%s+if$", "^next$", "^next%s", "^loop$", "^loop%s", "^wend$", "^end%s+while$", "^end%s+select$",
                  "^end%s+with$", "^end%s+try$", "^end%s+using$", "^end%s+synclock$", "^#end%s+if$" }
-local LEAVES = { "exit%s+sub", "exit%s+function", "exit%s+property", "%f[%a]goto%f[%A]", "%f[%a]return%f[%A]",
+local LEAVES = { "%.hide%f[%A]", "exit%s+sub", "exit%s+function", "exit%s+property", "%f[%a]goto%f[%A]", "%f[%a]return%f[%A]",
                  "%f[%a]resume%f[%A]", "%f[%a]unload%f[%A]", "%.close%f[%A]", "then%s+end$", "^end$", "%f[%a]throw%f[%A]",
                  "application%.exit" }
 
@@ -318,13 +321,15 @@ local function one_step(code, ctx, vars)
     end
 
     if low == "exit sub" or low == "exit function" or (ctx.net and low == "return") then return "do return end" end
-    if low == "end" or low == "application.exit()" or low == "application.exit" then return 'Vml("AppExit")' end
-    if low == "unload me" or low == "me.close()" or low == "me.close" or low == "me.hide" or low == "me.hide()"
-        or (ctx.net and (low == "close()" or low == "hide()")) then
-        return 'Vml("CloseSelf")'
+    -- Hiding is not closing: a form that hides itself means to come back (Me.Hide ... Me.Show), so Hide is left alone.
+    -- And nothing in the handler that opens a form closes that form or ends the app: there it is never the whole story.
+    if low == "end" or low == "application.exit()" or low == "application.exit" then
+        return not ctx.opening and 'Vml("AppExit")' or nil
+    end
+    if low == "unload me" or low == "me.close()" or low == "me.close" or (ctx.net and low == "close()") then
+        return not ctx.opening and 'Vml("CloseSelf")' or nil
     end
     local other = code:match("^[Uu]nload%s+([%a_][%w_]*)$") or code:match("^([%a_][%w_]*)%.[Cc]lose%(?%)?$")
-        or code:match("^([%a_][%w_]*)%.[Hh]ide%(?%)?$")
     if other then
         local form = (forms or vars[other:lower()]) and form_called(other)
         return form and ('Vml("CloseForm", ' .. lua_text(form) .. ")") or nil
@@ -381,6 +386,10 @@ local function one_step(code, ctx, vars)
             if text then return 'Vml("SetProperty", ' .. lua_text(ctx.form) .. ', "Title", ' .. lua_text(text) .. ")" end
         elseif c and c.kind ~= "MenuItem" and (prop == "enabled" or prop == "visible") and flag then
             return 'Vml("SetProperty", ' .. lua_text(c.name) .. ', "' .. (prop == "enabled" and "IsEnabled" or "IsVisible") .. '", "' .. flag .. '")'
+        elseif c and value:match("^%-?%d+%.?%d*$") and ((c.kind == "Timer" and prop == "interval")
+            or (c.kind == "ProgressBar" and (prop == "value" or prop == "min" or prop == "max" or prop == "minimum" or prop == "maximum"))) then
+            local ours = ({ interval = "Interval", value = "Value", min = "Minimum", max = "Maximum", minimum = "Minimum", maximum = "Maximum" })[prop]
+            return 'Vml("SetProperty", ' .. lua_text(c.name) .. ', "' .. ours .. '", "' .. value .. '")'
         elseif c and c.text and (prop == "caption" or prop == "text") then
             local text = kit.basic_text(value)
             if text then return 'Vml("SetProperty", ' .. lua_text(c.name) .. ', "' .. c.text .. '", ' .. lua_text(text) .. ")" end

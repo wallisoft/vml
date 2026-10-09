@@ -126,7 +126,7 @@ def steps():
     eng.load(os.path.join(HERE, "designer", "designer.vml")); settle()
     menu = [a.text() for a in eng.find("FileImport").menu.actions()]
     check("File > Import lists every importer in the library, what is still to come, and a way to add one",
-          menu, ["Toy form...", "Visual Basic 5/6 form...", "Visual Basic 5/6 project...", "Windows Forms form (Visual Studio, VB or C#)...",
+          menu, ["Visualised form (.vml)...", "Toy form...", "Visual Basic 5/6 form...", "Visual Basic 5/6 project...", "Windows Forms form (Visual Studio, VB or C#)...",
                  "Visual Studio project (.vbproj, .csproj)...", "", "Coming soon:", "Delphi form (.dfm)...", "Qt Designer (.ui)...", "XAML (WPF, Avalonia)...", "Web page (HTML form)...", "", "Add an importer..."])
     picked["file"] = str(WORK / "two.toy")
     eng.find("FileImport_Toy").action.trigger(); settle()

@@ -10,6 +10,7 @@ function BuildImportMenu(...)
         Vml("SetProperty", name, "Text", text)
         if onclick then Vml("SetEvent", name, "OnClick", onclick) else Vml("SetProperty", name, "IsEnabled", "false") end
     end
+    item("FileImportVml", "Visualised form (.vml)...", "ImportVmlCopy")       -- a copy of a form, as a new one: for everyone
     for _, imp in ipairs(require("dkjson").decode(Vml("GetImporters"))) do
         if #imp.files > 0 then item("FileImport_" .. imp.name, imp.title .. "...", "ImportFormWith(" .. imp.name .. ")") end
         if #imp.project_files > 0 then item("FileImportProject_" .. imp.name, imp.project_title .. "...", "ImportProjectWith(" .. imp.name .. ")") end
@@ -44,7 +45,7 @@ function ImportFormWith(...)
     local imp
     for _, i in ipairs(require("dkjson").decode(Vml("GetImporters"))) do if i.name == args[1] then imp = i end end
     if not imp then return end
-    if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the current form?") ~= "true" then return end
+    if SaveFirst() ~= "true" then return end
     local path = Vml("FileOpenDialog", "Import: choose a " .. imp.title .. " file", table.concat(imp.files, ","))
     if path == "" then return end
     if Vml("ImportForm", imp.name, path, "Surface") == "true" then
@@ -67,7 +68,7 @@ function ImportProjectWith(...)
     local imp
     for _, i in ipairs(require("dkjson").decode(Vml("GetImporters"))) do if i.name == args[1] then imp = i end end
     if not imp then return end
-    if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the changes to the current form?") ~= "true" then return end
+    if SaveFirst() ~= "true" then return end
     local source = Vml("FileOpenDialog", "Import: choose the " .. imp.project_title .. " file", table.concat(imp.project_files, ","))
     if source == "" then return end
     local folder = Vml("FolderDialog", "Where shall the new Visualised project go?  (The original is only read. Its own folder is fine: a new folder is made inside it.)", (source:gsub("[/\\][^/\\]*$", "")))

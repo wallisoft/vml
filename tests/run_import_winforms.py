@@ -88,10 +88,10 @@ check("C#: a tree becomes a TreeView", (b["tree"][0], b["tree"][1]["Width"]), ("
 check("C#: events wired in the designer file are attached", (b["btnSave"][1].get("OnClick"), b["txtCustomer"][1].get("TextChanged"), b["newItem"][1].get("OnClick"), b["OrderForm"][1].get("OnOpened")), ("btnSave_OnClick", "txtCustomer_TextChanged", "newItem_OnClick", "OrderForm_OnOpened"))
 save = vml.split("<<END_BTNSAVE_ONCLICK\n")[1].split("\nEND_BTNSAVE_ONCLICK")[0].splitlines()
 check("C#: the whole method is kept, from its first line to its closing brace, with its shape", (save[3], save[-1], "--           MessageBox.Show(\"Who is it for?\");" in save), ("--   private void btnSave_Click(object sender, EventArgs e)", "--   }", True))
-check("C#: a timer is not on the form, and the notes list it", any("timer1 (Timer)" in n for n in notes))
+check("C#: a timer comes across as a Timer, off until the code turns it on", (b["timer1"][0], b["timer1"][1].get("IsEnabled"), any("timer1 (Timer)" in n for n in notes)), ("Timer", "false", False))
 check("C#: a grid becomes a DataGrid with its column headings, and its double-click handler", (b["grid"][0], b["grid"][1].get("Columns"), b["grid"][1].get("OnDoubleClick")), ("DataGrid", "Item,Quantity", "grid_OnDoubleClick"))
 check("C#: the notes say the grid comes across empty", any("comes across empty" in n and "grid" in n for n in notes))
-check("C#: a control with no equal yet is a labelled frame of the same size, and the notes say so", (b["progress"][0], b["progress"][1]["Text"], b["progress"][1]["Width"], any("No equal yet for ProgressBar" in n for n in notes)), ("Frame", "ProgressBar: progress", "200", True))
+check("C#: a progress bar comes across as one, the same size", (b["progress"][0], b["progress"][1]["Width"], b["progress"][1].get("BarStyle"), any("No equal yet for ProgressBar" in n for n in notes)), ("ProgressBar", "200", "Blocks", False))
 
 # ---------------------------------------------------------------- through the engine, onto the design surface
 def designer(tier):

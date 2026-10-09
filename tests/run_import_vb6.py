@@ -170,8 +170,10 @@ check("an OCX control with no equal yet is a labelled frame of the same size",
       (b["sldDiscount"][0], [b["sldDiscount"][1].get(k) for k in ("Text", "Width", "Height", "Background", "BorderBrush", "BorderThickness")]),
       ("Frame", ["Slider: sldDiscount", "184", "26", "#fafafa", "#9ca3af", "1"]))
 check("and the notes say so", "No equal yet for Slider: sldDiscount is shown as a labelled frame of the same size." in notes)
-check("a timer and a common dialog are not on the form", ("tmrClock" in b, "dlgFile" in b), (False, False))
-check("and the notes list them", any("tmrClock (Timer)" in n and "dlgFile (CommonDialog)" in n and n.startswith("Not on the form itself") for n in notes))
+check("a timer comes across as a Timer, with its interval, and its Timer event as OnTick; a common dialog is not on the form",
+      (b["tmrClock"][0], b["tmrClock"][1].get("Interval"), b["tmrClock"][1].get("IsEnabled"), b["tmrClock"][1].get("OnTick"), "Width" in b["tmrClock"][1], "dlgFile" in b),
+      ("Timer", "1000", "true", "tmrClock_OnTick", False, False))
+check("and the notes list what was not", any("dlgFile (CommonDialog)" in n and "tmrClock" not in n and n.startswith("Not on the form itself") for n in notes))
 
 # code
 check("the form's Load and Unload are attached to the window opening and closing", (win.get("OnOpened"), win.get("OnClosing")), ("frmMain_OnOpened", "frmMain_OnClosing"))
@@ -200,20 +202,21 @@ check("every handler named on a control has its script in the form", sorted(set(
 check("handlers with no matching event are kept as scripts all the same", ["@Script " + n + "\n" in vml for n in ("frmMain_Activate", "frmMain_Resize", "txtPin_KeyPress", "sldDiscount_Change")], [True] * 4)
 check("and the notes name them as kept but not attached",
       "Kept as scripts but not attached, because there is no matching event here yet: the form.Activate, the form.Resize, txtPin.KeyPress, sldDiscount.Change." in notes)
-check("the timer's handler is left behind, and the notes say so", ("tmrClock_Timer" in vml, "Handlers for things that were not brought across were left behind: tmrClock.Timer." in notes), (False, True))
+check("the timer's handler is its script, kept as comments (its caption is worked out, so nothing in it runs)",
+      ("--   Private Sub tmrClock_Timer()" in script(vml, "tmrClock_OnTick"), all(ln.startswith("--") for ln in script(vml, "tmrClock_OnTick")), any("left behind" in n for n in notes)), (True, True, False))
 other = r.get("other_code", [])
-check("the rest of the code is handed back whole: declarations, helpers, and the timer's handler",
+check("the rest of the code is handed back whole: declarations and helpers",
       [ln in other for ln in ("Option Explicit", 'Private Declare Function GetTickCount Lib "kernel32" () As Long', "Dim mOrder As clsOrder", "Private Sub RefreshTotals()",
-                              "Private Function LineTotal(ByVal UnitPrice As Currency, ByVal Quantity As Integer) As Currency", "Private Sub tmrClock_Timer()")], [True] * 6)
+                              "Private Function LineTotal(ByVal UnitPrice As Currency, ByVal Quantity As Integer) As Currency")], [True] * 5)
 check("no attached handler is in the rest, and no Attribute line", [ln for ln in other if "cmdQty_Click(Index" in ln or "Form_Load" in ln or ln.startswith("Attribute ")], [])
 check("a Declare line is not mistaken for the start of a procedure", "Private mDirty As Boolean" in other)
 
 # notes and numbers
-check("the notes start with what came across", notes[0], "frmMain: 23 controls brought across, and 12 menu items.")
-check("the numbers handed back agree with the notes", (r.get("name"), r.get("controls"), r.get("menu_items"), r.get("scripts")), ("frmMain", 23, 12, 21))
+check("the notes start with what came across", notes[0], "frmMain: 24 controls brought across, and 12 menu items.")
+check("the numbers handed back agree with the notes", (r.get("name"), r.get("controls"), r.get("menu_items"), r.get("scripts")), ("frmMain", 24, 12, 22))
 check("the notes count the handlers and say plainly that the code does not run",
-      "21 event handlers from frmMain.frm came across as scripts. The Visual Basic is kept as comments for reference; it does not run." in notes)
-check("the notes count the code that is not in the form", "18 other lines of code in frmMain.frm (helpers, variables) are not in the form; the original file is untouched." in notes)
+      "22 event handlers from frmMain.frm came across as scripts. The Visual Basic is kept as comments for reference; it does not run." in notes)
+check("the notes count the code that is not in the form", "15 other lines of code in frmMain.frm (helpers, variables) are not in the form; the original file is untouched." in notes)
 claims = re.compile(r"\b(runs|will run|works|is working|converted to lua|translated)\b", re.I)
 check("the notes claim only the plain steps run, and say to check them", [n for n in notes if claims.search(n)],
       ["Except the plain steps, which were translated and do run: 5 lines in 5 scripts (opening and closing forms, messages, simple settings). Check them."])
@@ -224,7 +227,7 @@ os.makedirs(BARE)
 shutil.copy(os.path.join(FIXTURES, "frmMain.frm"), BARE)
 r3 = convert("frmMain.frm", folder=BARE)
 b3 = blocks(r3.get("vml", ""))
-check("a form whose .frx is missing still comes across, every control of it", (r3.get("error"), r3.get("controls"), "imgLogo" in b3, "lstProducts" in b3), (None, 23, True, True))
+check("a form whose .frx is missing still comes across, every control of it", (r3.get("error"), r3.get("controls"), "imgLogo" in b3, "lstProducts" in b3), (None, 24, True, True))
 check("its picture and lists are left empty", (b3["imgLogo"][1].get("Source"), b3["lstProducts"][1].get("Items"), b3["txtNotes"][1].get("Text")), (None, None, None))
 check("and the notes say the .frx wasn't there, for the picture, the lists and the text",
       [any(n.startswith(who) and "frmMain.frx, which wasn't beside the form" in n for n in r3["notes"]) for who in ("imgLogo: its picture", "cboCategory, lstProducts: its list", "txtNotes: its text")], [True] * 3)
@@ -232,7 +235,7 @@ with open(os.path.join(BARE, "frmMain.frx"), "wb") as f:
     f.write(b"not a real frx")
 r4 = convert("frmMain.frm", folder=BARE)
 check("a .frx that makes no sense is not fatal either, and the notes say what couldn't be read",
-      (r4.get("error"), r4.get("controls"), any("imgLogo: its picture couldn't be read from frmMain.frx" in n for n in r4.get("notes", []))), (None, 23, True))
+      (r4.get("error"), r4.get("controls"), any("imgLogo: its picture couldn't be read from frmMain.frx" in n for n in r4.get("notes", []))), (None, 24, True))
 
 with open(os.path.join(FIXTURES, "frmAbout.frm"), newline="") as f:
     cut = f.read().replace("   End\r\nEnd\r\n", "   End\r\n")
@@ -337,9 +340,9 @@ check("a class comes across without the VERSION, BEGIN ... END and Attribute lin
 pm = blocks(open(os.path.join(OUT, "frmMain.vml"), encoding="utf-8").read())
 check("in a project, a form's picture is saved in images/ and the form points at it",
       (pm["imgLogo"][1].get("Source"), os.path.isfile(os.path.join(OUT, "images", "frmMain_imgLogo.bmp")), p.get("pictures")), ("images/frmMain_imgLogo.bmp", True, 1))
-check("the project's totals add up across its forms", (p.get("controls"), p.get("scripts")), (26, 22))
+check("the project's totals add up across its forms", (p.get("controls"), p.get("scripts")), (27, 23))
 check("the summary says what came across, and that the code does not run",
-      ("Shop: 2 forms brought across, with 26 controls, 12 menu items and 22 event handlers." in p.get("summary", ""), "the code does not run" in p.get("summary", ""), "1 picture saved in images/." in p.get("summary", "")), (True, True, True))
+      ("Shop: 2 forms brought across, with 27 controls, 12 menu items and 23 event handlers." in p.get("summary", ""), "the code does not run" in p.get("summary", ""), "1 picture saved in images/." in p.get("summary", "")), (True, True, True))
 report = open(p.get("notes_file", ""), encoding="utf-8").read() if p.get("notes_file") else ""
 check("IMPORT-NOTES.txt is written, with each form's notes under its name",
       (os.path.basename(p.get("notes_file", "")), report.startswith("Imported from Shop.vbp\n"), "== frmMain  (frmMain.frm)" in report, "== frmAbout  (frmAbout.frm)" in report,

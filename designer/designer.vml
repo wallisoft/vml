@@ -12,6 +12,7 @@ Title=Visualised
 Width=1180
 Height=760
 OnOpened=DesignerInit
+OnClosing=DesignerClosing
 
 @DockPanel Root
 Parent=Designer
@@ -115,11 +116,82 @@ Text=New
 Shortcut=Ctrl+N
 OnClick=FileNew
 
+@MenuItem FileNewPhone
+Parent=File
+Text=New Phone Form
+OnClick=FileNewPhone
+
 @MenuItem FileOpen
 Parent=File
 Text=Open...
 Shortcut=Ctrl+O
 OnClick=FileOpen
+
+@MenuItem FileRecent
+Parent=File
+Text=Open Recent
+
+@MenuItem FileRecent1
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(1)
+
+@MenuItem FileRecent2
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(2)
+
+@MenuItem FileRecent3
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(3)
+
+@MenuItem FileRecent4
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(4)
+
+@MenuItem FileRecent5
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(5)
+
+@MenuItem FileRecent6
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(6)
+
+@MenuItem FileRecent7
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(7)
+
+@MenuItem FileRecent8
+Parent=FileRecent
+Text=-
+IsVisible=false
+OnClick=RecentOpen(8)
+
+@MenuItem FileRecentNone
+Parent=FileRecent
+Text=(nothing yet)
+IsEnabled=false
+
+@MenuItem FileRecentSep
+Parent=FileRecent
+IsSeparator=true
+
+@MenuItem FileRecentClear
+Parent=FileRecent
+Text=Clear This List
+OnClick=RecentClear
 
 @MenuItem FileSave
 Parent=File
@@ -166,7 +238,7 @@ IsSeparator=true
 Parent=File
 Text=Exit
 Shortcut=Ctrl+Q
-OnClick=AppExit
+OnClick=DesignerExit
 
 @MenuItem Edit
 Parent=MenuBar
@@ -232,6 +304,12 @@ Text=Preview in Browser
 Shortcut=F6
 OnClick=PreviewBrowser
 
+@MenuItem ViewPhone
+Parent=View
+Text=Preview on Phone...
+Shortcut=F7
+OnClick=PreviewPhone
+
 @MenuItem ViewGrid
 Parent=View
 Text=Show Grid
@@ -279,6 +357,11 @@ OnClick=ProjectAddModule
 Parent=Project
 Text=Add Database...
 OnClick=ProjectAddDatabase
+
+@MenuItem ProjBrowseData
+Parent=Project
+Text=Browse Data...
+OnClick=BrowseData
 
 @MenuItem ProjSep2
 Parent=Project
@@ -529,6 +612,11 @@ OnClick=MenuBarRemove
 Parent=ProjMenu
 Text=Open
 OnClick=ProjOpenItem
+
+@MenuItem PmAddress
+Parent=ProjMenu
+Text=Address...
+OnClick=ProjEditAddress
 
 @MenuItem PmStartup
 Parent=ProjMenu

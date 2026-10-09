@@ -7,6 +7,7 @@ Form=script-editor.vml
 Form=menu-editor.vml
 Form=module-editor.vml
 Form=databases.vml
+Form=browser.vml
 Module=modules/app.lua
 Module=modules/surface.lua
 Module=modules/menus.lua

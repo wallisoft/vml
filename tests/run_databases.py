@@ -142,6 +142,34 @@ def inside_window(win):
     check("Save puts it in the project and the list", (project().get("notes"), items("lstDb")), ("sqlite:notes.db", ["main", "sales", "notes"]))
     V("SetProperty", "txtDbName", "Text", "9 lives"); eng.run_script("DbSave"); settle()
     check("a name that can't be used is refused", ("can't be used as a name" in get("lblDbResult"), "9 lives" in project()), (True, False))
+    # being told how to get ODBC, and having the line to paste
+    state = json.loads(V("DbOdbcState"))
+    check("DbOdbcState says whether ODBC can be used here, and why not if not", (set(state) == {"ready", "module", "library", "drivers", "why"}, state["ready"] == bool(drivers) or state["drivers"] == 0), (True, True))
+    if os.name != "nt":
+        yes[0] = True; confirms.clear()
+        eng.run_script("DbDriverHelp"); settle()
+        line = V("ClipboardGet")
+        check("Get a driver gives one line that sets ODBC up, and puts it on the clipboard",
+              ("sudo apt install -y unixodbc odbc-mdbtools" in confirms[-1], line.startswith("sudo apt install -y unixodbc odbc-mdbtools libsqliteodbc"), "Copied" in get("lblDbResult")), (True, True, True))
+        import vml.data as data_module
+        real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+        def no_odbc(name, *a, **k):
+            if name == "pyodbc":
+                raise ImportError("No module named 'pyodbc'")
+            return real_import(name, *a, **k)
+        import builtins
+        builtins.__import__ = no_odbc
+        try:
+            gone = json.loads(V("DbOdbcState"))
+            eng.run_script("DbDriverHelp"); settle()
+            check("with ODBC missing altogether, it says what is missing and the line installs that too",
+                  (gone["ready"], "pyodbc" in gone["why"], "isn't set up on this computer yet" in confirms[-1], V("ClipboardGet").endswith("pip install --break-system-packages pyodbc"),
+                   [w("lstDrivers").item(i).text() for i in range(w("lstDrivers").count())][0].startswith("(none found")), (False, True, True, True, True))
+        finally:
+            builtins.__import__ = real_import
+        eng.run_script("DbDriverHelp"); settle()
+        check("once it is there, pressing Get a driver again fills the list without reopening", [w("lstDrivers").item(i).text() for i in range(w("lstDrivers").count())] == (drivers or ["(none found: ODBC isn't set up on this computer. See Get a driver.)"]))
+
     # starting from a kind of database, and a driver by its file
     w("txtDbServer").setText(""); settle()
     w("cboPreset").setCurrentIndex(1); settle()
@@ -196,6 +224,40 @@ def steps():
     eng.load(os.path.join(HERE, "designer", "designer.vml")); settle()
     eng.run_script("ProjectLoad", os.path.join(PROJ, "T.vmlproj")); settle()
     check("Settings has Databases (ODBC)", eng.find("SetDatabases") is not None)
+
+    # before the screen opens: told once if ODBC can't be used here at all
+    import builtins
+    real_import = builtins.__import__
+    def no_odbc(name, *a, **k):
+        if name == "pyodbc":
+            raise ImportError("No module named 'pyodbc'")
+        return real_import(name, *a, **k)
+    seen = {}
+    def peek():
+        win = next((x for x in eng.windows if x.name == "Databases"), None)
+        if win is not None:
+            seen["name"], seen["note"] = V("GetProperty", "txtDbName", "Text"), V("GetProperty", "lblDbResult", "Text")
+            win.widget.close()
+    builtins.__import__ = no_odbc
+    try:
+        yes[0] = True; confirms.clear(); said.clear()
+        QTimer.singleShot(300, peek)
+        eng.find("SetDatabases").action.trigger(); settle()
+        if os.name == "nt":
+            check("with no ODBC, choosing Databases says so before the screen opens", (len(said), "ODBC isn't available" in said[0]), (1, True))
+        else:
+            check("with no ODBC, choosing Databases says so before the screen opens, with the line that sets it up",
+                  (len(confirms), "ODBC isn't set up on this computer yet" in confirms[0], V("ClipboardGet").startswith("sudo apt install -y unixodbc"), V("ClipboardGet").endswith("pyodbc")), (1, True, True, True))
+        check("the screen still opens, for SQLite, and says ODBC is missing; from the menu it is on no database in particular",
+              (seen.get("name"), "ODBC isn't set up on this computer yet" in seen.get("note", "")), ("", True))
+        confirms.clear(); said.clear(); seen.clear()
+        QTimer.singleShot(300, peek)
+        eng.find("SetDatabases").action.trigger(); settle()
+        check("it is said once, not every time", (confirms, said, "name" in seen), ([], [], True))
+    finally:
+        builtins.__import__ = real_import
+    eng.store.set_setting("odbc_told", "")
+
     QTimer.singleShot(300, inside)
     eng.run_script("ProjectEditDatabase", "sales"); settle()         # (what a double-click on it in the project tree runs)
     saved = open(os.path.join(PROJ, "T.vmlproj")).read()

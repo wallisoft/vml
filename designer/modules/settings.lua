@@ -77,9 +77,40 @@ end
 
 -- Settings > Databases: the project's databases, and the ODBC drivers and data sources this computer has.
 -- args[1]: a database to show ("+" for a new one), or nothing.
+-- The one line that sets ODBC up on Linux: ODBC itself, the drivers that are a package away, and Python's ODBC
+-- module if that is what is missing. (The Databases screen uses this too: every form of the project has the modules.)
+function OdbcSetupLine()
+    local state = require("dkjson").decode(Vml("DbOdbcState"))
+    local line = "sudo apt install -y unixodbc odbc-mdbtools libsqliteodbc odbc-postgresql odbc-mariadb"
+    if not state.module then line = line .. " && pip install --break-system-packages pyodbc" end
+    return line
+end
+
+-- Before the Databases screen opens: if this computer can't use ODBC at all, say so, with what to do about it.
+-- Once a session is enough; the screen still opens, because a SQLite file needs no ODBC.
+function OdbcCheck()
+    local state = require("dkjson").decode(Vml("DbOdbcState"))
+    if state.ready or Vml("GetSetting", "odbc_told") == "true" then return end
+    Vml("SetSetting", "odbc_told", "true")
+    if package.config:sub(1, 1) == "\\" then
+        Vml("InfoDialog", "ODBC isn't available on this computer (" .. state.why .. "), so databases on a server can't be reached yet.\n\nSQLite files work as they are, and the Databases screen opens next for those.", "ODBC isn't set up")
+        return
+    end
+    local line = OdbcSetupLine()
+    if Vml("ConfirmDialog", "ODBC isn't set up on this computer yet: " .. state.why .. ".\n\n"
+        .. "Until it is, a project can use SQLite files but not SQL Server, MySQL, PostgreSQL, Access or anything else reached through a driver.\n\n"
+        .. "This one line, in a terminal, sets it up, with the drivers for Access files, SQLite, PostgreSQL and MySQL or MariaDB:\n\n" .. line
+        .. "\n\nCopy that line, ready to paste into a terminal?\n\n(The Databases screen opens next either way: SQLite files need none of this.)", "ODBC isn't set up") == "true" then
+        Vml("ClipboardSet", line)
+        Vml("SetStatusText", "Copied: paste it into a terminal. When it has finished, press Get a driver in the Databases screen and the lists fill.")
+    end
+end
+
 function DatabasesShow(...)
     local args = { ... }
     local want = args[1] or ""
+    if want ~= "+" and Vml("ControlExists", want) == "true" then want = "" end      -- chosen from the menu: no database in particular
+    OdbcCheck()
     if want == "+" then
         local raw = Vml("ProjectInfo")
         local taken = raw ~= "" and require("dkjson").decode(raw).databases or {}
@@ -90,4 +121,18 @@ function DatabasesShow(...)
     Vml("SetSetting", "db_edit", want)
     Vml("FormOpenModal", "databases.vml")
     if Vml("ProjectInfo") ~= "" then Vml("RunScript", "RefreshProject") end
+end
+
+-- Project > Browse Data: look inside the project's databases (or, from the Databases screen, the address on screen).
+-- args: a database's name and an address, both optional.
+function BrowseData(...)
+    local args = { ... }
+    local name, address = args[1] or "", args[2] or ""
+    if Vml("ControlExists", name) == "true" then name = "" end            -- chosen from the menu: no database in particular
+    if address == "" and Vml("ProjectInfo") == "" then
+        return Vml("InfoDialog", "Open a project first: the browser shows the databases a project names.\n\n(Or use Browse in Settings > Databases (ODBC), which shows whatever address is on screen.)", "Browse Data")
+    end
+    Vml("SetSetting", "db_browse_name", name)
+    Vml("SetSetting", "db_browse_address", address)
+    Vml("FormOpenModal", "browser.vml")
 end

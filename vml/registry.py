@@ -573,6 +573,19 @@ class WindowWidget(QWidget):
     def edge_name(self):
         return self.edge.colour.name() if self.edge.colour is not None else ""
 
+    def closeEvent(self, e):
+        """The window is being closed: its OnClosing handler runs first, and can keep it open (CancelClose)."""
+        asked = getattr(self, "closing", None)
+        if asked is not None and not getattr(self, "_closing_now", False):
+            self._closing_now = True
+            try:
+                if asked(e.spontaneous()) is False:
+                    e.ignore()
+                    return
+            finally:
+                self._closing_now = False
+        super().closeEvent(e)
+
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.edge.setGeometry(self.rect())
@@ -735,6 +748,7 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                      remove_child=layout_remove, category="Containers",
                      events={"OnOpened": None, "OnClosing": None, **KEY_EVENTS}),   # OnOpened/OnClosing fired by the engine
          COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or ""))),
+                  Prop("PhoneFit", "choice", "Behaviour", options=("Fit", "None")),  # as a web page on a phone: scale to the screen's width, or leave alone
                   Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window
                   Prop("BorderThickness", "thickness", "Appearance", apply=window_edge),
                   Prop("Resizable", "bool", "Behaviour", default="true"),        # applied by the engine when shown
@@ -903,6 +917,142 @@ def splitter_size(node, _value=None):
         node.widget.setFixedWidth(thick)
     else:
         node.widget.setFixedHeight(thick)
+
+
+class TimerMark(QLabel):
+    """A Timer: it runs its OnTick script every Interval milliseconds while IsEnabled. On the design surface it is
+    a small clock to pick up and set; in the running form it is not seen."""
+
+    def __init__(self, node):
+        super().__init__("⏱")
+        from PySide6.QtCore import QTimer
+        self.node, self.fire = node, None
+        self.designing = str(node.scope).startswith("design:")
+        self.ticker = QTimer(self)
+        self.ticker.timeout.connect(self.tick)
+        self.setAlignment(Qt.AlignCenter)
+        self.setFixedSize(28, 28)
+        self.setStyleSheet("background-color: #FEF3C7; border: 1px solid #D97706; border-radius: 4px; font-size: 15px;")
+        self.setToolTip("Timer: runs OnTick every Interval milliseconds. It isn't seen when the form runs.")
+        if not self.designing:
+            self.setFixedSize(0, 0)
+            self.hide()
+
+    def setVisible(self, on):
+        super().setVisible(bool(on) and self.designing)        # never seen in a running form, whatever asks
+
+    def tick(self):
+        if self.fire is not None and not self.designing:
+            self.fire({})
+
+    def refresh(self):
+        gap = max(1, int(num(self.node.props.get("Interval"), 1000)))
+        on = str(self.node.props.get("IsEnabled", "true")).strip().lower() != "false"
+        if self.designing or not on:
+            self.ticker.stop()
+        elif not self.ticker.isActive() or self.ticker.interval() != gap:
+            self.ticker.start(gap)
+
+
+def timer_tick(node, fire):
+    node.widget.fire = fire
+    node.widget.refresh()
+
+
+register(ControlType("Timer", lambda n: TimerMark(n), events={"OnTick": timer_tick}),
+         [Prop("Name", "text", "Common"),
+          Prop("Interval", "number", "Behaviour", default="1000", apply=lambda n, v: n.widget.refresh()),   # milliseconds between ticks
+          Prop("IsEnabled", "bool", "Behaviour", default="true", apply=lambda n, v: n.widget.refresh())],  # false stops it
+         ATTACHED)
+
+
+class ProgressWidget(QFrame):
+    """A progress bar, drawn the same everywhere. BarStyle: Solid, Blocks (the classic row of squares) or Thin
+    (a line). ShowText puts the percentage on it; IsIndeterminate sweeps to and fro for work of unknown length."""
+
+    def __init__(self, node):
+        super().__init__()
+        from PySide6.QtCore import QTimer
+        self.node, self.phase = node, 0.0
+        self.sweep = QTimer(self)
+        self.sweep.timeout.connect(self.step)
+        self.setMinimumSize(8, 4)
+
+    def fraction(self):
+        p = self.node.props
+        low, high = num(p.get("Minimum"), 0), num(p.get("Maximum"), 100)
+        if high <= low:
+            return 0.0
+        return max(0.0, min(1.0, (num(p.get("Value"), 0) - low) / (high - low)))
+
+    def step(self):
+        self.phase = (self.phase + 0.02) % 2.0
+        self.update()
+
+    def refresh(self):
+        busy = str(self.node.props.get("IsIndeterminate", "")).lower() == "true" and not str(self.node.scope).startswith("design:")
+        if busy and not self.sweep.isActive():
+            self.sweep.start(30)
+        elif not busy and self.sweep.isActive():
+            self.sweep.stop()
+        self.update()
+
+    def paintEvent(self, e):
+        p = self.node.props
+        g = _QPainter(self)
+        g.setRenderHint(_QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        upright = str(p.get("Orientation", "")).lower() == "vertical"
+        style = str(p.get("BarStyle") or "Solid").lower()
+        track, bar = qcolour(p.get("Background") or "#E5E7EB"), qcolour(p.get("Foreground") or "#2563EB")
+        length, across = (h, w) if upright else (w, h)
+        thick = min(across, 4) if style == "thin" else across
+        off = (across - thick) / 2
+        radius = min(num(str(p.get("CornerRadius") or (2 if style == "thin" else 3)).split(",")[0]), thick / 2)
+
+        def box(start, size, colour):
+            g.setPen(Qt.NoPen)
+            g.setBrush(colour)
+            if upright:
+                g.drawRoundedRect(QRect(int(off), int(length - start - size), int(thick), int(size)), radius, radius)
+            else:
+                g.drawRoundedRect(QRect(int(start), int(off), int(size), int(thick)), radius, radius)
+
+        box(0, length, track)
+        if str(p.get("IsIndeterminate", "")).lower() == "true":
+            piece = length * 0.3
+            at = self.phase if self.phase <= 1 else 2 - self.phase
+            box(at * (length - piece), piece, bar)
+        elif style == "blocks":
+            block = max(6, int(thick * 0.6))
+            gap = 2
+            count = max(1, int((length + gap) // (block + gap)))
+            lit = int(round(self.fraction() * count))
+            for i in range(lit):
+                box(i * (block + gap), block, bar)
+        else:
+            filled = self.fraction() * length
+            if filled >= 1:
+                box(0, filled, bar)
+        if str(p.get("ShowText", "")).lower() == "true" and style != "thin" and str(p.get("IsIndeterminate", "")).lower() != "true":
+            g.setPen(qcolour(p.get("TextColour") or ("#FFFFFF" if self.fraction() > 0.55 and style != "blocks" else "#111827")))
+            g.drawText(self.rect(), Qt.AlignCenter, f"{int(round(self.fraction() * 100))}%")
+        g.end()
+
+
+_progress = lambda n, v=None: n.widget.refresh()
+register(ControlType("ProgressBar", lambda n: ProgressWidget(n), events=dict(POINTER_EVENTS)),
+         [p for p in COMMON if p.name not in ("Background", "Foreground", "CornerRadius")], ATTACHED,
+         [Prop("Value", "number", "Common", default="0", apply=_progress),
+          Prop("Minimum", "number", "Common", default="0", apply=_progress),
+          Prop("Maximum", "number", "Common", default="100", apply=_progress),
+          Prop("BarStyle", "choice", "Appearance", options=("Solid", "Blocks", "Thin"), default="Solid", apply=_progress),
+          Prop("ShowText", "bool", "Appearance", apply=_progress),              # the percentage, written on the bar
+          Prop("IsIndeterminate", "bool", "Behaviour", apply=_progress),         # busy, for work of unknown length
+          Prop("Orientation", "choice", "Appearance", options=("Horizontal", "Vertical"), default="Horizontal", apply=_progress),
+          Prop("Foreground", "colour", "Appearance", apply=_progress),           # the bar
+          Prop("Background", "colour", "Appearance", apply=_progress),           # the track behind it
+          Prop("CornerRadius", "number", "Appearance", apply=_progress)])
 
 
 # For docked layouts (a DockPanel), so it is not offered on the design surface, where controls sit on a canvas.
