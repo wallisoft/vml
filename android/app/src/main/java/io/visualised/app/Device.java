@@ -7,12 +7,17 @@ import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.BatteryManager;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.util.Base64;
@@ -46,6 +51,9 @@ final class Device {
     private TextToSpeech voice;
     private boolean voiceReady, torchOn;
     private String waitingToSay;
+    private volatile Thread signalling;
+    private SensorEventListener air;
+    private volatile float pressureNow;
 
     Device(MainActivity activity) {
         this.activity = activity;
@@ -239,6 +247,129 @@ final class Device {
         }
     }
 
+    /**
+     * The Bluetooth devices this phone is paired with, as JSON. Asks the user's leave first; the page hears back
+     * through vmlFromPhone("bluetooth", json, problem).
+     */
+    @JavascriptInterface
+    public void bluetoothDevices() {
+        activity.runOnUiThread(() -> activity.withPermission(
+                Build.VERSION.SDK_INT >= 31 ? new String[]{"android.permission.BLUETOOTH_CONNECT"} : new String[0],
+                granted -> activity.tell("bluetooth", granted ? Places.paired(activity) : "[]", granted ? "" : "Seeing Bluetooth devices wasn't allowed.")));
+    }
+
+    /**
+     * Start (or stop) noting where the phone is when a paired device connects and goes away. To note a place
+     * while the phone is in a pocket Android needs location allowed all the time, which only the user can
+     * switch on, in the phone's settings: this takes them there. The page hears back through
+     * vmlFromPhone("watching", state, problem): state is "watching", "stopped", or "partly" (it will note the
+     * time a device went, but not the place).
+     */
+    @JavascriptInterface
+    public void bluetoothWatch(final String address, final boolean on) {
+        activity.runOnUiThread(() -> activity.watchBluetooth(address, on));
+    }
+
+    /** What has been noted, newest first, as JSON: device, name, what, time, and where when it could be found. */
+    @JavascriptInterface
+    public String bluetoothLog() {
+        return Places.log(activity);
+    }
+
+    /** The air pressure in hectopascals, or "" on a phone with no barometer (or before its first reading). */
+    @JavascriptInterface
+    public String pressure() {
+        if (air == null) {
+            SensorManager sensors = activity.getSystemService(SensorManager.class);
+            Sensor barometer = sensors == null ? null : sensors.getDefaultSensor(Sensor.TYPE_PRESSURE);
+            if (barometer == null) {
+                return "";
+            }
+            air = new SensorEventListener() {
+                @Override
+                public void onSensorChanged(SensorEvent e) {
+                    pressureNow = e.values[0];
+                }
+
+                @Override
+                public void onAccuracyChanged(Sensor sensor, int accuracy) {
+                }
+            };
+            sensors.registerListener(air, barometer, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+        return pressureNow > 0 ? String.valueOf(Math.round(pressureNow * 100) / 100.0) : "";
+    }
+
+    /** Hear what the user says. The words come back to the page later, through window.vmlFromPhone("listen", words, problem). */
+    @JavascriptInterface
+    public void listen(final String prompt) {
+        activity.runOnUiThread(() -> activity.listen(prompt));
+    }
+
+    /**
+     * Signal with the torch: pattern is milliseconds on, off, on, off... with commas between. Runs to its own
+     * clock, off the page's, so the timing holds. The page is told when it is done: vmlFromPhone("flash").
+     * An empty pattern stops one that is running.
+     */
+    @JavascriptInterface
+    public void flash(String pattern) {
+        final Thread before = signalling;
+        if (before != null) {
+            before.interrupt();
+        }
+        final java.util.List<Long> steps = new java.util.ArrayList<>();
+        for (String part : (pattern == null ? "" : pattern).split(",")) {
+            try {
+                steps.add(Math.max(0, Math.min(Long.parseLong(part.trim()), 60000)));
+            } catch (NumberFormatException ignored) {
+                // not a number: left out
+            }
+        }
+        if (steps.isEmpty()) {
+            return;
+        }
+        Thread t = new Thread(() -> {
+            boolean finished = false;
+            try {
+                if (before != null) {
+                    before.join(500);
+                }
+                long due = SystemClock.uptimeMillis();
+                for (int i = 0; i < steps.size(); i++) {
+                    torch(i % 2 == 0);
+                    due += steps.get(i);                // each change is timed from the start, so small delays don't add up
+                    long wait = due - SystemClock.uptimeMillis();
+                    if (wait > 0) {
+                        Thread.sleep(wait);
+                    }
+                }
+                finished = true;
+            } catch (InterruptedException stopped) {
+                // told to stop
+            } finally {
+                torch(false);
+                if (finished) {
+                    activity.tell("flash", "", "");
+                }
+            }
+        }, "visualised-flash");
+        signalling = t;
+        t.start();
+    }
+
+    /** Get the voice ready, so the first thing an app says isn't kept waiting. */
+    void warmVoice() {
+        if (voice == null) {
+            voice = new TextToSpeech(activity, status -> {
+                voiceReady = status == TextToSpeech.SUCCESS;
+                if (voiceReady && waitingToSay != null) {
+                    voice.speak(waitingToSay, TextToSpeech.QUEUE_ADD, null, "say");
+                }
+                waitingToSay = null;
+            });
+        }
+    }
+
     /** Keep the app going while the phone is used for something else. A notice in the phone's list says it is. */
     @JavascriptInterface
     public void background(boolean on) {
@@ -247,6 +378,18 @@ final class Device {
 
     /** The app on screen has been left: put back whatever it switched on. */
     void reset() {
+        if (air != null) {
+            SensorManager sensors = activity.getSystemService(SensorManager.class);
+            if (sensors != null) {
+                sensors.unregisterListener(air);
+            }
+            air = null;
+            pressureNow = 0;
+        }
+        Thread running = signalling;
+        if (running != null) {
+            running.interrupt();
+        }
         if (torchOn) {
             torch(false);
         }

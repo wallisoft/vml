@@ -2,9 +2,9 @@
 
 They have their own title bar and a thin edge, both in the colour of the window that opened them, so the frame goes
 all the way round and a white box over a white form can still be seen; the text can be selected and copied, and long messages scroll instead of running off the screen."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QToolButton,
+from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QToolButton,
                                QVBoxLayout, QWidget)
 
 NEUTRAL = "#6B7280"
@@ -47,7 +47,7 @@ class _Bar(QWidget):
 
 class Box(QDialog):
     def __init__(self, parent, title, message, buttons=("OK",), edge="", ask=None, picture=None):
-        super().__init__(parent)
+        super().__init__(parent if parent is not None else QApplication.activeWindow())     # never adrift: it stays in front of a window
         self.setWindowTitle(str(title))
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)  # our own bar and edge: one frame, all the way round
         self.setModal(True)
@@ -132,9 +132,32 @@ class Box(QDialog):
             p.fillRect(*r, self.edge)
         p.end()
 
+    def eventFilter(self, watched, event):
+        """While this is waiting for an answer, the rest of the app is held. If the user goes to another of its
+        windows (clicking it, or its close button), this comes to the front to show them why nothing happens."""
+        if event.type() == QEvent.WindowActivate and watched is not self and getattr(watched, "isWindow", lambda: False)() \
+                and not self.isAncestorOf(watched):
+            QTimer.singleShot(0, self.front)
+        return False
+
+    def front(self):
+        """Come to the front and take the keyboard: a question nobody can see holds the whole app up."""
+        try:
+            self.raise_()
+            self.activateWindow()
+            QApplication.alert(self)                            # where a desktop won't let a window push forward, it can still ask
+        except RuntimeError:
+            pass
+
     def run(self):
         """Show it and wait. Returns the button pressed ("" if it was closed another way)."""
-        self.exec()
+        QTimer.singleShot(0, self.front)                        # once it is on screen
+        app = QApplication.instance()
+        app.installEventFilter(self)                            # (see eventFilter)
+        try:
+            self.exec()
+        finally:
+            app.removeEventFilter(self)
         self.reply = self.input.text() if self.input is not None else ""
         self.hide()
         self.deleteLater()                                      # Qt's to tidy away, now: not Python's at shutdown

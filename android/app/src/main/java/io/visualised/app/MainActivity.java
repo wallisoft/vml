@@ -12,6 +12,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.RectF;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -23,6 +25,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.speech.RecognizerIntent;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -44,10 +47,13 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -58,7 +64,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -77,6 +85,7 @@ public class MainActivity extends Activity {
     private static final String SUFFIX = ".app.visualised.invalid";
     private static final int BRAND = 0xFF1E3A8A;
     private static final int PICK = 71;
+    private static final int LISTEN = 72;
 
     /** Told whether the user allowed something. */
     interface Answer {
@@ -166,6 +175,8 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (!background) {
+            // An app that isn't on screen lets go of the camera and its light, or nothing else on the phone can use them.
+            web.evaluateJavascript("window.vmlAway&&window.vmlAway()", null);
             web.onPause();
         }
     }
@@ -287,7 +298,26 @@ public class MainActivity extends Activity {
         device.reset();
         getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         List<Apps.Kept> all = apps.all();
-        keptList.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new ArrayList<>(all)));
+        keptList.setAdapter(new ArrayAdapter<Apps.Kept>(this, android.R.layout.simple_list_item_1, new ArrayList<>(all)) {
+            @Override
+            public View getView(int at, View old, ViewGroup parent) {
+                Apps.Kept app = getItem(at);
+                LinearLayout row = new LinearLayout(MainActivity.this);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(14), dp(10), dp(14), dp(10));
+                ImageView picture = new ImageView(MainActivity.this);
+                picture.setImageBitmap(iconFor(app, dp(44), false));
+                row.addView(picture, new LinearLayout.LayoutParams(dp(44), dp(44)));
+                LinearLayout words = new LinearLayout(MainActivity.this);
+                words.setOrientation(LinearLayout.VERTICAL);
+                words.setPadding(dp(14), 0, 0, 0);
+                words.addView(words(app.name, 16, 0xFF111827, true));
+                String kept = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(new Date(app.when));
+                words.addView(words((app.version.isEmpty() ? "" : "Version " + app.version + "  \u00b7  ") + "kept " + kept, 13, 0xFF6B7280, false));
+                row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+                return row;
+            }
+        });
         nothingKept.setVisibility(all.isEmpty() ? View.VISIBLE : View.GONE);
         home.setVisibility(View.VISIBLE);
         running.setVisibility(View.INVISIBLE);
@@ -335,15 +365,39 @@ public class MainActivity extends Activity {
         ShortcutInfo icon = new ShortcutInfo.Builder(this, "kept-" + app.id)
                 .setShortLabel(app.name)
                 .setLongLabel(app.name)
-                .setIcon(Icon.createWithAdaptiveBitmap(letterIcon(app.name)))
+                .setIcon(Icon.createWithAdaptiveBitmap(iconFor(app, dp(108), true)))
                 .setIntent(open)
                 .build();
         icons.requestPinShortcut(icon, null);            // the phone asks the user where to put it
     }
 
+    /**
+     * An app's icon: its own picture if the form was given one, else its first letter on a colour. padded: for the
+     * home screen, where the phone cuts its own shape out of the middle, so the picture is kept clear of the edges.
+     */
+    private Bitmap iconFor(Apps.Kept app, int size, boolean padded) {
+        Bitmap own = app.icon == null ? null : BitmapFactory.decodeFile(app.icon.getPath());
+        if (own == null) {
+            Bitmap letter = letterIcon(app.name, padded ? size : Math.round(size * 1.6f));
+            if (padded) {
+                return letter;
+            }
+            int cut = (letter.getWidth() - size) / 2;   // the letter fills a list's picture; a home screen's has room round it
+            return Bitmap.createBitmap(letter, cut, cut, size, size);
+        }
+        Bitmap picture = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(picture);
+        Paint smooth = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+        if (padded) {
+            canvas.drawColor(own.getPixel(0, 0) >>> 24 == 0xFF ? own.getPixel(0, 0) : Color.WHITE);    // carry the picture's own edge colour outward
+        }
+        float inner = padded ? size * 0.62f : size, edge = (size - inner) / 2f;
+        canvas.drawBitmap(own, null, new RectF(edge, edge, edge + inner, edge + inner), smooth);
+        return picture;
+    }
+
     /** An icon for an app that hasn't one of its own: its first letter on a colour that is always the same for that name. */
-    private Bitmap letterIcon(String name) {
-        int size = dp(108);                             // the size an icon is drawn at; the phone cuts its own shape out of the middle
+    private Bitmap letterIcon(String name, int size) {
         Bitmap picture = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(picture);
         int[] colours = {0xFF1E3A8A, 0xFF0F766E, 0xFF9D174D, 0xFF7C3AED, 0xFFB45309, 0xFF15803D, 0xFF0369A1, 0xFFBE123C};
@@ -402,6 +456,7 @@ public class MainActivity extends Activity {
     private void show(String name, String called, String path) {
         host = name;
         title = called;
+        device.warmVoice();
         home.setVisibility(View.INVISIBLE);
         running.setVisibility(View.VISIBLE);
         web.clearHistory();
@@ -415,7 +470,9 @@ public class MainActivity extends Activity {
             try {
                 final Apps.Kept got = apps.keep(where, replace);
                 main.post(() -> {
-                    Toast.makeText(this, got.name + " is on this phone. Press and hold it in the list to give it an icon on the home screen.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, replace == null
+                            ? got.name + " is on this phone. Press and hold it in the list to give it an icon on the home screen."
+                            : got.name + " on this phone is now the newest" + (got.version.isEmpty() ? "." : ": version " + got.version + "."), Toast.LENGTH_LONG).show();
                     openKept(got);
                 });
             } catch (final Exception e) {
@@ -469,7 +526,8 @@ public class MainActivity extends Activity {
         keepIt.setText("Keep on this phone");
         keepIt.setOnClickListener(v -> {
             if (!liveSource.isEmpty()) {
-                keep(liveSource, null);
+                Apps.Kept already = apps.from(liveSource);          // kept before from here: this one takes its place, icon and all
+                keep(liveSource, already == null ? null : already.id);
             }
         });
         strip.addView(liveText, new LinearLayout.LayoutParams(0, -2, 1));
@@ -587,12 +645,12 @@ public class MainActivity extends Activity {
             if (host.isEmpty() || url == null || !url.contains(SUFFIX)) {
                 return;
             }
-            view.evaluateJavascript("(function(){var m=document.querySelector('meta[name=theme-color]');"
-                    + "return [m?m.content:'',document.title||''].join('\\n')})()", value -> {
+            view.evaluateJavascript("(function(){var m=document.querySelector('meta[name=theme-color]'),v=document.querySelector('meta[name=app-version]');"
+                    + "return [m?m.content:'',document.title||'',v?v.content:''].join('\\n')})()", value -> {
                 if (value == null || host.isEmpty()) {
                     return;
                 }
-                String[] got = value.replaceAll("^\"|\"$", "").split("\\\\n", 2);
+                String[] got = value.replaceAll("^\"|\"$", "").split("\\\\n", 3);
                 try {
                     bar(Color.parseColor(got[0].trim()));
                 } catch (IllegalArgumentException e) {
@@ -600,6 +658,11 @@ public class MainActivity extends Activity {
                 }
                 if (got.length > 1 && !got[1].trim().isEmpty()) {
                     title = got[1].trim();
+                }
+                if (!liveSource.isEmpty()) {            // so you can tell at a glance that the newest has arrived
+                    String from = Uri.parse(liveSource).getEncodedAuthority();
+                    String at = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(new Date());
+                    liveText.setText((got.length > 2 && !got[2].trim().isEmpty() ? "v" + got[2].trim() + "  \u00b7  " : "") + "fetched " + at + " from " + from);
                 }
             });
         }
@@ -742,6 +805,15 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == LISTEN) {
+            ArrayList<String> words = result == RESULT_OK && data != null ? data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS) : null;
+            if (words != null && !words.isEmpty() && !words.get(0).trim().isEmpty()) {
+                tell("listen", words.get(0), "");
+            } else {
+                tell("listen", "", "Nothing was heard.");
+            }
+            return;
+        }
         if (request != PICK) {
             return;
         }
@@ -776,6 +848,81 @@ public class MainActivity extends Activity {
             picking.onReceiveValue(files);
             picking = null;
         }
+    }
+
+    // ---------------------------------------------------------------- answering the page later
+    /** Tell the page on screen the answer to something that took a while (what was heard, a signal finished). */
+    void tell(final String what, final String a, final String b) {
+        runOnUiThread(() -> {
+            if (!host.isEmpty()) {
+                web.evaluateJavascript("window.vmlFromPhone&&window.vmlFromPhone(" + JSONObject.quote(what) + ","
+                        + JSONObject.quote(a) + "," + JSONObject.quote(b) + ")", null);
+            }
+        });
+    }
+
+    /** Ask the phone's own speech recogniser what the user says; the page hears back through tell("listen", ...). */
+    @SuppressWarnings("deprecation")
+    void listen(String prompt) {
+        Intent hear = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        hear.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        if (prompt != null && !prompt.isEmpty()) {
+            hear.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
+        }
+        try {
+            startActivityForResult(hear, LISTEN);
+        } catch (ActivityNotFoundException e) {
+            tell("listen", "", "This phone has nothing to listen with.");
+        }
+    }
+
+    /** Start or stop noting where a Bluetooth device connects and goes, asking for what that needs. */
+    void watchBluetooth(final String address, final boolean on) {
+        if (address == null || address.isEmpty()) {
+            tell("watching", "stopped", "No device was chosen.");
+            return;
+        }
+        if (!on) {
+            Places.choose(this, address, false);
+            tell("watching", "stopped", "");
+            return;
+        }
+        final String[] bluetooth = Build.VERSION.SDK_INT >= 31 ? new String[]{"android.permission.BLUETOOTH_CONNECT"} : new String[0];
+        withPermission(bluetooth, seen -> {
+            if (!seen) {
+                tell("watching", "stopped", "Seeing Bluetooth devices wasn't allowed.");
+                return;
+            }
+            withPermission(new String[]{"android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"}, located -> {
+                if (!located) {
+                    Places.choose(this, address, true);
+                    tell("watching", "partly", "Location wasn't allowed, so only the time will be noted.");
+                    return;
+                }
+                withPermission(Build.VERSION.SDK_INT >= 33 ? new String[]{"android.permission.POST_NOTIFICATIONS"} : new String[0], told -> {
+                    if (Places.allowed(this, "android.permission.ACCESS_BACKGROUND_LOCATION")) {
+                        Places.choose(this, address, true);
+                        tell("watching", "watching", "");
+                        return;
+                    }
+                    // Android asks this one on a settings page of its own, so the user is told what to pick there.
+                    new AlertDialog.Builder(this)
+                            .setTitle("One more thing")
+                            .setMessage("To note where you parked while the phone is in your pocket, Android needs location "
+                                    + "allowed all the time.\n\nOn the next screen choose \"Allow all the time\". It is used only "
+                                    + "at the moment a device you chose disconnects, and what it notes stays on this phone.")
+                            .setPositiveButton("Continue", (d, w) -> withPermission(new String[]{"android.permission.ACCESS_BACKGROUND_LOCATION"}, always -> {
+                                Places.choose(this, address, true);
+                                tell("watching", always ? "watching" : "partly", always ? "" : "Location isn't allowed all the time, so the place can only be noted while this app is open.");
+                            }))
+                            .setNegativeButton("Not now", (d, w) -> {
+                                Places.choose(this, address, true);
+                                tell("watching", "partly", "Location isn't allowed all the time, so the place can only be noted while this app is open.");
+                            })
+                            .show();
+                });
+            });
+        });
     }
 
     // ---------------------------------------------------------------- running in the background

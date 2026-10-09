@@ -12,8 +12,8 @@ android {
         applicationId "io.visualised.app"
         minSdk 29               // Android 10: a photo can be saved without asking for the whole of the phone's storage
         targetSdk 34
-        versionCode 6
-        versionName "0.4.0"
+        versionCode 9
+        versionName "0.7.0"
     }
 
     // The release is signed with the key that is yours alone: every update must be signed with the same one, so

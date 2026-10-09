@@ -2260,12 +2260,26 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         return c
 
     def _parent_window(self):
-        """The window a dialog belongs to: the one in use, else the newest still on screen."""
+        """The window a dialog belongs to: the one in use. A dialog is kept in front of the window it belongs to
+        and nothing else, so the wrong choice here can leave it hidden behind the window the user is looking at,
+        which then answers to nothing, not even its close button. So: the window in use; or, in the moment
+        after another dialog has shut when no window is 'in use', the one the last dialog belonged to; and only
+        then the newest still on screen."""
         active = QApplication.activeWindow()
-        if active is not None and getattr(active, "vml_node", None) is not None and active.isVisible():
+        while active is not None and getattr(active, "vml_node", None) is None:      # a dialog of ours: the window behind it
+            active = active.parentWidget().window() if active.parentWidget() is not None else None
+        if active is not None and active.isVisible():
+            self._dialog_parent = active
             return active
+        last = getattr(self, "_dialog_parent", None)
+        try:
+            if last is not None and last.isVisible():
+                return last
+        except RuntimeError:                                    # that window has gone
+            pass
         shown = [w.widget for w in self.windows if w.widget.isVisible()]
-        return shown[-1] if shown else None
+        self._dialog_parent = shown[-1] if shown else None
+        return self._dialog_parent
 
     def _edge(self):
         """The colour for a dialog's edge: its window's own (which is its menu bar's), else a quiet grey."""
@@ -2372,6 +2386,55 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             return ""
         Path(path).write_text(str(text), encoding="utf-8")
         return path
+
+    def cmd_BluetoothDevices(self, handler):
+        """The Bluetooth devices a phone is paired with: handler gets them as JSON (name, address, watched) and a
+        blank; or "[]" and what went wrong, which on a computer is always."""
+        origin = self._script_stack[-1] if self._script_stack else None
+        QTimer.singleShot(0, lambda: self.run_script(str(handler), "[]", "Bluetooth devices need the Visualised app on a phone.", origin=origin))
+        return ""
+
+    def cmd_WatchBluetooth(self, address, on="true", handler=""):
+        """On a phone: note where the phone is whenever a paired device (a car, say) connects or goes away, even
+        with the app shut. handler hears "watching", "stopped" or "partly", and any problem."""
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(0, lambda: self.run_script(str(handler), "stopped", "Watching a Bluetooth device needs the Visualised app on a phone.", origin=origin))
+        return ""
+
+    def cmd_BluetoothLog(self):
+        """What a phone has noted, newest first, as JSON: device, name, what, time, and where. "[]" on a computer."""
+        return "[]"
+
+    def cmd_Pressure(self):
+        """The air pressure in hectopascals from a phone's barometer (it tells one floor from the next). "" here."""
+        return ""
+
+    def cmd_Listen(self, handler, prompt=""):
+        """Hear what the user says, then run handler with the words; or with a blank and what went wrong.
+        A computer asks them to type it instead."""
+        words = dialogs.prompt(self._parent_window(), "Listen", str(prompt) or "Type what you would have said:", "", self._edge())
+        origin = self._script_stack[-1] if self._script_stack else None
+        self.run_script(str(handler), words, "" if words else "Nothing was said.", origin=origin)
+        return ""
+
+    def cmd_Flash(self, pattern="", handler=""):
+        """Signal with light: pattern is milliseconds on, off, on, off... A phone uses its torch and a web page
+        lights the whole screen; a computer only waits that long. Then handler is run. "" stops it."""
+        steps = [float(t) for t in re.split(r"[,\s]+", str(pattern)) if t.replace(".", "", 1).isdigit()]
+        if steps and handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(int(sum(steps)), lambda: self.run_script(str(handler), origin=origin))
+        return ""
+
+    def cmd_WatchLight(self, handler="", where=""):
+        """Watch for a light going on and off through the phone's camera: each change runs handler with "on" or
+        "off" and how many milliseconds the state before lasted; or with "error", 0 and what went wrong, which on
+        a computer is always. where: a control to show the camera's picture over. No handler stops watching."""
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(0, lambda: self.run_script(str(handler), "error", "0", "A computer has no camera to watch with.", origin=origin))
+        return ""
 
     def cmd_PickPhoto(self, image, handler=""):
         """Put a picture the user chooses into an Image, then run handler (if given) with the Image's name.

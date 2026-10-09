@@ -102,6 +102,16 @@ class Page:
                          "hash": hashlib.sha1(raw).hexdigest()[:12] if raw else "new"}
         return out
 
+    def app_tags(self, wp):
+        """The app's version and icon, where a browser's tab and the phone app look for them."""
+        out = ""
+        if str(wp.get("Version") or "").strip():
+            out += f'<meta name="app-version" content="{esc(str(wp["Version"]).strip())}">\n'
+        icon = self.picture(wp.get("Icon"))
+        if icon:
+            out += f'<link rel="icon" href="{esc(icon)}">\n<link rel="apple-touch-icon" href="{esc(icon)}">\n'
+        return out
+
     def picture(self, src):
         """An Image's Source for the page: a small file beside the form goes inside the page itself."""
         src = str(src or "").strip()
@@ -408,6 +418,7 @@ class Page:
             .replace("%%DATA%%", json.dumps(data).replace("</", "<\\/")) \
             .replace("%%DKJSON%%", json.dumps(dkjson).replace("</", "<\\/")).replace("%%WASMOON%%", WASMOON) \
             .replace("%%SOURCE%%", esc(self.path.name)).replace("%%BAR%%", self.bar_colour) \
+            .replace("%%APP%%", self.app_tags(wp)) \
             .replace("%%BUNDLE%%", self.bundle() if offline else "")
 
     def bundle(self):
@@ -443,7 +454,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="application-name" content="%%TITLE%%">
-<meta name="generator" content="VML (from %%SOURCE%%)">
+%%APP%%<meta name="generator" content="VML (from %%SOURCE%%)">
 <title>%%TITLE%%</title>
 <style>
   html, body { margin: 0; height: 100%; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
@@ -509,6 +520,12 @@ TEMPLATE = r"""<!DOCTYPE html>
 const VML = %%DATA%%;
 const DKJSON = %%DKJSON%%;
 const settings = {};
+// What a script saves with SetSetting is kept in the browser (or the phone app) for the next time the app is
+// opened, as it is on the desktop. Each app has its own. What the engine itself notes (event_x and the like) isn't kept.
+const SETTINGS_KEY = `vmlset:${VML.project || ""}:${VML.form}`;
+let keptSettings = {};
+try { keptSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") || {}; Object.assign(settings, keptSettings); } catch (err) { keptSettings = {}; }
+function keepSetting(k, v) { keptSettings[k] = v; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(keptSettings)); } catch (err) {} }
 const status = document.getElementById("vml_status");
 const el = name => {
   const s = String(name), dot = s.indexOf(".");
@@ -747,6 +764,12 @@ const commands = {
     else if (prop === "Canvas.Left") e.style.left = value + "px";
     else if (prop === "Canvas.Top") e.style.top = value + "px";
     else if (prop === "Items") { e.innerHTML = ""; String(value).split(",").map(s => s.trim()).filter(Boolean).forEach(t => e.add(new Option(t))); }
+    else if (e.tagName === "SELECT" && prop === "Items") {
+      const keep = e.value;
+      e.innerHTML = "";
+      for (const item of value.split(",").map(t => t.trim()).filter(Boolean)) e.appendChild(new Option(item, item));
+      if ([...e.options].some(o => o.value === keep)) e.value = keep;
+    }
     else if (prop === "SelectedIndex") e.selectedIndex = Number(value);
     else if (prop === "SelectedItem") e.value = value;
     else if (prop === "ToolTip") e.title = value;
@@ -778,7 +801,7 @@ const commands = {
     return e.dataset["p_" + prop.replace(/\W/g, "_")] || "";
   },
   GetSetting: k => settings[k] ?? "",
-  SetSetting(k, v = "") { settings[k] = String(v); if (dbs[OWN_DB]) dbs[OWN_DB].run("INSERT OR REPLACE INTO settings VALUES (?, ?)", [k, String(v)]); return ""; },
+  SetSetting(k, v = "") { settings[k] = String(v); keepSetting(k, String(v)); if (dbs[OWN_DB]) dbs[OWN_DB].run("INSERT OR REPLACE INTO settings VALUES (?, ?)", [k, String(v)]); return ""; },
   RunScript: (name, ...args) => run(name, args),
   InfoDialog(msg, title) { alert(msg); return ""; },
   ErrorDialog(msg, title) { alert(msg); return ""; },
@@ -812,7 +835,11 @@ const commands = {
     return JSON.stringify(Object.assign({ platform: /Android/.test(ua) ? "android-browser" : /iPhone|iPad/.test(ua) ? "ios-browser" : "browser", app: false, online: navigator.onLine }, screen));
   },
   RunInBackground(on = "true") { if (DEV && DEV.background) DEV.background(!/^(false|0|no|)$/i.test(on)); return ""; },
-  Torch(on = "true") { if (DEV && DEV.torch) DEV.torch(!/^(false|0|no|)$/i.test(on)); return ""; },
+  Torch(on = "true") {
+    const lit = !/^(false|0|no|)$/i.test(on), lamp = cameraLamp();
+    if (lamp) setLamp(lamp, lit); else if (DEV && DEV.torch) DEV.torch(lit);
+    return "";
+  },
   Speak(text = "") {
     if (DEV && DEV.speak) DEV.speak(text);
     else if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance(text));
@@ -861,6 +888,128 @@ const commands = {
     return "";
   },
   // Put a photo in an Image: straight from the camera, or one chosen from the phone. Then the handler is run, if there is one.
+  // The Bluetooth devices the phone is paired with: the handler gets them as JSON (name, address, watched) and
+  // a blank, or "[]" and what went wrong.
+  BluetoothDevices(handler) {
+    if (DEV && DEV.bluetoothDevices) { paired = handler; DEV.bluetoothDevices(); }
+    else setTimeout(() => run(handler, ["[]", "Bluetooth devices need the Visualised app on a phone."]), 0);
+    return "";
+  },
+  // Note where the phone is whenever a paired device (a car, say) connects or goes away, even with the app shut.
+  // The handler hears "watching", "stopped", or "partly" (the time is noted but not the place) and any problem.
+  WatchBluetooth(address, on = "true", handler = "") {
+    if (DEV && DEV.bluetoothWatch) { watched_ = handler; DEV.bluetoothWatch(address, !/^(false|0|no|)$/i.test(on)); }
+    else if (handler) setTimeout(() => run(handler, ["stopped", "Watching a Bluetooth device needs the Visualised app on a phone."]), 0);
+    return "";
+  },
+  // What has been noted, newest first, as JSON: device, name, what ("connected" or "disconnected"), time (seconds),
+  // and for a device that went away latitude, longitude, accuracy and pressure when they could be found.
+  BluetoothLog() { return DEV && DEV.bluetoothLog ? DEV.bluetoothLog() : "[]"; },
+  // The air pressure in hectopascals: about 0.12 less for every metre climbed, so it tells one floor from the
+  // next. "" where there is no barometer, and for the first moment after asking.
+  Pressure() { return DEV && DEV.pressure ? DEV.pressure() : ""; },
+  // Hear what the user says and hand the handler the words; or a blank and what went wrong.
+  Listen(handler, prompt = "") {
+    if (DEV && DEV.listen) { heard = handler; DEV.listen(prompt); return ""; }
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!R) { setTimeout(() => run(handler, ["", "This browser can't listen. The Visualised app on a phone can."]), 0); return ""; }
+    const r = new R(); let told = false;
+    const tell = (words, problem) => { if (!told) { told = true; run(handler, [words, problem]); } };
+    r.onresult = e => tell(e.results[0][0].transcript, "");
+    r.onerror = e => tell("", e.error === "not-allowed" ? "The microphone wasn't allowed." : "Nothing was heard.");
+    r.onend = () => tell("", "Nothing was heard.");
+    try { r.start(); } catch (err) { tell("", "Listening couldn't start."); }
+    return "";
+  },
+  // Signal with light: pattern is milliseconds on, off, on, off... The phone app uses the torch; a browser lights
+  // the whole screen, which a phone's camera reads just as well. The handler runs when it is done. "" stops it.
+  Flash(pattern = "", handler = "") {
+    const steps = pattern.split(/[,\s]+/).filter(t => t !== "").map(Number).filter(n => isFinite(n) && n >= 0);
+    stopFlash();
+    const lamp = cameraLamp();
+    if (lamp) {                                  // the camera is watching and can work its own light: both at once
+      if (DEV && DEV.flash) DEV.flash("");
+      if (!steps.length) return "";
+      flashing = { box: null, timer: 0, lamp };
+      let at = 0;
+      const turn = () => {
+        if (at >= steps.length) { stopFlash(); if (handler) run(handler, []); return; }
+        setLamp(lamp, at % 2 === 0);
+        flashing.timer = setTimeout(turn, steps[at++]);
+      };
+      turn();
+      return "";
+    }
+    if (DEV && DEV.flash) {
+      // The torch can't be lit while the camera has hold of it, so watching stops for the length of the signal.
+      flashed = steps.length ? handler : "";
+      resume = steps.length && watching ? watching.asked : null;
+      if (resume) stopWatching();
+      const go = () => DEV.flash(steps.join(","));
+      if (resume) setTimeout(go, 400); else go();              // (the camera takes a moment to let go)
+      return "";
+    }
+    if (!steps.length) return "";
+    const box = document.createElement("div");
+    box.id = "vml_flash";
+    box.style.cssText = "position:fixed;inset:0;z-index:99998;background:#000";
+    document.body.appendChild(box);
+    flashing = { box, timer: 0 };
+    let i = 0;
+    const next = () => {
+      if (i >= steps.length) { stopFlash(); if (handler) run(handler, []); return; }
+      box.style.background = i % 2 === 0 ? "#fff" : "#000";
+      flashing.timer = setTimeout(next, steps[i++]);
+    };
+    next();
+    return "";
+  },
+  // Watch for a light going on and off through the camera: whatever in the picture is flashing. Each change
+  // runs the handler with "on" or "off" and how many milliseconds the state before it lasted; or with "error",
+  // 0 and what went wrong. where: a control to show the camera's picture over, to aim by. No handler stops it.
+  WatchLight(handler = "", where = "") {
+    stopWatching();
+    if (!handler) return "";
+    const fail = why => setTimeout(() => run(handler, ["error", "0", why]), 0);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.isSecureContext) { fail("The camera needs the Visualised app, or a secure (https) page."); return ""; }
+    const mine = watching = { stream: null, video: document.createElement("video"), timer: 0, asked: [handler, where] };
+    const v = mine.video;
+    v.muted = true; v.playsInline = true; v.setAttribute("playsinline", "");
+    const over = where ? el(where) : null;
+    if (over && over.parentElement) {
+      v.style.cssText = `position:absolute;left:${over.offsetLeft}px;top:${over.offsetTop}px;width:${over.offsetWidth}px;height:${over.offsetHeight}px;object-fit:cover;z-index:5;background:#000`;
+      over.parentElement.appendChild(v);
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } }, audio: false }).then(stream => {
+      if (watching !== mine) { stream.getTracks().forEach(t => t.stop()); return; }
+      mine.stream = stream; v.srcObject = stream; v.play().catch(() => {});
+      const reader = new LightReader((state, ms) => run(handler, [state, String(Math.round(ms)), ""]));
+      const W = 320, H = 240, c = document.createElement("canvas"); c.width = W; c.height = H;
+      const g = c.getContext("2d", { willReadFrequently: true }), lum = new Uint8Array(W * H), finder = new BlinkFinder(W, H);
+      const ring = document.createElement("div");                  // shows what it has taken to be the signal
+      ring.style.cssText = "position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #FDE047;border-radius:50%;z-index:6;display:none;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.5)";
+      if (v.parentElement) { v.parentElement.appendChild(ring); mine.ring = ring; }
+      const look = time => {
+        if (watching !== mine || !v.videoWidth) return;
+        g.drawImage(v, 0, 0, W, H);
+        const px = g.getImageData(0, 0, W, H).data;
+        for (let i = 0, j = 0; i < lum.length; i++, j += 4) lum[i] = (px[j] * 2 + px[j + 1] * 5 + px[j + 2]) >> 3;
+        reader.feed(finder.feed(lum, time), time);
+        const spot = finder.spot;
+        if (!spot || !mine.ring) { ring.style.display = "none"; return; }
+        // the picture fills its box and is cropped to fit, so the spot is placed the same way
+        const k = Math.max(v.offsetWidth / v.videoWidth, v.offsetHeight / v.videoHeight);
+        ring.style.left = v.offsetLeft + (v.offsetWidth - v.videoWidth * k) / 2 + spot.x * v.videoWidth * k + "px";
+        ring.style.top = v.offsetTop + (v.offsetHeight - v.videoHeight * k) / 2 + spot.y * v.videoHeight * k + "px";
+        ring.style.display = "block";
+      };
+      if (v.requestVideoFrameCallback && v.parentElement) {      // once for each picture the camera takes, timed by the camera
+        const each = (now, frame) => { if (watching !== mine) return; look(frame && frame.captureTime ? frame.captureTime : now); v.requestVideoFrameCallback(each); };
+        v.requestVideoFrameCallback(each);
+      } else mine.timer = setInterval(() => look(performance.now()), 30);
+    }).catch(err => { if (watching === mine) { stopWatching(); fail(err && err.name === "NotAllowedError" ? "The camera wasn't allowed." : "The camera couldn't be started."); } });
+    return "";
+  },
   TakePhoto(image, handler = "") { return photo(image, handler, true); },
   PickPhoto(image, handler = "") { return photo(image, handler, false); },
   ProjectName() { return VML.project || ""; },
@@ -869,6 +1018,134 @@ const commands = {
   AppExit() { window.close(); return ""; },
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
+let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
+window.vmlAway = () => {                                   // the app has left the screen: let go of the camera and its light
+  stopFlash();
+  if (watching) { const [handler] = watching.asked; stopWatching(); run(handler, ["error", "0", "Watching stopped while the app was away."]); }
+};
+window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answering something that takes a while
+  if (what === "listen" && heard) { const h = heard; heard = ""; run(h, [a, b]); }
+  if (what === "bluetooth" && paired) { const h = paired; paired = ""; run(h, [a, b]); }
+  if (what === "watching" && watched_) { const h = watched_; watched_ = ""; run(h, [a, b]); }
+  if (what === "flash") {
+    if (resume) { const r = resume; resume = null; commands.WatchLight(...r); }
+    if (flashed) { const h = flashed; flashed = ""; run(h, []); }
+  }
+};
+function stopFlash() {
+  if (!flashing) return;
+  clearTimeout(flashing.timer);
+  if (flashing.box) flashing.box.remove();
+  if (flashing.lamp) setLamp(flashing.lamp, false);
+  flashing = null;
+}
+// The light beside the camera, when the camera is watching and the browser lets a page switch it: then a phone
+// can signal and watch at once (try it at a mirror). null when it can't.
+function cameraLamp() {
+  const track = watching && watching.stream && watching.stream.getVideoTracks()[0];
+  try { return track && track.getCapabilities && track.getCapabilities().torch ? track : null; } catch (err) { return null; }
+}
+function setLamp(track, on) { try { track.applyConstraints({ advanced: [{ torch: on }] }).catch(() => {}); } catch (err) {} }
+function stopWatching() {
+  if (!watching) return;
+  clearInterval(watching.timer);
+  if (watching.stream) watching.stream.getTracks().forEach(t => t.stop());
+  watching.video.remove();
+  if (watching.ring) watching.ring.remove();
+  watching = null;
+}
+// Finds the thing that is flashing in the camera's picture, wherever in the picture it is, and says how bright it
+// is now. It looks for what CHANGES, not for what is bright: a street lamp is brighter than a distant torch, but
+// only the torch goes on and off.
+//
+// The picture is cut into small squares, each as bright as its brightest dot (a far light is one dot). A hand is
+// never still, so a steady lamp wanders from square to square and would seem to flash in each. So a square
+// counts as lit when it is bright itself, but as dark only when its whole neighbourhood is dark: the lamp,
+// always somewhere in the neighbourhood, never goes dark, while a torch really does. Each square remembers its
+// darkest and brightest lately and how often it has flipped between lit and dark; those that flip most strongly
+// are the signal.
+class BlinkFinder {
+  constructor(width, height, cell = 8, reach = 2) {
+    this.w = width; this.h = height; this.cell = cell; this.reach = reach;
+    this.cols = Math.ceil(width / cell); this.rows = Math.ceil(height / cell);
+    const n = this.cols * this.rows;
+    this.now = new Uint8Array(n); this.across = new Uint8Array(n); this.wide = new Uint8Array(n);
+    this.lo = new Float32Array(n); this.hi = new Float32Array(n); this.up = new Uint8Array(n); this.flips = new Float32Array(n);
+    this.at = -1; this.last = null; this.where = null;
+  }
+  // lum: how bright each dot of the picture is (0 to 255), row by row. time: milliseconds.
+  feed(lum, time) {
+    const { w, h, cell, reach, cols, rows, now, across, wide, lo, hi, up, flips } = this;
+    now.fill(0);
+    for (let y = 0; y < h; y++) {
+      const row = ((y / cell) | 0) * cols, line = y * w;
+      for (let x = 0; x < w; x++) { const v = lum[line + x], i = row + ((x / cell) | 0); if (v > now[i]) now[i] = v; }
+    }
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {            // the brightest of the neighbourhood: across, then down
+      let m = 0;
+      for (let k = Math.max(0, x - reach); k <= Math.min(cols - 1, x + reach); k++) m = Math.max(m, now[y * cols + k]);
+      across[y * cols + x] = m;
+    }
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      let m = 0;
+      for (let k = Math.max(0, y - reach); k <= Math.min(rows - 1, y + reach); k++) m = Math.max(m, across[k * cols + x]);
+      wide[y * cols + x] = m;
+    }
+    const first = this.last === null, passed = first ? 0 : Math.max(0, time - this.last) / 1000;
+    this.last = time;
+    const drift = 40 * passed, fade = Math.pow(0.5, passed / 3);      // a change is forgotten in a few seconds
+    let best = -1, bestScore = 0;
+    for (let i = 0; i < wide.length; i++) {
+      const own = now[i], around = wide[i];
+      if (first) { lo[i] = around; hi[i] = own; continue; }
+      lo[i] = Math.min(around, lo[i] + drift); hi[i] = Math.max(own, hi[i] - drift);
+      const range = hi[i] - lo[i];
+      flips[i] *= fade;
+      if (range >= 30) {
+        if (!up[i] && own > lo[i] + range * 0.6) { up[i] = 1; flips[i] += 1; }
+        else if (up[i] && around < lo[i] + range * 0.4) { up[i] = 0; flips[i] += 1; }
+      }
+      const score = range * Math.min(flips[i], 6);
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+    const score = i => (hi[i] - lo[i]) * Math.min(flips[i], 6);
+    const mine = this.at < 0 ? 0 : score(this.at);
+    if (best >= 0 && bestScore >= 90 && (this.at < 0 || bestScore > mine * 1.5)) this.at = best;      // (it doesn't hop about for a little)
+    else if (this.at >= 0 && mine < 30) this.at = -1;
+    if (this.at < 0) { this.where = null; return 0; }
+    // Every square within reach of the light flashes with it: the light is in the middle of them.
+    let sx = 0, sy = 0, n = 0;
+    const cx = this.at % cols, cy = (this.at / cols) | 0, near = score(this.at) * 0.8;
+    for (let y = Math.max(0, cy - 2 * reach); y <= Math.min(rows - 1, cy + 2 * reach); y++)
+      for (let x = Math.max(0, cx - 2 * reach); x <= Math.min(cols - 1, cx + 2 * reach); x++)
+        if (score(y * cols + x) >= near) { sx += x; sy += y; n++; }
+    this.where = n ? { x: (sx / n + 0.5) / cols, y: (sy / n + 0.5) / rows } : null;
+    return wide[this.at];
+  }
+  // Where in the picture the signal is (0 to 1 across and down), or null when nothing is flashing.
+  get spot() { return this.where; }
+}
+// Turns a run of brightness readings into "it went on" and "it went off", each with how long the state before
+// lasted. What counts as bright is learned from what it sees: the darkest and brightest readings lately, each
+// drifting slowly back toward the present, so a change of scene is forgotten in a minute and a steady scene
+// (however bright) is never a signal.
+class LightReader {
+  constructor(report) { this.report = report; this.lo = null; this.hi = null; this.on = false; this.since = 0; this.last = 0; }
+  feed(level, now) {
+    if (this.lo === null) { this.lo = this.hi = level; this.since = this.last = now; return; }
+    const drift = 4 * (now - this.last) / 1000;
+    this.last = now;
+    this.lo = Math.min(level, this.lo + drift);
+    this.hi = Math.max(level, this.hi - drift);
+    const range = this.hi - this.lo;
+    if (range < 20) return;                                    // nothing is flashing: only the camera's own flicker
+    const state = this.on ? level > this.lo + range * 0.4 : level > this.lo + range * 0.6;
+    if (state === this.on) return;
+    this.on = state;
+    this.report(state ? "on" : "off", now - this.since);
+    this.since = now;
+  }
+}
 let awake = null;
 function photo(image, handler, camera) {
   const pick = document.createElement("input");
@@ -918,7 +1195,7 @@ function Vml(cmd, ...args) {
   catch (err) { console.error(`Vml("${cmd}")`, err); return ""; }
 }
 
-window.vml = { Vml, settings };                 // handy in the browser console: vml.Vml("GetProperty", "txtName", "Text")
+window.vml = { Vml, settings, LightReader, BlinkFinder };                 // handy in the browser console: vml.Vml("GetProperty", "txtName", "Text")
 
 let fns = null;
 function luaFunction(name) {                    // a function one of the project's modules defined

@@ -1,0 +1,448 @@
+# ============================================================================
+# Clever Clogs: it remembers where you parked, so you don't have to.
+#
+#   Two ways to tell it. Press "I've parked here" when you park. Or choose your
+#   car's Bluetooth once (more than one car is fine): from then on the phone
+#   notes the spot by itself each time a car goes out of range, even with this
+#   app shut. That second way is the point: nobody remembers to press a button
+#   on the day they lose the car.
+#
+#   What it uses, all through Vml(...):
+#     GetLocation, TakePhoto, Share, OpenUrl     any phone, and most browsers
+#     BluetoothDevices, WatchBluetooth,
+#     BluetoothLog, Pressure                     the Visualised app on Android
+#   On a computer it opens and explains itself, but has nothing to find.
+#
+#   Made with Visualised. The scripts are at the bottom; "Start" runs first.
+# ============================================================================
+
+@Window CleverClogs
+Title=Clever Clogs
+Version=1.1
+Icon=CleverClogs.png
+Width=360
+Height=640
+OnOpened=Start
+
+@MenuTheme theme
+Parent=CleverClogs
+Background=#1E3A8A
+
+@Canvas c
+Parent=CleverClogs
+Background=#FFFFFF
+
+# --- the answer: when, where, and how many floors away -----------------------
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=12
+Canvas.Top=8
+Width=336
+Height=26
+FontSize=16
+Foreground=#4B5563
+Text=Clever Clogs: where's the car?
+
+@TextBlock lblWhen
+Parent=c
+Canvas.Left=12
+Canvas.Top=36
+Width=336
+Height=34
+FontSize=24
+FontWeight=Bold
+Text=Not parked yet
+
+@TextBlock lblDetail
+Parent=c
+Canvas.Left=12
+Canvas.Top=74
+Width=336
+Height=66
+TextWrapping=Wrap
+Text=
+
+# --- what you can do about it -------------------------------------------------
+
+@Button btnGo
+Parent=c
+Canvas.Left=12
+Canvas.Top=146
+Width=164
+Height=40
+Content=Take me there
+OnClick=DoGo
+
+@Button btnShare
+Parent=c
+Canvas.Left=184
+Canvas.Top=146
+Width=164
+Height=40
+Content=Share the spot
+OnClick=DoShare
+
+@Button btnHere
+Parent=c
+Canvas.Left=12
+Canvas.Top=194
+Width=164
+Height=40
+Content=I've parked here
+OnClick=DoHere
+
+@Button btnPhoto
+Parent=c
+Canvas.Left=184
+Canvas.Top=194
+Width=164
+Height=40
+Content=Photo of the bay
+OnClick=DoPhoto
+
+# --- help for a big car park: a note and a photo, kept until the next time ----
+
+@TextBox txtNote
+Parent=c
+Canvas.Left=12
+Canvas.Top=244
+Width=336
+Height=38
+Watermark=A note: level 3, row C
+OnLostFocus=SaveNote
+
+@Image imgBay
+Parent=c
+Canvas.Left=12
+Canvas.Top=290
+Width=336
+Height=150
+Stretch=Uniform
+
+# --- have it noted for you: the cars this phone should watch for --------------
+
+@TextBlock lblCar
+Parent=c
+Canvas.Left=12
+Canvas.Top=448
+Width=336
+Height=22
+Foreground=#4B5563
+Text=Have it noted for you: choose your car's Bluetooth.
+
+@ComboBox cmbCar
+Parent=c
+Canvas.Left=12
+Canvas.Top=474
+Width=176
+Height=38
+SelectionChanged=CarChosen
+
+@Button btnFind
+Parent=c
+Canvas.Left=196
+Canvas.Top=474
+Width=72
+Height=40
+Content=Find
+OnClick=DoFind
+
+@Button btnForget
+Parent=c
+Canvas.Left=276
+Canvas.Top=474
+Width=72
+Height=40
+Content=Forget
+OnClick=DoForget
+
+@TextBlock lblStatus
+Parent=c
+Canvas.Left=12
+Canvas.Top=520
+Width=336
+Height=110
+TextWrapping=Wrap
+Foreground=#4B5563
+Text=
+
+# --- every twenty seconds the answer is worked out again ("14 minutes ago") ---
+
+@Timer tmr
+Parent=c
+Interval=20000
+IsEnabled=true
+OnTick=Tick
+
+# ============================================================================
+# Scripts. Start runs when the form opens and holds everything the others share.
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+Cars = {}               -- what Find last listed: every Bluetooth device this phone is paired with
+Mine = {}               -- the ones chosen as cars: { address = ..., name = ... }, kept between visits
+Spot = nil              -- where the car is: time, lat, lon, within (metres), pressure, how it was learnt
+Filling = false         -- true while the list is being filled, so filling it doesn't count as choosing
+
+function Status(text) Vml("SetProperty", "lblStatus", "Text", text) end
+function Kept(key) return Vml("GetSetting", key) end
+
+function IsMine(address)
+  for _, car in ipairs(Mine) do if car.address == address then return car end end
+end
+
+-- "Ford Sync", "Ford Sync and Mini", "Ford Sync, Mini and Van"
+function CarNames()
+  local names = {}
+  for _, car in ipairs(Mine) do names[#names + 1] = car.name end
+  if #names < 2 then return names[1] or "" end
+  return table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names]
+end
+
+function ShowCars()
+  Vml("SetProperty", "lblCar", "Text", #Mine == 0 and "Have it noted for you: choose your car's Bluetooth."
+      or ("Noting where you leave " .. CarNames() .. "."))
+end
+
+-- How long ago, the way a person would say it.
+function Ago(seconds)
+  if seconds < 90 then return "just now" end
+  if seconds < 3600 then return math.floor(seconds / 60 + 0.5) .. " minutes ago" end
+  if seconds < 5400 then return "an hour ago" end
+  if seconds < 86400 then return math.floor(seconds / 3600 + 0.5) .. " hours ago" end
+  local days = math.floor(seconds / 86400)
+  return days == 1 and "yesterday" or (days .. " days ago")
+end
+
+-- The newest place there is: the one saved by hand, or the one the phone noted when a car went out of range.
+-- With several cars it is whichever was left last. Also: has the phone connected to that same car again since?
+-- Then you're in it, or standing beside it.
+function Latest()
+  local spot, back = nil, nil
+  local saved = tonumber(Kept("here_time"))
+  if saved then
+    spot = { time = saved, lat = tonumber(Kept("here_lat")), lon = tonumber(Kept("here_lon")),
+             within = tonumber(Kept("here_within")), pressure = tonumber(Kept("here_pressure")), how = "You saved it" }
+  end
+  local seen = {}                                   -- address -> when the phone last connected to it
+  for _, noted in ipairs(json.decode(Vml("BluetoothLog")) or {}) do          -- newest first
+    if IsMine(noted.device) then
+      if noted.what == "connected" then
+        seen[noted.device] = seen[noted.device] or noted.time
+      elseif noted.what == "disconnected" then
+        if not spot or noted.time > spot.time then
+          spot = { time = noted.time, lat = noted.latitude, lon = noted.longitude, within = noted.accuracy,
+                   pressure = noted.pressure, how = "You left " .. (noted.name or "the car"),
+                   car = noted.name or "the car" }
+          back = seen[noted.device]
+        end
+        break
+      end
+    end
+  end
+  if not spot or not spot.car then                 -- nothing has ever been left: are you in one of them now?
+    for _, car in ipairs(Mine) do
+      if seen[car.address] and (not spot or seen[car.address] > spot.time) then
+        return spot, seen[car.address], car.name
+      end
+    end
+  end
+  return spot, back, spot and spot.car
+end
+
+function Refresh()
+  local back, car
+  Spot, back, car = Latest()
+  if back and (not Spot or back > Spot.time) then
+    Vml("SetProperty", "lblWhen", "Text", "You're with the car")
+    Vml("SetProperty", "lblDetail", "Text", "The phone has been connected to " .. (car or "it") .. " since " .. os.date("%H:%M", back) .. ".")
+    return
+  end
+  if not Spot then
+    Vml("SetProperty", "lblWhen", "Text", "Not parked yet")
+    Vml("SetProperty", "lblDetail", "Text", "Press I've parked here when you park. Or choose your car's Bluetooth below, and it is noted for you.")
+    return
+  end
+  local age = os.time() - Spot.time
+  Vml("SetProperty", "lblWhen", "Text", "Parked " .. Ago(age))
+  local detail = Spot.how .. " at " .. os.date("%H:%M", Spot.time)
+  if Spot.lat then
+    detail = detail .. (Spot.within and (", within " .. math.floor(Spot.within) .. " m.") or ".")
+  else
+    detail = detail .. ", but the phone couldn't tell where."
+  end
+  -- The air is thinner higher up: about 0.12 hPa a metre, so a floor is about 0.36. The weather moves it too,
+  -- so this is only trusted for a few hours.
+  local now = tonumber(Vml("Pressure"))
+  if now and Spot.pressure and age < 3 * 3600 then
+    local floors = math.floor((Spot.pressure - now) / 0.36 + 0.5)
+    if floors == 0 then
+      detail = detail .. " You are on about the same level as it."
+    else
+      local n = math.abs(floors)
+      detail = detail .. " You are about " .. n .. (n == 1 and " floor " or " floors ") .. (floors > 0 and "above" or "below") .. " it."
+    end
+  end
+  Vml("SetProperty", "lblDetail", "Text", detail)
+end
+
+Vml("SetProperty", "txtNote", "Text", Kept("note"))
+if Kept("photo") ~= "" then Vml("SetProperty", "imgBay", "Source", Kept("photo")) end
+Mine = json.decode(Kept("cars")) or {}
+ShowCars()
+Vml("Pressure")           -- wakes the barometer, so there is a reading by the time it is wanted
+Refresh()
+LUA
+
+# Small scripts: one for each button, and one for each answer the phone sends back later.
+
+@Script Tick
+Interpreter=lua
+<<LUA
+Refresh()
+LUA
+
+@Script DoGo
+Interpreter=lua
+<<LUA
+-- Walking directions to the spot, in whatever maps app the phone has.
+if not Spot or not Spot.lat then
+  Status("There's no place saved to go back to yet.")
+else
+  Vml("OpenUrl", "https://www.google.com/maps/dir/?api=1&travelmode=walking&destination=" .. Spot.lat .. "," .. Spot.lon)
+end
+LUA
+
+@Script DoShare
+Interpreter=lua
+<<LUA
+-- A map link (and the note) handed to messages, email, or whatever the user picks.
+if not Spot or not Spot.lat then
+  Status("There's no place saved to share yet.")
+else
+  local note = Kept("note")
+  Vml("Share", "The car is here: https://maps.google.com/?q=" .. Spot.lat .. "," .. Spot.lon .. (note ~= "" and ("  (" .. note .. ")") or ""), "Where the car is")
+end
+LUA
+
+@Script DoHere
+Interpreter=lua
+<<LUA
+-- Saving by hand: ask where the phone is; the answer comes back to Here.
+Status("Finding where you are...")
+Vml("GetLocation", "Here")
+LUA
+
+@Script Here
+Interpreter=lua
+<<LUA
+-- GetLocation's answer: the place, or what went wrong.
+local lat, lon, within, problem = ...
+if problem ~= "" then
+  Status(problem)
+  return
+end
+Vml("SetSetting", "here_time", os.time())
+Vml("SetSetting", "here_lat", lat)
+Vml("SetSetting", "here_lon", lon)
+Vml("SetSetting", "here_within", within)
+Vml("SetSetting", "here_pressure", Vml("Pressure"))
+Refresh()
+Status("Saved. A photo of the bay or a note helps in a big car park.")
+LUA
+
+@Script DoPhoto
+Interpreter=lua
+<<LUA
+Vml("TakePhoto", "imgBay", "Snapped")
+LUA
+
+@Script Snapped
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "photo", Vml("GetProperty", "imgBay", "Source"))
+Status("Photo kept.")
+LUA
+
+@Script SaveNote
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "note", Vml("GetProperty", "txtNote", "Text"))
+LUA
+
+@Script DoFind
+Interpreter=lua
+<<LUA
+-- Ask the phone which Bluetooth devices it is paired with; the answer comes back to Found.
+Status("Looking for the devices this phone is paired with...")
+Vml("BluetoothDevices", "Found")
+LUA
+
+@Script Found
+Interpreter=lua
+<<LUA
+-- BluetoothDevices' answer: the list as JSON, or what went wrong.
+local list, problem = ...
+if problem ~= "" then
+  Status(problem)
+  return
+end
+Cars = json.decode(list) or {}
+local names = { "Choose a device" }
+for _, car in ipairs(Cars) do names[#names + 1] = (car.name:gsub(",", " ")) end
+Filling = true
+Vml("SetProperty", "cmbCar", "Items", table.concat(names, ","))
+Vml("SetProperty", "cmbCar", "SelectedIndex", "0")
+Filling = false
+if #Cars == 0 then
+  Status("This phone isn't paired with anything yet. Pair it with the car in the phone's Bluetooth settings, then come back.")
+else
+  Status("Choose your car from the list.")
+end
+LUA
+
+@Script CarChosen
+Interpreter=lua
+<<LUA
+-- A device was picked from the list: it is one of your cars from now on. Picking one you already have does nothing.
+if Filling then return end
+local car = Cars[tonumber(Vml("GetProperty", "cmbCar", "SelectedIndex")) or 0]      -- the first line is "Choose a device"
+if not car or IsMine(car.address) then return end
+Mine[#Mine + 1] = { address = car.address, name = car.name }
+Vml("SetSetting", "cars", json.encode(Mine))
+ShowCars()
+Vml("WatchBluetooth", car.address, "true", "Watched")
+LUA
+
+@Script Watched
+Interpreter=lua
+<<LUA
+-- The phone's answer to being asked to watch a car: "watching", or why it can't fully.
+local state, problem = ...
+if state == "watching" then
+  Status("Done. From now on the phone notes where it is each time " .. CarNames() .. " goes out of range, even with this app shut.")
+else
+  Status(problem)
+end
+Refresh()
+LUA
+
+@Script DoForget
+Interpreter=lua
+<<LUA
+-- Stop watching every car. The place last saved stays until it is saved over.
+if #Mine == 0 then
+  Status("No cars have been chosen.")
+  return
+end
+for _, car in ipairs(Mine) do Vml("WatchBluetooth", car.address, "false") end
+Mine = {}
+Vml("SetSetting", "cars", "[]")
+ShowCars()
+Status("Forgotten. The phone no longer notes where any car is left.")
+Refresh()
+LUA

@@ -25,12 +25,17 @@ import java.util.regex.Pattern;
 final class Apps {
     /** One app kept on the phone. */
     static final class Kept {
-        final String id, name, source;
+        final String id, name, source, version;
+        final long when;                // when this copy was fetched
+        final File icon;                // its own picture, or null
 
-        Kept(String id, String name, String source) {
+        Kept(String id, String name, String source, String version, long when, File icon) {
             this.id = id;
             this.name = name;
             this.source = source;
+            this.version = version;
+            this.when = when;
+            this.icon = icon;
         }
 
         @Override
@@ -40,6 +45,8 @@ final class Apps {
     }
 
     private static final Pattern TITLE = Pattern.compile("<title>(.*?)</title>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern VERSION = Pattern.compile("<meta name=\"app-version\" content=\"([^\"]*)\"");
+    private static final Pattern ICON = Pattern.compile("<link rel=\"icon\" href=\"data:image/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)\"");
     private static final int MAX_PAGE = 64 * 1024 * 1024;
 
     private final File root;
@@ -54,13 +61,29 @@ final class Apps {
         if (folders != null) {
             for (File f : folders) {
                 if (new File(f, "index.html").isFile()) {
-                    out.add(new Kept(f.getName(), readText(new File(f, "name.txt"), f.getName()),
-                            readText(new File(f, "source.txt"), "")));
+                    out.add(kept(f));
                 }
             }
         }
         Collections.sort(out, (a, b) -> a.name.compareToIgnoreCase(b.name));
         return out;
+    }
+
+    private static Kept kept(File folder) {
+        File icon = new File(folder, "icon.png");
+        return new Kept(folder.getName(), readText(new File(folder, "name.txt"), folder.getName()),
+                readText(new File(folder, "source.txt"), ""), readText(new File(folder, "version.txt"), ""),
+                new File(folder, "index.html").lastModified(), icon.isFile() ? icon : null);
+    }
+
+    /** The app already kept from this address, if there is one: keeping it again replaces it. */
+    Kept from(String address) {
+        for (Kept k : all()) {
+            if (k.source.equals(address)) {
+                return k;
+            }
+        }
+        return null;
     }
 
     File page(String id) {
@@ -87,7 +110,25 @@ final class Apps {
         write(new File(folder, "index.html"), page);
         write(new File(folder, "name.txt"), name.getBytes(StandardCharsets.UTF_8));
         write(new File(folder, "source.txt"), address.getBytes(StandardCharsets.UTF_8));
-        return new Kept(id, name, address);
+        Matcher v = VERSION.matcher(html);
+        write(new File(folder, "version.txt"), (v.find() ? unescape(v.group(1).trim()) : "").getBytes(StandardCharsets.UTF_8));
+        File icon = new File(folder, "icon.png");
+        Matcher i = ICON.matcher(html);
+        byte[] picture = null;
+        if (i.find()) {
+            try {
+                picture = android.util.Base64.decode(i.group(1), android.util.Base64.DEFAULT);
+            } catch (IllegalArgumentException notBase64) {
+                picture = null;
+            }
+        }
+        if (picture != null && picture.length > 0) {
+            write(icon, picture);
+        } else {
+            //noinspection ResultOfMethodCallIgnored
+            icon.delete();
+        }
+        return kept(folder);
     }
 
     void remove(String id) {
