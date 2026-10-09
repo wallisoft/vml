@@ -9,7 +9,13 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.drawable.Icon;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
@@ -53,6 +59,7 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -133,6 +140,16 @@ public class MainActivity extends Activity {
     /** Opened from a link (visualised://computer:number/), as the page the designer serves offers. Always asks first. */
     private void opened(Intent intent) {
         Uri link = intent == null ? null : intent.getData();
+        if (link != null && "visualised-kept".equals(link.getScheme()) && link.getHost() != null) {
+            for (Apps.Kept app : apps.all()) {          // an icon on the home screen for an app kept on this phone
+                if (app.id.equals(link.getHost())) {
+                    openKept(app);
+                    return;
+                }
+            }
+            Toast.makeText(this, "That app isn't on this phone any more.", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (link == null || !"visualised".equals(link.getScheme()) || link.getHost() == null) {
             return;
         }
@@ -247,7 +264,7 @@ public class MainActivity extends Activity {
         kept.setPadding(0, dp(22), 0, dp(4));
         body.addView(kept);
         nothingKept = words("Nothing kept yet. Open an app from your computer, then choose Keep on this phone: "
-                + "after that it runs anywhere, with the computer off.", 14, 0xFF4B5563, false);
+                + "after that it runs anywhere, with the computer off, and can have an icon of its own on the home screen.", 14, 0xFF4B5563, false);
         body.addView(nothingKept);
         page.addView(body, new LinearLayout.LayoutParams(-1, -2));
 
@@ -280,12 +297,14 @@ public class MainActivity extends Activity {
     private void keptMenu(final Apps.Kept app) {
         boolean canFetch = !app.source.isEmpty();
         final String[] choices = canFetch
-                ? new String[]{"Open", "Fetch the newest from your computer", "Remove from this phone"}
-                : new String[]{"Open", "Remove from this phone"};
+                ? new String[]{"Open", "Add to the home screen", "Fetch the newest from where it came from", "Remove from this phone"}
+                : new String[]{"Open", "Add to the home screen", "Remove from this phone"};
         new AlertDialog.Builder(this).setTitle(app.name).setItems(choices, (d, which) -> {
             String chosen = choices[which];
             if (chosen.startsWith("Open")) {
                 openKept(app);
+            } else if (chosen.startsWith("Add")) {
+                addToHomeScreen(app);
             } else if (chosen.startsWith("Fetch")) {
                 keep(app.source, app.id);
             } else {
@@ -293,12 +312,50 @@ public class MainActivity extends Activity {
                         .setTitle("Remove " + app.name + "?")
                         .setMessage("The app goes from this phone. Anything it saved here goes when Visualised itself is removed.")
                         .setPositiveButton("Remove", (dd, w) -> {
+                            ShortcutManager icons = getSystemService(ShortcutManager.class);
+                            if (icons != null) {        // its icon on the home screen, if it has one, stops working and says why
+                                icons.disableShortcuts(Collections.singletonList("kept-" + app.id), "This app was removed from Visualised.");
+                            }
                             apps.remove(app.id);
                             showHome();
                         })
                         .setNegativeButton("Cancel", null).show();
             }
         }).show();
+    }
+
+    /** Offer an icon of its own on the phone's home screen for an app kept here: one tap and it is running. */
+    private void addToHomeScreen(Apps.Kept app) {
+        ShortcutManager icons = getSystemService(ShortcutManager.class);
+        if (icons == null || !icons.isRequestPinShortcutSupported()) {
+            Toast.makeText(this, "This phone's home screen doesn't take icons from apps.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Intent open = new Intent(this, MainActivity.class).setAction(Intent.ACTION_VIEW).setData(Uri.parse("visualised-kept://" + app.id));
+        ShortcutInfo icon = new ShortcutInfo.Builder(this, "kept-" + app.id)
+                .setShortLabel(app.name)
+                .setLongLabel(app.name)
+                .setIcon(Icon.createWithAdaptiveBitmap(letterIcon(app.name)))
+                .setIntent(open)
+                .build();
+        icons.requestPinShortcut(icon, null);            // the phone asks the user where to put it
+    }
+
+    /** An icon for an app that hasn't one of its own: its first letter on a colour that is always the same for that name. */
+    private Bitmap letterIcon(String name) {
+        int size = dp(108);                             // the size an icon is drawn at; the phone cuts its own shape out of the middle
+        Bitmap picture = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(picture);
+        int[] colours = {0xFF1E3A8A, 0xFF0F766E, 0xFF9D174D, 0xFF7C3AED, 0xFFB45309, 0xFF15803D, 0xFF0369A1, 0xFFBE123C};
+        canvas.drawColor(colours[Math.abs(name.toLowerCase().hashCode() % colours.length)]);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(Color.WHITE);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(size * 0.36f);
+        String letter = name.trim().isEmpty() ? "V" : name.trim().substring(0, name.trim().offsetByCodePoints(0, 1)).toUpperCase();
+        canvas.drawText(letter, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2f, paint);
+        return picture;
     }
 
     // ---------------------------------------------------------------- opening apps
@@ -358,7 +415,7 @@ public class MainActivity extends Activity {
             try {
                 final Apps.Kept got = apps.keep(where, replace);
                 main.post(() -> {
-                    Toast.makeText(this, got.name + " is on this phone.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, got.name + " is on this phone. Press and hold it in the list to give it an icon on the home screen.", Toast.LENGTH_LONG).show();
                     openKept(got);
                 });
             } catch (final Exception e) {
