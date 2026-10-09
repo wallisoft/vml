@@ -2079,6 +2079,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         folder.mkdir(exist_ok=True)
         out = folder / "index.html"                             # so the address is just the computer and a number
         self._export_html(node.name, str(out))
+        out.write_text(out.read_text(encoding="utf-8").replace(                # so the page offers the phone app
+            "</head>", "<script>window.VML_PREVIEW = true;</script>\n</head>", 1), encoding="utf-8")
         try:
             probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             probe.connect(("10.255.255.255", 1))               # nothing is sent: this only asks which address would be used
@@ -2097,12 +2099,35 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
                 def log_message(self, *a):
                     pass
 
+                def do_GET(handler):                            # a phone that opens the page says how big its screen is
+                    if handler.path.startswith("/_size?"):
+                        from urllib.parse import parse_qs
+                        said = parse_qs(handler.path.split("?", 1)[1])
+                        try:
+                            w, h = int(float(said["w"][0])), int(float(said["h"][0]))
+                            if 200 <= w <= 2000 and 200 <= h <= 4000:
+                                self._phone_size = f"{w}x{h}"
+                        except (KeyError, ValueError, IndexError):
+                            pass
+                        handler.send_response(204)
+                        handler.end_headers()
+                        return
+                    super().do_GET()
+
                 def end_headers(self):                          # always the newest: a phone keeps old pages hard
                     self.send_header("Cache-Control", "no-store")
                     super().end_headers()
             self._phone_server = ThreadingHTTPServer(("0.0.0.0", 0), functools.partial(Quiet, directory=str(folder)))
             threading.Thread(target=self._phone_server.serve_forever, daemon=True).start()
         return f"http://{address}:{self._phone_server.server_address[1]}/"
+
+    def cmd_PhoneSize(self):
+        """The screen of the phone that last opened Preview on Phone, as "360x668": what is left for a form once
+        the phone's own bars are taken off. "" until a phone has."""
+        size = getattr(self, "_phone_size", "")
+        if size and size != self.store.get_setting("phone_size"):
+            self.store.set_setting("phone_size", size)
+        return size or self.store.get_setting("phone_size") or ""
 
     def cmd_PreviewDesign(self, surface="Surface"):
         """Run the form being designed, for real, in its own window."""
@@ -2287,6 +2312,84 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
 
     def cmd_ClipboardGet(self):
         return QApplication.clipboard().text()
+
+    # --- the phone. On a computer these do the nearest sensible thing, so the same script runs in both places.
+    def cmd_DeviceInfo(self):
+        """What the app is running on, as JSON: platform is "desktop" here, "android-app" in the Visualised app
+        on a phone, "android-browser", "ios-browser" or "browser" on a web page; app is true only in the app."""
+        import platform
+        return json.dumps({"platform": "desktop", "app": False, "system": platform.system()})
+
+    def cmd_Vibrate(self, milliseconds=200):
+        """Buzz the phone. Nothing happens on a computer."""
+        return ""
+
+    def cmd_KeepAwake(self, on="true"):
+        """Keep the phone's screen on while the app is in front. Nothing happens on a computer."""
+        return ""
+
+    def cmd_Share(self, text="", title=""):
+        """Hand some text to another app on the phone (messages, email, notes). On a computer it goes on the clipboard."""
+        QApplication.clipboard().setText(str(text))
+        return ""
+
+    def cmd_Notify(self, title="", text=""):
+        """A notification in the phone's own list. On a computer, a message box."""
+        dialogs.message(self._parent_window(), str(title) or "Notice", str(text), self._edge())
+        return ""
+
+    def cmd_GetLocation(self, handler):
+        """Find where the phone is, then run handler with the latitude, the longitude and how many metres out that
+        might be; or with three blanks and what went wrong, which on a computer is always."""
+        origin = self._script_stack[-1] if self._script_stack else None
+        QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "", "", "A computer doesn't know where it is.", origin=origin))
+        return ""
+
+    def cmd_RunInBackground(self, on="true"):
+        """Keep the app going on a phone while the phone is used for something else. A computer does that anyway."""
+        return ""
+
+    def cmd_Torch(self, on="true"):
+        """The phone's torch, on or off. Nothing happens on a computer."""
+        return ""
+
+    def cmd_Speak(self, text=""):
+        """Say some text out loud, where there is a voice to say it with."""
+        try:
+            from PySide6.QtTextToSpeech import QTextToSpeech
+            if getattr(self, "_voice", None) is None:
+                self._voice = QTextToSpeech()
+            self._voice.say(str(text))
+        except Exception:                                        # no voice on this computer: silence is the honest answer
+            pass
+        return ""
+
+    def cmd_SaveFile(self, name, text=""):
+        """Give the user a file: on a phone it goes to Downloads, in a browser it downloads, on a computer the
+        user is asked where to put it. Returns where it went, or "" if it didn't."""
+        path = QFileDialog.getSaveFileName(self._parent_window(), "Save", str(name))[0]
+        if not path:
+            return ""
+        Path(path).write_text(str(text), encoding="utf-8")
+        return path
+
+    def cmd_PickPhoto(self, image, handler=""):
+        """Put a picture the user chooses into an Image, then run handler (if given) with the Image's name.
+        Returns the file chosen here; on a phone the answer comes later, so use the handler."""
+        path = QFileDialog.getOpenFileName(self._parent_window(), "Choose a picture", "",
+                                           "Pictures (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All files (*)")[0]
+        if not path:
+            return ""
+        self.cmd_SetProperty(image, "Source", path)
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            self.run_script(str(handler), str(image), origin=origin)
+        return path
+
+    def cmd_TakePhoto(self, image, handler=""):
+        """Take a photo with the phone's camera and put it in an Image, then run handler. A computer asks for a
+        picture file instead."""
+        return self.cmd_PickPhoto(image, handler)
 
     def cmd_FileOpenDialog(self, title="Open", ext=""):
         kinds = [e.strip().lstrip(".") for e in str(ext).split(",") if e.strip()]       # "vml", or "vb,cs" for several

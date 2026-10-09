@@ -222,20 +222,46 @@ function PreviewPhone()
     end
     Vml("ClipboardSet", url)
     Vml("SetStatusText", "On your phone, open " .. url)
-    Vml("InfoDialog", "Point your phone's camera at the square, or open this address in its browser:\n\n" .. url
-        .. "\n\nThe phone has to be on the same Wi-Fi as this computer. After a change, choose Preview on Phone again and reload the page on the phone."
+    Vml("InfoDialog", "Point your phone's camera at the square, or type this address into the Visualised app or the phone's browser:\n\n" .. url
+        .. "\n\nThe phone has to be on the same Wi-Fi as this computer. After a change, choose Preview on Phone again and refresh on the phone."
         .. "\n\nA form wider than the phone's screen is scaled to fit. For an app that feels at home on a phone, draw it phone-sized: File > New Phone Form."
         .. "\n\nAnyone on your network who has the address can open the page, for as long as Visualised is open.", "Preview on Phone", Vml("QrCode", url, 5))
+    PhoneSizeOffer()
 end
 
--- File > New Phone Form: a blank form the size of a phone held upright
+-- The phone has said how much room it really has (its own bars taken off). A phone-shaped form that is a
+-- different size is offered the phone's size, once for each pairing of form size and phone size.
+function PhoneSizeOffer()
+    local size = Vml("PhoneSize")
+    local pw, ph = size:match("^(%d+)x(%d+)$")
+    if not pw then return end
+    local fw, fh = Vml("GetProperty", "Surface", "FormWidth"), Vml("GetProperty", "Surface", "FormHeight")
+    if (tonumber(fw) or 9999) > 600 or (tonumber(fw) == tonumber(pw) and tonumber(fh) == tonumber(ph)) then return end
+    fw, fh = tostring(math.floor(tonumber(fw))), tostring(math.floor(tonumber(fh) or 0))
+    local pairing = fw .. "x" .. fh .. ">" .. size
+    if Vml("GetSetting", "phone_size_asked") == pairing then return end
+    Vml("SetSetting", "phone_size_asked", pairing)
+    local answer = Vml("ChoiceDialog", "Your phone has room for " .. pw .. " x " .. ph .. " once its own bars are taken off.\nThis form is " .. fw .. " x " .. fh
+        .. ".\n\nMake the form the phone's size?", "Preview on Phone", "Resize|Leave")
+    if answer ~= "Resize" then return end
+    Vml("SetProperty", "Surface", "FormWidth", pw)
+    Vml("SetProperty", "Surface", "FormHeight", ph)
+    Vml("PreviewOnPhone", "Surface")
+    Vml("SetStatusText", "The form is now " .. pw .. " x " .. ph .. ". Refresh on the phone.")
+end
+
+-- File > New Phone Form: a blank form the size of a phone held upright: the phone that last opened Preview on
+-- Phone, or one that leaves room for a browser's address bar
 function FileNewPhone()
     if SaveFirst() ~= "true" then return end
+    local w, h = Vml("PhoneSize"):match("^(%d+)x(%d+)$")
+    local known = w ~= nil
+    w, h = w or "360", h or "640"
     Vml("RunScript", "FileNewQuiet")
-    Vml("SetProperty", "Surface", "FormWidth", "360")
-    Vml("SetProperty", "Surface", "FormHeight", "740")
+    Vml("SetProperty", "Surface", "FormWidth", w)
+    Vml("SetProperty", "Surface", "FormHeight", h)
     Vml("RunScript", "UpdateTitle")
-    Vml("SetStatusText", "A phone-sized form (360 x 740). Anchor what should stretch, then View > Preview on Phone.")
+    Vml("SetStatusText", (known and "A form the size of your phone's screen" or "A phone-sized form") .. " (" .. w .. " x " .. h .. "). Anchor what should stretch, then View > Preview on Phone.")
 end
 
 function ExportHtml(...)

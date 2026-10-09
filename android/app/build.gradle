@@ -1,0 +1,59 @@
+// Visualised for Android: runs apps drawn in Visualised, and lets them use the phone.
+// Plain Java on the Android framework: no libraries, so the app is small and there is nothing to keep up to date.
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "io.visualised.app"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "io.visualised.app"
+        minSdk 29               // Android 10: a photo can be saved without asking for the whole of the phone's storage
+        targetSdk 34
+        versionCode 5
+        versionName "0.3.1"
+    }
+
+    // The release is signed with the key that is yours alone: every update must be signed with the same one, so
+    // it lives outside the project (never in git) with its password beside it. Elsewhere: VISUALISED_KEYSTORE and
+    // VISUALISED_KEYSTORE_PASSWORD. With no key, assembleRelease makes an unsigned APK and says so.
+    def home = System.getProperty("user.home")
+    def keyFile = file(System.getenv("VISUALISED_KEYSTORE") ?: "${home}/visualised-release.jks")
+    def passFile = file("${home}/visualised-release.pass")
+    def keyPass = System.getenv("VISUALISED_KEYSTORE_PASSWORD") ?: (passFile.exists() ? passFile.text.trim() : null)
+    def signed = keyFile.exists() && keyPass
+
+    signingConfigs {
+        if (signed) {
+            release {
+                storeFile keyFile
+                storePassword keyPass
+                keyAlias "visualised"
+                keyPassword keyPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signed) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn("Visualised: no signing key at ${keyFile}: the release APK will be unsigned and won't install.")
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

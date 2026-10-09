@@ -805,11 +805,111 @@ const commands = {
     return String(rows.length);
   },
   GridGetData(name) { const e = el(name); return e && e._rows ? JSON.stringify(e._rows.map(r => Object.fromEntries(e._cols.map((c, i) => [c, r[i] ?? ""])))) : "[]"; },
+  // --- the phone. In the Visualised app these go through it; in a browser, through whatever the browser offers.
+  DeviceInfo() {
+    const ua = navigator.userAgent, screen = { width: window.innerWidth, height: window.innerHeight };
+    if (DEV) return JSON.stringify(Object.assign(JSON.parse(DEV.info()), screen));
+    return JSON.stringify(Object.assign({ platform: /Android/.test(ua) ? "android-browser" : /iPhone|iPad/.test(ua) ? "ios-browser" : "browser", app: false, online: navigator.onLine }, screen));
+  },
+  RunInBackground(on = "true") { if (DEV && DEV.background) DEV.background(!/^(false|0|no|)$/i.test(on)); return ""; },
+  Torch(on = "true") { if (DEV && DEV.torch) DEV.torch(!/^(false|0|no|)$/i.test(on)); return ""; },
+  Speak(text = "") {
+    if (DEV && DEV.speak) DEV.speak(text);
+    else if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    return "";
+  },
+  OpenUrl(url) { if (DEV && DEV.open) DEV.open(url); else window.open(url, "_blank"); return ""; },
+  // Give the user a file: the phone app puts it in Downloads, a browser downloads it.
+  SaveFile(name, text = "") {
+    if (DEV && DEV.saveFile) return DEV.saveFile(name, text);
+    const a = document.createElement("a");
+    a.href = text.startsWith("data:") ? text : URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    a.download = name || "file.txt";
+    document.body.appendChild(a); a.click(); a.remove();
+    return a.download;
+  },
+  Vibrate(ms = "200") { const n = Math.max(1, Number(ms) || 200); if (DEV) DEV.vibrate(n); else if (navigator.vibrate) navigator.vibrate(n); return ""; },
+  KeepAwake(on = "true") {
+    const yes = !/^(false|0|no|)$/i.test(on);
+    if (DEV) DEV.keepAwake(yes);
+    else if (navigator.wakeLock) { if (yes) navigator.wakeLock.request("screen").then(l => { awake = l; }).catch(() => {}); else if (awake) { awake.release(); awake = null; } }
+    return "";
+  },
+  ClipboardSet(text = "") { if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {}); return ""; },
+  Share(text = "", title = "") {
+    if (DEV) DEV.share(text, title);
+    else if (navigator.share) navigator.share(title ? { text, title } : { text }).catch(() => {});
+    else commands.ClipboardSet(text);
+    return "";
+  },
+  Notify(title = "", text = "") {
+    if (DEV) { DEV.notify(title, text); return ""; }
+    const show = () => { try { new Notification(title, { body: text }); } catch (err) { alert(title + (text ? "\n\n" + text : "")); } };
+    if (!("Notification" in window) || Notification.permission === "denied") alert(title + (text ? "\n\n" + text : ""));
+    else if (Notification.permission === "granted") show();
+    else Notification.requestPermission().then(p => p === "granted" ? show() : alert(title + (text ? "\n\n" + text : "")));
+    return "";
+  },
+  // The handler is run with the latitude, longitude and how many metres out it might be; or with three blanks and what went wrong.
+  GetLocation(handler) {
+    const fail = why => run(handler, ["", "", "", why]);
+    if (!navigator.geolocation || !window.isSecureContext) { setTimeout(() => fail("Finding where you are needs the Visualised app, or a secure (https) page."), 0); return ""; }
+    navigator.geolocation.getCurrentPosition(
+      p => run(handler, [String(p.coords.latitude), String(p.coords.longitude), String(Math.round(p.coords.accuracy)), ""]),
+      e => fail(e.code === 1 ? "Location wasn't allowed." : "The phone couldn't find where it is."),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 });
+    return "";
+  },
+  // Put a photo in an Image: straight from the camera, or one chosen from the phone. Then the handler is run, if there is one.
+  TakePhoto(image, handler = "") { return photo(image, handler, true); },
+  PickPhoto(image, handler = "") { return photo(image, handler, false); },
   ProjectName() { return VML.project || ""; },
   SetDialogResult() { return ""; },
   CloseSelf() { window.close(); return ""; },
   AppExit() { window.close(); return ""; },
 };
+const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
+let awake = null;
+function photo(image, handler, camera) {
+  const pick = document.createElement("input");
+  pick.type = "file"; pick.accept = "image/*";
+  if (camera) pick.setAttribute("capture", "environment");
+  pick.onchange = () => {
+    const file = pick.files && pick.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {                          // a phone's photo is huge: 1600 across is plenty for a form, and small enough to keep
+      const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      commands.SetProperty(image, "Source", c.toDataURL("image/jpeg", 0.85));
+      if (handler) run(handler, [image]);
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  };
+  pick.click();
+  return "";
+}
+// A page being previewed from the designer, opened in a phone's browser, offers to open in the app instead.
+function offerApp() {
+  if (window.VML_PREVIEW && location.protocol !== "file:")      // tell the designer how much room this phone really has
+    fetch(`/_size?w=${window.innerWidth}&h=${window.innerHeight}&app=${DEV ? 1 : 0}`).catch(() => {});
+  if (!window.VML_PREVIEW || DEV || !/Android/.test(navigator.userAgent) || document.getElementById("vml_offer")) return;
+  const b = document.createElement("div");
+  b.id = "vml_offer";
+  b.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:#111827;color:#fff;font:14px system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.35)";
+  const a = document.createElement("a");
+  a.href = "visualised://" + location.host + "/";
+  a.textContent = "Open in the Visualised app";
+  a.style.cssText = "flex:1;color:#fff;font-weight:600;text-decoration:none";
+  const x = document.createElement("span");
+  x.textContent = "×"; x.style.cssText = "padding:0 6px;font-size:20px;cursor:pointer";
+  x.onclick = () => b.remove();
+  b.append(a, x);
+  document.body.appendChild(b);
+}
 function Vml(cmd, ...args) {
   args = args.map(a => a == null ? "" : String(a));
   const f = commands[cmd];
@@ -912,6 +1012,7 @@ window.addEventListener("orientationchange", fitScreen);
 
 function wire() {
   fitScreen();
+  offerApp();
   document.querySelectorAll(".pbar").forEach(drawBar);
   document.querySelectorAll('[data-type="Timer"]').forEach(setTimer);
   for (const h of VML.handlers) {

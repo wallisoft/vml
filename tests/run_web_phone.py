@@ -156,7 +156,7 @@ def steps():
     for _ in range(10): app.processEvents()
     eng.find("FileNewPhone").action.trigger()
     for _ in range(10): app.processEvents()
-    check("designer: New Phone Form is a form the size of a phone held upright", (str(eng.vml("GetProperty", "Surface", "FormWidth")), str(eng.vml("GetProperty", "Surface", "FormHeight"))), ("360", "740"))
+    check("designer: New Phone Form is a form the size of a phone held upright, with room left for a browser's address bar", (str(eng.vml("GetProperty", "Surface", "FormWidth")), str(eng.vml("GetProperty", "Surface", "FormHeight")), eng.vml("PhoneSize")), ("360", "640", ""))
     eng.vml("AddDesignControl", "Button", 20, 20)
     url = eng.cmd_PreviewOnPhone("Surface")
     if not url:
@@ -172,6 +172,26 @@ def steps():
         except Exception:
             leaked = False
         check("designer: and nothing outside its own folder", leaked, False)
+        check("designer: the page it serves will say how big the phone's screen is", "window.VML_PREVIEW = true" in text and "/_size?w=" in text)
+        told = urllib.request.urlopen(local + "_size?w=412&h=780&app=1", timeout=5).status
+        urllib.request.urlopen(local + "_size?w=9&h=nonsense", timeout=5)
+        check("designer: a phone that opens it tells the designer its size, and nonsense is ignored", (told, eng.vml("PhoneSize")), (204, "412x780"))
+        asked = []
+        eng.cmd_ChoiceDialog = lambda msg, title="", buttons="": asked.append(str(msg)) or "Resize"
+        eng.cmd_InfoDialog = lambda msg, title="", picture="": None
+        eng.find("ViewPhone").action.trigger()
+        for _ in range(10): app.processEvents()
+        check("designer: a phone-shaped form of another size is offered the phone's size, and takes it",
+              (len(asked), "412 x 780" in asked[0] and "360 x 640" in asked[0], str(eng.vml("GetProperty", "Surface", "FormWidth")), str(eng.vml("GetProperty", "Surface", "FormHeight"))), (1, True, "412", "780"))
+        eng.find("ViewPhone").action.trigger()
+        for _ in range(10): app.processEvents()
+        check("designer: and isn't asked again once it matches", len(asked), 1)
+        eng.cmd_ChoiceDialog = lambda msg, title="", buttons="": "Don't Save"
+        eng.find("FileNewPhone").action.trigger()
+        for _ in range(10): app.processEvents()
+        check("designer: after that, New Phone Form is the size of your phone", (str(eng.vml("GetProperty", "Surface", "FormWidth")), str(eng.vml("GetProperty", "Surface", "FormHeight"))), ("412", "780"))
+        eng.vml("AddDesignControl", "Button", 20, 20)
+        url = eng.cmd_PreviewOnPhone("Surface")
         shown = []
         eng.cmd_InfoDialog = lambda msg, title="", picture="": shown.append((str(msg), str(picture)))
         eng.find("ViewPhone").action.trigger()

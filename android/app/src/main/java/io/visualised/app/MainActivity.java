@@ -1,0 +1,772 @@
+package io.visualised.app;
+
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ContentValues;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.MediaStore;
+import android.text.InputType;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.webkit.GeolocationPermissions;
+import android.webkit.JsPromptResult;
+import android.webkit.JsResult;
+import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Visualised on a phone: runs the apps the designer makes.
+ *
+ * An app is one web page. It is shown in a web view at an address of its own that exists only inside this app
+ * (https://NAME.app.visualised.invalid/), and this class answers every request for that address itself: from the
+ * copy kept on the phone, or by fetching from the designer on the user's computer. A secure address is what lets
+ * the page use the phone's location and camera, and an address per app keeps each app's saved data apart.
+ */
+public class MainActivity extends Activity {
+    private static final String SUFFIX = ".app.visualised.invalid";
+    private static final int BRAND = 0xFF1E3A8A;
+    private static final int PICK = 71;
+
+    /** Told whether the user allowed something. */
+    interface Answer {
+        void got(boolean granted);
+    }
+
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Map<String, String> live = new ConcurrentHashMap<>();     // an address in here -> the computer it stands for
+    private final Map<Integer, Answer> asked = new HashMap<>();
+    private int nextAsk = 100;
+
+    private Apps apps;
+    private SharedPreferences prefs;
+    private View home, running, liveBar;
+    private TextView liveText, nothingKept;
+    private EditText address;
+    private ListView keptList;
+    private WebView web;
+    private String host = "";               // the address (in here) of the app on screen
+    private String title = "Visualised";    // and its name
+    private String liveSource = "";         // where it is being fetched from, when it is not one kept on the phone
+    private Device device;
+    private boolean background;             // the app on screen asked to keep going when the phone is used for something else
+    private ValueCallback<Uri[]> picking;
+    private Uri photo;
+
+    // ---------------------------------------------------------------- starting and stopping
+    @Override
+    protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        apps = new Apps(this);
+        prefs = getSharedPreferences("visualised", MODE_PRIVATE);
+        FrameLayout root = new FrameLayout(this);
+        running = buildRunning();
+        home = buildHome();
+        root.addView(running, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(home, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
+        showHome();
+        opened(getIntent());
+        if (!prefs.getBoolean("asked", false)) {        // once, the first time: everything an app might use, so apps aren't interrupted later
+            prefs.edit().putBoolean("asked", true).apply();
+            List<String> all = new ArrayList<>();
+            all.add("android.permission.CAMERA");
+            all.add("android.permission.RECORD_AUDIO");
+            all.add("android.permission.ACCESS_FINE_LOCATION");
+            all.add("android.permission.ACCESS_COARSE_LOCATION");
+            if (Build.VERSION.SDK_INT >= 33) {
+                all.add("android.permission.POST_NOTIFICATIONS");
+            }
+            requestPermissions(all.toArray(new String[0]), 99);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        opened(intent);
+    }
+
+    /** Opened from a link (visualised://computer:number/), as the page the designer serves offers. Always asks first. */
+    private void opened(Intent intent) {
+        Uri link = intent == null ? null : intent.getData();
+        if (link == null || !"visualised".equals(link.getScheme()) || link.getHost() == null) {
+            return;
+        }
+        final String where = Apps.address(link.getEncodedAuthority(), link.getEncodedPath());
+        new AlertDialog.Builder(this)
+                .setTitle("Open this app?")
+                .setMessage("From " + link.getEncodedAuthority() + ".\n\nOnly open apps from a computer you know.")
+                .setPositiveButton("Open", (d, w) -> openLive(where))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (!background) {
+            web.onPause();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        web.onResume();
+    }
+
+    @Override
+    protected void onDestroy() {
+        runInBackground(false);
+        device.close();
+        web.destroy();
+        super.onDestroy();
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
+        if (home.getVisibility() != View.VISIBLE) {
+            showHome();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    // ---------------------------------------------------------------- the first screen
+    private int dp(float n) {
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, n, getResources().getDisplayMetrics()));
+    }
+
+    private TextView words(String text, float size, int colour, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+        t.setTextColor(colour);
+        if (bold) {
+            t.setTypeface(Typeface.DEFAULT_BOLD);
+        }
+        return t;
+    }
+
+    private View buildHome() {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(Color.WHITE);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.VERTICAL);
+        head.setBackgroundColor(BRAND);
+        head.setPadding(dp(20), dp(22), dp(20), dp(20));
+        head.addView(words("Visualised", 26, Color.WHITE, true));
+        head.addView(words("The apps you've made, on your phone.", 14, 0xFFDBE4FF, false));
+        String version = "";
+        try {
+            version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // then it isn't shown
+        }
+        TextView ver = words("Version " + version, 12, 0xFFA5B4FC, false);
+        ver.setPadding(0, dp(6), 0, 0);
+        head.addView(ver);
+        page.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(20), dp(18), dp(20), 0);
+        body.addView(words("From your computer", 16, 0xFF111827, true));
+        TextView how = words("In the designer choose View, then Preview on Phone, and scan the code with this phone's camera. "
+                + "Or type the address it shows here, or the web address of an app someone has published.", 14, 0xFF4B5563, false);
+        how.setPadding(0, dp(4), 0, dp(10));
+        body.addView(how);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        address = new EditText(this);
+        address.setHint("192.168.1.20:8000 or a web address");
+        address.setSingleLine(true);
+        address.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        address.setImeOptions(EditorInfo.IME_ACTION_GO);
+        address.setText(prefs.getString("address", ""));
+        address.setOnEditorActionListener((v, action, event) -> {
+            openTyped();
+            return true;
+        });
+        Button open = new Button(this);
+        open.setText("Open");
+        open.setOnClickListener(v -> openTyped());
+        row.addView(address, new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(open, new LinearLayout.LayoutParams(-2, -2));
+        body.addView(row);
+
+        TextView kept = words("On this phone", 16, 0xFF111827, true);
+        kept.setPadding(0, dp(22), 0, dp(4));
+        body.addView(kept);
+        nothingKept = words("Nothing kept yet. Open an app from your computer, then choose Keep on this phone: "
+                + "after that it runs anywhere, with the computer off.", 14, 0xFF4B5563, false);
+        body.addView(nothingKept);
+        page.addView(body, new LinearLayout.LayoutParams(-1, -2));
+
+        keptList = new ListView(this);
+        keptList.setPadding(dp(6), 0, dp(6), 0);
+        keptList.setOnItemClickListener((parent, view, at, id) -> openKept((Apps.Kept) parent.getItemAtPosition(at)));
+        keptList.setOnItemLongClickListener((parent, view, at, id) -> {
+            keptMenu((Apps.Kept) parent.getItemAtPosition(at));
+            return true;
+        });
+        page.addView(keptList, new LinearLayout.LayoutParams(-1, 0, 1));
+        return page;
+    }
+
+    private void showHome() {
+        web.loadUrl("about:blank");                     // stops the app that was running: its timers, its camera
+        host = "";
+        liveSource = "";
+        runInBackground(false);
+        device.reset();
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        List<Apps.Kept> all = apps.all();
+        keptList.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new ArrayList<>(all)));
+        nothingKept.setVisibility(all.isEmpty() ? View.VISIBLE : View.GONE);
+        home.setVisibility(View.VISIBLE);
+        running.setVisibility(View.INVISIBLE);
+        bar(BRAND);
+    }
+
+    private void keptMenu(final Apps.Kept app) {
+        boolean canFetch = !app.source.isEmpty();
+        final String[] choices = canFetch
+                ? new String[]{"Open", "Fetch the newest from your computer", "Remove from this phone"}
+                : new String[]{"Open", "Remove from this phone"};
+        new AlertDialog.Builder(this).setTitle(app.name).setItems(choices, (d, which) -> {
+            String chosen = choices[which];
+            if (chosen.startsWith("Open")) {
+                openKept(app);
+            } else if (chosen.startsWith("Fetch")) {
+                keep(app.source, app.id);
+            } else {
+                new AlertDialog.Builder(this)
+                        .setTitle("Remove " + app.name + "?")
+                        .setMessage("The app goes from this phone. Anything it saved here goes when Visualised itself is removed.")
+                        .setPositiveButton("Remove", (dd, w) -> {
+                            apps.remove(app.id);
+                            showHome();
+                        })
+                        .setNegativeButton("Cancel", null).show();
+            }
+        }).show();
+    }
+
+    // ---------------------------------------------------------------- opening apps
+    private void openTyped() {
+        String typed = address.getText().toString().trim();
+        if (typed.isEmpty()) {
+            return;
+        }
+        if (typed.startsWith("visualised://")) {
+            typed = typed.substring("visualised://".length());
+        }
+        if (!typed.contains("://")) {
+            int slash = typed.indexOf('/');
+            typed = Apps.address(slash < 0 ? typed : typed.substring(0, slash), slash < 0 ? "/" : typed.substring(slash));
+        }
+        Uri u = Uri.parse(typed);
+        if (u.getHost() == null || !("http".equals(u.getScheme()) || "https".equals(u.getScheme()))) {
+            Toast.makeText(this, "That doesn't look like an address. It is like 192.168.1.20:8000", Toast.LENGTH_LONG).show();
+            return;
+        }
+        prefs.edit().putString("address", address.getText().toString().trim()).apply();
+        openLive(typed);
+    }
+
+    /** Run the app a computer is serving, fetched afresh each time. */
+    private void openLive(String where) {
+        Uri u = Uri.parse(where);
+        String base = u.getScheme() + "://" + u.getEncodedAuthority();
+        String name = "live-" + Apps.safe(u.getEncodedAuthority().replace('.', '-').replace(':', '-')) + SUFFIX;
+        live.put(name, base);
+        liveSource = where;
+        liveText.setText("Live from " + u.getEncodedAuthority());
+        liveBar.setVisibility(View.VISIBLE);
+        String path = u.getEncodedPath() == null || u.getEncodedPath().isEmpty() ? "/" : u.getEncodedPath();
+        show(name, u.getEncodedAuthority(), path);
+    }
+
+    private void openKept(Apps.Kept app) {
+        liveSource = "";
+        liveBar.setVisibility(View.GONE);
+        show(app.id + SUFFIX, app.name, "/");
+    }
+
+    private void show(String name, String called, String path) {
+        host = name;
+        title = called;
+        home.setVisibility(View.INVISIBLE);
+        running.setVisibility(View.VISIBLE);
+        web.clearHistory();
+        web.loadUrl("https://" + name + path);
+    }
+
+    /** Fetch the app at an address and keep it on the phone (in place of the one already kept, when given). */
+    private void keep(final String where, final String replace) {
+        Toast.makeText(this, "Fetching…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                final Apps.Kept got = apps.keep(where, replace);
+                main.post(() -> {
+                    Toast.makeText(this, got.name + " is on this phone.", Toast.LENGTH_LONG).show();
+                    openKept(got);
+                });
+            } catch (final Exception e) {
+                main.post(() -> new AlertDialog.Builder(this)
+                        .setTitle("That couldn't be fetched")
+                        .setMessage(reason(e) + "\n\nFor an app on your own computer, the phone and the computer need to be "
+                                + "on the same network, with Preview on Phone open in the designer.")
+                        .setPositiveButton("OK", null).show());
+            }
+        }).start();
+    }
+
+    private static String reason(Exception e) {
+        String m = e.getMessage();
+        return m == null || m.isEmpty() ? "The computer didn't answer." : m;
+    }
+
+    // ---------------------------------------------------------------- the running app
+    @SuppressLint("SetJavaScriptEnabled")
+    private View buildRunning() {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(Color.WHITE);
+
+        web = new WebView(this);
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setGeolocationEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setAllowFileAccess(false);
+        s.setTextZoom(100);                             // forms are drawn to the pixel: the phone's text size mustn't push them about
+        s.setSupportMultipleWindows(false);
+        device = new Device(this);
+        web.addJavascriptInterface(device, "VisualisedDevice");
+        web.setWebViewClient(new Pages());
+        web.setWebChromeClient(new Asks());
+        page.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        LinearLayout strip = new LinearLayout(this);
+        strip.setGravity(Gravity.CENTER_VERTICAL);
+        strip.setBackgroundColor(0xFFF3F4F6);
+        strip.setPadding(dp(12), 0, dp(4), 0);
+        liveText = words("", 13, 0xFF374151, false);
+        liveText.setSingleLine(true);
+        Button again = new Button(this, null, android.R.attr.borderlessButtonStyle);
+        again.setText("Refresh");
+        again.setOnClickListener(v -> web.reload());
+        Button keepIt = new Button(this, null, android.R.attr.borderlessButtonStyle);
+        keepIt.setText("Keep on this phone");
+        keepIt.setOnClickListener(v -> {
+            if (!liveSource.isEmpty()) {
+                keep(liveSource, null);
+            }
+        });
+        strip.addView(liveText, new LinearLayout.LayoutParams(0, -2, 1));
+        strip.addView(again, new LinearLayout.LayoutParams(-2, -2));
+        strip.addView(keepIt, new LinearLayout.LayoutParams(-2, -2));
+        liveBar = strip;
+        page.addView(strip, new LinearLayout.LayoutParams(-1, -2));
+        return page;
+    }
+
+    /** The colour of the strip at the very top of the screen, with its clock and icons dark or light to suit. */
+    @SuppressWarnings("deprecation")
+    private void bar(int colour) {
+        getWindow().setStatusBarColor(colour);
+        double light = (0.299 * Color.red(colour) + 0.587 * Color.green(colour) + 0.114 * Color.blue(colour)) / 255;
+        View v = getWindow().getDecorView();
+        int flags = v.getSystemUiVisibility();
+        v.setSystemUiVisibility(light > 0.6 ? flags | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR : flags & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+    }
+
+    /** Answers every request an app's page makes, and keeps the page from wandering off to other sites. */
+    private final class Pages extends WebViewClient {
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            Uri u = request.getUrl();
+            String name = u.getHost();
+            if (name == null || !name.endsWith(SUFFIX)) {
+                return null;                            // something on the real web the page asked for (a picture, a map)
+            }
+            String path = u.getEncodedPath() == null || u.getEncodedPath().isEmpty() ? "/" : u.getEncodedPath();
+            String base = live.get(name);
+            try {
+                if (base == null) {
+                    File page = apps.page(name.substring(0, name.length() - SUFFIX.length()));
+                    if (("/".equals(path) || "/index.html".equals(path)) && page.isFile()) {
+                        return answer(200, "text/html", "utf-8", new FileInputStream(page));
+                    }
+                    return said(404, "That isn't part of this app.");
+                }
+                String query = u.getEncodedQuery();
+                Map<String, String> asked = new HashMap<>();
+                for (Map.Entry<String, String> h : request.getRequestHeaders().entrySet()) {
+                    if (!"Origin".equalsIgnoreCase(h.getKey()) && !"Referer".equalsIgnoreCase(h.getKey())) {
+                        asked.put(h.getKey(), h.getValue());
+                    }
+                }
+                HttpURLConnection c = Apps.open(base + path + (query == null ? "" : "?" + query), asked, 20000);
+                int code = c.getResponseCode();
+                InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                if (in == null) {
+                    in = new ByteArrayInputStream(new byte[0]);
+                }
+                if (code < 200 || (code >= 300 && code < 400)) {
+                    code = 502;
+                }
+                String type = c.getContentType(), charset = null;
+                if (type == null) {
+                    type = URLConnection.guessContentTypeFromName(path);
+                }
+                if (type == null) {
+                    type = "/".equals(path) ? "text/html" : "application/octet-stream";
+                }
+                int semi = type.indexOf(';');
+                if (semi >= 0) {
+                    int cs = type.toLowerCase().indexOf("charset=");
+                    if (cs >= 0) {
+                        charset = type.substring(cs + 8).trim().replace("\"", "");
+                    }
+                    type = type.substring(0, semi).trim();
+                }
+                if (charset == null && type.startsWith("text/")) {
+                    charset = "utf-8";
+                }
+                return answer(code, type, charset, in);
+            } catch (IOException e) {
+                return said(503, "No answer from " + Uri.parse(base).getEncodedAuthority() + ".\n\nFor an app on your own computer, "
+                        + "the phone and the computer need to be on the same network, with Preview on Phone open in the designer. "
+                        + "Then press Refresh.");
+            }
+        }
+
+        private WebResourceResponse answer(int code, String type, String charset, InputStream in) {
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Cache-Control", "no-store");
+            return new WebResourceResponse(type, charset, code, code == 200 ? "OK" : "Error", headers, in);
+        }
+
+        private WebResourceResponse said(int code, String text) {
+            String html = "<!DOCTYPE html><meta name=viewport content='width=device-width, initial-scale=1'>"
+                    + "<body style='font:16px sans-serif;color:#374151;padding:28px;white-space:pre-wrap'>"
+                    + text.replace("&", "&amp;").replace("<", "&lt;") + "</body>";
+            return answer(code, "text/html", "utf-8", new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)));
+        }
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            Uri u = request.getUrl();
+            if (host.equals(u.getHost()) || "about".equals(u.getScheme())) {
+                return false;
+            }
+            String scheme = u.getScheme() == null ? "" : u.getScheme();
+            if (scheme.equals("http") || scheme.equals("https") || scheme.equals("mailto") || scheme.equals("tel")
+                    || scheme.equals("sms") || scheme.equals("geo")) {
+                try {                                   // a link to somewhere else opens in the phone's own app for it
+                    startActivity(new Intent(Intent.ACTION_VIEW, u));
+                } catch (ActivityNotFoundException ignored) {
+                    Toast.makeText(MainActivity.this, "Nothing on this phone opens that.", Toast.LENGTH_SHORT).show();
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            if (host.isEmpty() || url == null || !url.contains(SUFFIX)) {
+                return;
+            }
+            view.evaluateJavascript("(function(){var m=document.querySelector('meta[name=theme-color]');"
+                    + "return [m?m.content:'',document.title||''].join('\\n')})()", value -> {
+                if (value == null || host.isEmpty()) {
+                    return;
+                }
+                String[] got = value.replaceAll("^\"|\"$", "").split("\\\\n", 2);
+                try {
+                    bar(Color.parseColor(got[0].trim()));
+                } catch (IllegalArgumentException e) {
+                    bar(BRAND);
+                }
+                if (got.length > 1 && !got[1].trim().isEmpty()) {
+                    title = got[1].trim();
+                }
+            });
+        }
+    }
+
+    /** What a page asks the user or the phone for: messages, location, the camera, a file. */
+    private final class Asks extends WebChromeClient {
+        @Override
+        public boolean onJsAlert(WebView view, String url, String message, final JsResult result) {
+            new AlertDialog.Builder(MainActivity.this).setTitle(title).setMessage(message)
+                    .setPositiveButton("OK", (d, w) -> result.confirm())
+                    .setOnCancelListener(d -> result.cancel()).show();
+            return true;
+        }
+
+        @Override
+        public boolean onJsConfirm(WebView view, String url, String message, final JsResult result) {
+            new AlertDialog.Builder(MainActivity.this).setTitle(title).setMessage(message)
+                    .setPositiveButton("OK", (d, w) -> result.confirm())
+                    .setNegativeButton("Cancel", (d, w) -> result.cancel())
+                    .setOnCancelListener(d -> result.cancel()).show();
+            return true;
+        }
+
+        @Override
+        public boolean onJsPrompt(WebView view, String url, String message, String value, final JsPromptResult result) {
+            final EditText box = new EditText(MainActivity.this);
+            box.setSingleLine(true);
+            box.setText(value == null ? "" : value);
+            FrameLayout pad = new FrameLayout(MainActivity.this);
+            pad.setPadding(dp(20), 0, dp(20), 0);
+            pad.addView(box);
+            new AlertDialog.Builder(MainActivity.this).setTitle(title).setMessage(message).setView(pad)
+                    .setPositiveButton("OK", (d, w) -> result.confirm(box.getText().toString()))
+                    .setNegativeButton("Cancel", (d, w) -> result.cancel())
+                    .setOnCancelListener(d -> result.cancel()).show();
+            return true;
+        }
+
+        @Override
+        public void onGeolocationPermissionsShowPrompt(final String origin, final GeolocationPermissions.Callback callback) {
+            withPermission(new String[]{"android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"},
+                    granted -> callback.invoke(origin, granted, false));
+        }
+
+        @Override
+        public void onPermissionRequest(final PermissionRequest request) {
+            String from = request.getOrigin() == null ? null : request.getOrigin().getHost();
+            if (from == null || !from.equals(host)) {
+                request.deny();
+                return;
+            }
+            final List<String[]> wanted = new ArrayList<>();        // what the page asked for, with the permission each needs
+            for (String r : request.getResources()) {
+                if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) {
+                    wanted.add(new String[]{r, "android.permission.CAMERA"});
+                } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) {
+                    wanted.add(new String[]{r, "android.permission.RECORD_AUDIO"});
+                }
+            }
+            grantNext(request, wanted, 0, new ArrayList<>());
+        }
+
+        /** Ask for the camera, then the microphone, one at a time; the page gets whichever the user allowed. */
+        private void grantNext(final PermissionRequest request, final List<String[]> wanted, final int at, final List<String> allowed) {
+            if (at >= wanted.size()) {
+                if (allowed.isEmpty()) {
+                    request.deny();
+                } else {
+                    request.grant(allowed.toArray(new String[0]));
+                }
+                return;
+            }
+            withPermission(new String[]{wanted.get(at)[1]}, granted -> {
+                if (granted) {
+                    allowed.add(wanted.get(at)[0]);
+                }
+                grantNext(request, wanted, at + 1, allowed);
+            });
+        }
+
+        @Override
+        public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, final FileChooserParams params) {
+            if (picking != null) {
+                picking.onReceiveValue(null);
+            }
+            picking = callback;
+            boolean pictures = params.getAcceptTypes() == null || params.getAcceptTypes().length == 0;
+            if (!pictures) {
+                for (String t : params.getAcceptTypes()) {
+                    pictures |= t == null || t.isEmpty() || t.startsWith("image/") || t.equals("*/*");
+                }
+            }
+            if (pictures && getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+                withPermission(new String[]{"android.permission.CAMERA"}, granted -> choose(params, granted));
+            } else {
+                choose(params, false);
+            }
+            return true;
+        }
+    }
+
+    /** Let the user pick a file for the page, or (when allowed) take a photo for it there and then. */
+    @SuppressWarnings("deprecation")
+    private void choose(WebChromeClient.FileChooserParams params, boolean camera) {
+        Intent take = null;
+        photo = null;
+        if (camera) {
+            try {
+                ContentValues about = new ContentValues();
+                about.put(MediaStore.Images.Media.DISPLAY_NAME, "visualised-" + System.currentTimeMillis() + ".jpg");
+                about.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                photo = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, about);
+            } catch (RuntimeException e) {
+                photo = null;
+            }
+            if (photo != null) {
+                take = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                take.putExtra(MediaStore.EXTRA_OUTPUT, photo);
+                take.setClipData(ClipData.newRawUri("", photo));
+                take.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            }
+        }
+        try {
+            if (take != null && params.isCaptureEnabled()) {
+                startActivityForResult(take, PICK);
+                return;
+            }
+            Intent chooser = Intent.createChooser(params.createIntent(), null);
+            if (take != null) {
+                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{take});
+            }
+            startActivityForResult(chooser, PICK);
+        } catch (ActivityNotFoundException e) {
+            picked(null);
+        }
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != PICK) {
+            return;
+        }
+        Uri[] files = null;
+        if (result == RESULT_OK) {
+            files = WebChromeClient.FileChooserParams.parseResult(result, data);
+            if ((files == null || files.length == 0) && data != null && data.getClipData() != null) {
+                ClipData many = data.getClipData();
+                files = new Uri[many.getItemCount()];
+                for (int i = 0; i < files.length; i++) {
+                    files[i] = many.getItemAt(i).getUri();
+                }
+            }
+            if ((files == null || files.length == 0) && photo != null) {
+                files = new Uri[]{photo};               // the camera was used: the photo is where it was told to put it
+                photo = null;
+            }
+        }
+        picked(files);
+    }
+
+    private void picked(Uri[] files) {
+        if (photo != null) {                            // a place was made for a photo that was never taken
+            try {
+                getContentResolver().delete(photo, null, null);
+            } catch (RuntimeException ignored) {
+                // nothing lost
+            }
+            photo = null;
+        }
+        if (picking != null) {
+            picking.onReceiveValue(files);
+            picking = null;
+        }
+    }
+
+    // ---------------------------------------------------------------- running in the background
+    /** Keep the app on screen going while the phone is used for something else (or stop doing so). */
+    void runInBackground(boolean on) {
+        if (on == background || (on && host.isEmpty())) {
+            return;
+        }
+        background = on;
+        if (!on) {
+            stopService(new Intent(this, Running.class));
+            return;
+        }
+        final String name = title;
+        withPermission(Build.VERSION.SDK_INT >= 33 ? new String[]{"android.permission.POST_NOTIFICATIONS"} : new String[0], granted -> {
+            if (background) {                           // with or without the notice being allowed to show
+                startForegroundService(new Intent(this, Running.class).putExtra("name", name));
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------- asking the user's permission
+    /** Do something that needs the user's say-so: asks the first time, and tells the answer whether any was given. */
+    void withPermission(String[] wanted, Answer answer) {
+        boolean any = wanted.length == 0;
+        for (String p : wanted) {
+            any |= checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
+        }
+        if (any) {
+            answer.got(true);
+            return;
+        }
+        int code = nextAsk++;
+        asked.put(code, answer);
+        requestPermissions(wanted, code);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] wanted, int[] results) {
+        super.onRequestPermissionsResult(code, wanted, results);
+        Answer answer = asked.remove(code);
+        if (answer == null) {
+            return;
+        }
+        boolean any = false;
+        for (int r : results) {
+            any |= r == PackageManager.PERMISSION_GRANTED;
+        }
+        answer.got(any);
+    }
+}
