@@ -22,13 +22,16 @@ from pathlib import Path
 from lupa import lua54
 from PySide6.QtCore import QEventLoop, Qt, QTimer, QUrl
 from PySide6.QtGui import QCursor, QDesktopServices
-from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QVBoxLayout, QWidget
 
 from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout_remove, make_box, theme_sheets,
                        truthy)
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
 from .store import LUA_DIR, PARSER_LOG, Store
-from . import licence as licences
+from .data import DataCommands
+from .projects import ProjectCommands
+from .library import LibraryCommands
+from . import dialogs, licence as licences
 
 # Every Python script starts with this: Vml() talks straight to the engine over its local socket.
 PYTHON_PRELUDE = """import sys, os, json, socket
@@ -89,7 +92,9 @@ class Template:
         self.root = self.parts[0][0] if self.parts else None
 
 
-class Engine:
+class Engine(DataCommands, ProjectCommands, LibraryCommands):
+    log_line = staticmethod(log)
+
     def __init__(self, db_path=None, lua_paths=()):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(True)
@@ -104,6 +109,8 @@ class Engine:
         self.listeners = []                    # called (name, prop, value) after every SetProperty
         self._quiet = 0                        # >0 while scripts set properties: Qt signals then aren't user events
         self._script_stack, self._scope_stack = [], []
+        self._init_data()
+        self._init_projects()
         self._init_lua(lua_paths)
         from .api import ApiServer
         self.api = ApiServer(self, log)                     # scripts in any language call back through this
@@ -156,6 +163,8 @@ class Engine:
 
     def load(self, vml_path, show=True, modal=False):
         vml_path = str(Path(vml_path).resolve())
+        self._adopt_project(vml_path)
+        self._forget_sources(vml_path)
         self.store.import_vml(vml_path)
         while PARSER_LOG:
             log(PARSER_LOG.pop(0))
@@ -265,6 +274,10 @@ class Engine:
             w.resize(w.size().expandedTo(need))
         if modal or truthy(node.props.get("Modal", "false")):
             w.setWindowModality(Qt.ApplicationModal)
+        theme = self.themes.get(node.scope) or {}
+        if hasattr(w, "set_edge") and not node.props.get("BorderBrush") and node.props.get("BorderThickness") in (None, "") \
+                and theme.get("Background"):
+            w.set_edge(theme["Background"], 1)               # an edge the colour of its menu bar
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
@@ -272,14 +285,18 @@ class Engine:
         if node.props.get("Resizable", "true").lower() == "false":
             w.setFixedSize(w.size())
         self.windows.append(node)
-        if opening:
-            def opened():
-                try:
+
+        def opened():
+            try:
+                if opening:
                     self.fire(node, "OnOpened", {})
-                finally:
+            finally:
+                if opening:
                     self.app.processEvents()
                     w.setWindowOpacity(1.0)
-            QTimer.singleShot(0, opened)
+            if self.scopes.get(node.scope, {}).get(node.name) is node:
+                self.sources_opened(node.scope)              # controls that fill themselves, once OnOpened has set things up
+        QTimer.singleShot(0, opened)
 
     def delete(self, name, scope=None):
         node = self.find(name, scope) if scope is None else self.scopes.get(scope, {}).get(name)
@@ -295,6 +312,7 @@ class Engine:
         node.host.setParent(None)
         node.host.deleteLater()
         self.scopes.get(node.scope, {}).pop(name, None)
+        self._forget_sources(node.scope, name)
         if node.cid is not None:
             self.store.delete_control(node.cid)
         return True
@@ -400,11 +418,11 @@ class Engine:
         self.handle(handler, node)
 
     def handle(self, handler, node):
-        """Script name | Script(arg, ...) | VmlCommand arg ... | Lua code."""
-        if self.store.script(handler):
+        """Script name | Script(arg, ...) | a module's function, the same two ways | VmlCommand arg ... | Lua code."""
+        if self.runnable(handler, node):
             return self.run_script(handler, node.name, origin=node)
         m = self.HANDLER_CALL.match(handler)
-        if m and self.store.script(m.group(1)):
+        if m and self.runnable(m.group(1), node):
             args = [a.strip().strip("'\"") for a in m.group(2).split(",") if a.strip()]
             return self.run_script(m.group(1), *args, origin=node)
         m = self.HANDLER_CMD.match(handler)
@@ -444,6 +462,7 @@ class Engine:
             for d in reversed(self.lua_paths):
                 rt.execute("local d = ...; package.path = d .. '/?.lua;' .. package.path", d)
             self.luas[key] = rt
+            self._load_modules(rt, key)                      # a project's modules: there for every one of its forms
         return rt
 
     def _lua_paths_add(self, *dirs):
@@ -496,12 +515,63 @@ class Engine:
                         PATH=f"{self.bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
                         PYTHONPATH=str(Path(__file__).resolve().parent.parent))
 
+    IDENT = re.compile(r"^[A-Za-z_]\w*$")
+
+    def lua_function(self, name, origin=None):
+        """A Lua function of this name that a handler may call: one a project's module defined (or a script of the
+        form did), in the Lua state of the form that asked. With nobody asking, the first open form that has one.
+        Returns (the function, its state's key, the control it runs for), or None."""
+        if not self.IDENT.match(str(name)):
+            return None
+        if origin is not None:
+            places = [(origin.scope, origin)]
+        else:
+            places = []
+            for w in self.windows:
+                if w.parent is None and all(w.scope != k for k, _ in places):
+                    places.append((w.scope, w))
+        for key, node in places:
+            if not key or str(key).startswith("design:"):
+                continue
+            if key not in self.luas and self._project_of(key) is None:
+                continue                                     # a form with no modules and no scripts run yet has none
+            try:
+                f = self.lua_state(key).globals()[name]
+            except Exception:
+                f = None
+            if f is not None and lua54.lua_type(f) == "function":
+                return f, key, node
+        return None
+
+    def runnable(self, name, origin=None):
+        """Is there a script, or a module's function, of this name for this control's form?"""
+        return bool(self.store.script(name)) or self.lua_function(name, origin) is not None
+
+    def run_function(self, found, name, args):
+        f, key, node = found
+        self._script_stack.append(node)
+        try:
+            r = f(*[a if isinstance(a, (bool, int, float)) else str(a) for a in args])
+            return "" if r is None else r
+        except Exception as exc:
+            log(f"script error in {name}: {exc}")
+            return ""
+        finally:
+            self._script_stack.pop()
+
     def run_script(self, name, *args, origin=None):
         found = self.store.script(name)
         if not found:
+            function = self.lua_function(name, origin)
+            if function is not None:                         # not a script: a function in one of the project's modules
+                return self.run_function(function, name, args)
             log(f"RunScript: no script called '{name}'")
             return ""
         interp, content = (found[0] or "lua").lower().split()[0] if (found[0] or "").strip() else "lua", found[1] or ""
+        if origin is None:                                   # run for nobody in particular: it acts as its own form
+            _, source = self.store.script_home(name)
+            origin = next((n for n in self.scopes.get(str(source), {}).values()
+                           if n.type.name == "Window" and n.parent is None), None)
         if interp == "lua":
             r = self.lua_exec(content, args, label=name, origin=origin, key=self.lua_key(script=name))
             return "" if r is None else r
@@ -527,7 +597,7 @@ class Engine:
     def run_csharp(self, code, args, label, origin=None):
         from . import csharp
         if not csharp.available():
-            log(f"{label}: C# scripting isn't set up on this machine (run: ./vml.py setup-csharp)")
+            log(f"{label}: C# scripting isn't set up on this computer (Settings, C# Scripting, in the designer)")
             return ""
         if getattr(self, "_csharp", None) is None:
             self._csharp = csharp.CSharpHost(self, log)
@@ -544,6 +614,39 @@ class Engine:
         """The running Visualised runtime version, e.g. "0.17.1". Apps can check they have a new enough engine."""
         from . import __version__
         return __version__
+
+    def cmd_CSharpStatus(self):
+        """Where C# scripting stands here, as JSON: ready, dotnet (its path), sdk (version), sdk_ok, download."""
+        from . import csharp
+        return json.dumps(csharp.status())
+
+    def cmd_CSharpSetup(self):
+        """Build the C# script host (needs the .NET SDK; about a minute the first time). Returns "" when C# is
+        ready, otherwise why it isn't."""
+        from . import csharp
+        self.cmd_SetStatusText("Setting up C# scripting (this takes about a minute the first time)...")
+        self.app.processEvents()
+        ok, msg = csharp.build()
+        log(msg)
+        if ok and getattr(self, "_csharp", None) is not None:
+            self._csharp.stop()
+            self._csharp = None
+        self.cmd_SetStatusText("C# scripting is ready" if ok else "C# scripting couldn't be set up")
+        return "" if ok else msg
+
+    def cmd_InstallDotnet(self):
+        """Start installing the .NET SDK where that can be done for the user: on Windows, with winget, in a window
+        of its own. Returns "started", or "" if it has to be downloaded by hand (see CSharpStatus's download).
+        A copy from the Microsoft Store never installs other software itself: it only shows where to get it."""
+        if sys.platform.startswith("win") and shutil.which("winget") and "windowsapps" not in sys.executable.lower():
+            try:
+                subprocess.Popen(["cmd", "/c", "start", "Installing the .NET SDK", "cmd", "/k",
+                                  "winget install --id Microsoft.DotNet.SDK.8 -e --accept-source-agreements "
+                                  "--accept-package-agreements & echo. & echo You can close this window when it has finished."])
+                return "started"
+            except OSError as exc:
+                log(f"InstallDotnet: {exc}")
+        return ""
 
     def cmd_GetLanguages(self):
         """The script languages this machine can run, for the script editor."""
@@ -775,12 +878,15 @@ class Engine:
         return False
 
     def cmd_CheckForUpdate(self):
-        """Ask whether a newer Visualised has been released. JSON: current, latest, newer, url, and error if the
-        check couldn't be made."""
+        """Ask whether a newer Visualised has been released. JSON: current, latest, newer, url, error if the check
+        couldn't be made, and store (true for a copy from the Microsoft Store, which updates itself: no check is made)."""
         from . import __version__
         import urllib.request
         out = {"current": __version__, "latest": "", "newer": False,
-               "url": "https://github.com/wallisoft/vml-releases/releases/latest", "error": ""}
+               "url": "https://github.com/wallisoft/vml-releases/releases/latest", "error": "",
+               "store": "windowsapps" in sys.executable.lower()}
+        if out["store"]:                     # a copy from the Microsoft Store is kept up to date by the Store
+            return json.dumps(out)
         try:
             req = urllib.request.Request("https://api.github.com/repos/wallisoft/vml-releases/releases/latest",
                                          headers={"User-Agent": f"Visualised/{__version__}"})
@@ -1078,7 +1184,7 @@ class Engine:
         """Every control type a designer can add: built-ins from the registry, plus VML composites."""
         out = []
         for ct in REGISTRY.values():
-            if getattr(ct, "virtual", False) or getattr(ct, "design_only", False) or ct.name in ("Window", "TinyMenu"):
+            if getattr(ct, "virtual", False) or getattr(ct, "design_only", False) or ct.name in ("Window", "TinyMenu", "Splitter"):
                 continue
             out.append({"name": ct.name, "category": ct.category, "container": ct.container})
         comp_dir = SYSTEM_DIR / "CompositeControls"
@@ -1107,7 +1213,7 @@ class Engine:
         if ctype == "Frame":
             defaults["Text"] = ""
         for key in ("Content", "Text"):
-            if key in defaults and ctype in ("Button", "CheckBox", "TextBlock", "Frame"):
+            if key in defaults and ctype in ("Button", "CheckBox", "RadioButton", "TextBlock", "Frame"):
                 defaults[key] = name
         snap = surf.widget.snap
         defaults["Canvas.Left"], defaults["Canvas.Top"] = str(snap(float(x or 0))), str(snap(float(y or 0)))
@@ -1227,6 +1333,9 @@ class Engine:
         surf.export_names, surf.carried = {}, []
         for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
             surf.props.pop(ev, None)
+        for prop in ("FormBorder", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight"):
+            if surf.props.get(prop):                         # the last form's window options don't carry over
+                self.cmd_SetProperty(surf.name, prop, "")
         surf.widget.menu_settings = {}
         surf.widget.set_menu([])
         surf.widget.apply_menu_settings()
@@ -1256,6 +1365,7 @@ class Engine:
         out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
+                          ("BorderBrush", "FormBorder"),
                           ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp")):
             v = str(surf.props.get(prop, "") or "")
             if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false"):
@@ -1399,7 +1509,8 @@ class Engine:
                      ("FormBackground", cp.get("Background", "#ffffff"))):
             self.cmd_SetProperty(surf.name, k, v)
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
-                          ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight")):
+                          ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
+                          ("BorderBrush", "FormBorder")):
             if wp.get(key):
                 self.cmd_SetProperty(surf.name, prop, wp[key])
         count, placed = 0, {canvas[0]: surf.name}
@@ -1431,6 +1542,8 @@ class Engine:
             if handler and handler in scripts:
                 surf.design_scripts[ev] = scripts[handler]
                 self.cmd_SetEvent(surf.name, ev, handler)
+            elif handler:                                    # a module's function, or Name(arguments): kept as written
+                self.cmd_SetEvent(surf.name, ev, handler)
         surf.form_scripts = {n: v for n, v in scripts.items() if n not in used}
         log(f"opened {path}: {count} controls")
         if notes:
@@ -1457,24 +1570,27 @@ class Engine:
         return "mnu" + base[0].upper() + base[1:]
 
     def cmd_ImportForm(self, kind, path, surface="Surface"):
-        """Bring a form made in another tool onto the design surface. kind: "winforms" (a Visual Studio Windows Forms
-        form, VB.NET or C#: any of its files will do). Returns "true" if it opened; the setting import_notes then
-        says what was and was not brought across. (Pro.)"""
+        """Bring a form made in another tool onto the design surface, using an importer from the library. kind: the
+        importer's name ("WinForms", "VB6"), or "" to go by the file's ending. Returns "true" if it opened; the
+        setting import_notes then says what was and was not brought across. (Pro.)"""
         if not self.needs("import", "Importing forms from other tools"):
             return ""
-        if str(kind).lower() != "winforms":
-            raise ValueError(f"unknown kind of form {kind!r} (winforms)")
-        from . import import_winforms
-        source = import_winforms.designer_file_for(os.path.expanduser(str(path)))
-        try:
-            text, notes = import_winforms.convert(source)
-        except (OSError, ValueError) as exc:
-            log(f"{path}: couldn't be imported ({exc})")
-            self.store.set_setting("import_notes", str(exc))
+        source = Path(os.path.expanduser(str(path)))
+        name = self.importer_for(kind, source)
+        if name is None:
+            raise ValueError(f"there's no importer for {kind or source.suffix or 'that kind of file'}")
+        result = self.run_importer(name, "ImportForm", source.resolve().as_posix(), "") if source.is_file() \
+            else {"error": f"{source} isn't a file"}
+        text = str(result.get("vml") or "")
+        found = re.search(r"^@Window (\w+)", text, re.M)
+        if result.get("error") or not found:
+            why = result.get("error") or "the importer made nothing that could be opened as a form"
+            log(f"{path}: couldn't be imported ({why})")
+            self.store.set_setting("import_notes", why)
             return ""
-        name = re.search(r"^@Window (\w+)", text, re.M).group(1)
+        notes = [str(n) for n in (result.get("notes") or [])]
         folder = Path(tempfile.mkdtemp(prefix="vml-import-"))
-        target = folder / f"{name}.vml"
+        target = folder / f"{found.group(1)}.vml"
         target.write_text(text, encoding="utf-8")
         opened = self.cmd_ImportVml(str(target), surface)
         shutil.rmtree(folder, ignore_errors=True)
@@ -1760,15 +1876,19 @@ class Engine:
     def _export_html(self, source="Surface", out=""):
         from .html import export_html
         node = self.find(source) if source and not str(source).lower().endswith(".vml") else None
+        project = base = None
         if node is not None and node.type.name == "DesignSurface":
             saved = self.store.get_setting("current_file")
             vml = Path(tempfile.gettempdir()) / f"vml-web-{node.name}.vml"
             self.cmd_ExportVml(node.name, str(vml))
             out = out or (str(Path(saved).with_suffix(".html")) if saved else str(vml.with_suffix(".html")))
+            base = self.asset_dir("design:")                 # its pictures are beside the real form, not the copy
+            dp = self.design_project
+            project = dp if dp is not None and saved and dp.relative(saved) in dp.forms else None
         else:
             vml = self._form_path(source)
             out = out or str(Path(vml).with_suffix(".html"))
-        path = export_html(str(vml), out)
+        path = export_html(str(vml), out, project=project, base_dir=base)
         log(f"web page written: {path}")
         return path
 
@@ -1817,26 +1937,51 @@ class Engine:
         return folder
 
     def cmd_ExportApp(self, platform, out="", surface="Surface"):
-        """Package the designed form as a runnable app: a .zip (Windows) or .tar.gz (Linux) holding
-        MyApp(.exe), MyApp.vml and any other forms saved beside it. Double-click MyApp to run."""
+        """Package the app as something that runs by itself: a .zip (Windows) or .tar.gz (Linux) holding MyApp(.exe)
+        and, with a project open, every form, module, picture and local database in it; otherwise the form on
+        screen and any other forms saved beside it. Double-click MyApp to run."""
         platform = str(platform).lower()
         if platform not in self.RUNTIMES:
             raise ValueError(f"unknown platform {platform!r} (windows or linux)")
         if not self.needs("export", "Exporting a form as an app"):
             return ""
         surf = self._surface(surface)
-        name = re.sub(r"[^A-Za-z0-9_-]", "", str(surf.props.get("FormName") or "MyApp")) or "MyApp"
+        saved = self.store.get_setting("current_file")
+        project = self.design_project
+        name = re.sub(r"[^A-Za-z0-9_-]", "", str((project.name if project else None) or surf.props.get("FormName") or "MyApp")) or "MyApp"
         _, exe, suffix = self.RUNTIMES[platform]
         runtime = self._runtime(platform)
         stage = Path(tempfile.mkdtemp(prefix="vml-export-")) / name
         shutil.copytree(runtime, stage)
         (stage / exe).rename(stage / f"{name}{suffix}")
-        saved = self.store.get_setting("current_file")
-        if saved and Path(saved).is_file():                  # other forms of a multi-form app come too
-            for other in Path(saved).parent.glob("*.vml"):
-                if other.resolve() != Path(saved).resolve():
-                    shutil.copy2(other, stage / other.name)
-        self.cmd_ExportVml(surf.name, str(stage / f"{name}.vml"))
+        if project is not None:                              # a project: every form, module and local database, as laid out
+            for rel in project.forms + project.modules:
+                src = project.absolute(rel)
+                if src.is_file():
+                    (stage / rel).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, stage / rel)
+            for address in project.databases.values():       # a SQLite file kept in the project's folder travels with it
+                kind, _, rest = address.partition(":")
+                rel = rest.strip() if kind.strip().lower() == "sqlite" else address
+                src = project.folder / rel
+                if not Path(rel).is_absolute() and src.is_file() and "=" not in rel:
+                    (stage / rel).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, stage / rel)
+            for rel in project.forms:
+                self._copy_pictures(project.absolute(rel), stage / Path(rel).parent)
+            current = project.relative(saved) if saved else None
+            if current in project.forms:                     # the form on screen goes as it is now, saved or not
+                self.cmd_ExportVml(surf.name, str(stage / current))
+            shutil.copy2(project.path, stage / f"{name}.vmlproj")
+        else:
+            if saved and Path(saved).is_file():              # other forms of a multi-form app come too
+                for other in Path(saved).parent.glob("*.vml"):
+                    if other.resolve() != Path(saved).resolve():
+                        shutil.copy2(other, stage / other.name)
+                        self._copy_pictures(other, stage)
+            self.cmd_ExportVml(surf.name, str(stage / f"{name}.vml"))
+            if saved:
+                self._copy_pictures(stage / f"{name}.vml", stage, Path(saved).parent)
         (stage / "README.txt").write_text(
             f"{name}\r\n\r\nTo run it: double-click {name}{suffix}"
             + ("" if suffix else f" (or run ./{name} in a terminal)") +
@@ -1858,6 +2003,21 @@ class Engine:
         log(f"exported {name} for {platform}: {path}")
         self.cmd_SetStatusText(f"Exported {name} for {platform}: {path}")
         return path
+
+    @staticmethod
+    def _copy_pictures(form, into, beside=None):
+        """Copy the picture files a form's Image controls point at (Source=logo.png) so they travel with it."""
+        beside = Path(beside) if beside else Path(form).parent
+        try:
+            text = Path(form).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        for rel in re.findall(r"^Source=(?!data:)(.+)$", text, re.M):
+            rel = rel.strip()
+            src = beside / rel
+            if not Path(rel).is_absolute() and ".." not in Path(rel).parts and src.is_file():
+                (Path(into) / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, Path(into) / rel)
 
     def cmd_PreviewInBrowser(self, surface="Surface"):
         """Open the form being designed in the default web browser, served from a tiny local web server:
@@ -1897,27 +2057,48 @@ class Engine:
             self.windows.remove(w)
         self.cmd_ExportVml(surf.name, str(path))
         saved = self.store.get_setting("current_file")
-        self.form_dirs = getattr(self, "form_dirs", {})
-        self.form_dirs[str(path.resolve())] = str(Path(saved).parent) if saved else os.getcwd()
+        self.form_dirs[str(path.resolve())] = str(Path(saved).parent) if saved else self.asset_dir("design:")
+        self.form_overrides = {}                              # (a run of the whole project may have left this file standing in for another form)
+        self.use_design_project(saved)                        # one form of a project still has the project's modules
         self.luas.pop(str(path.resolve()), None)              # a fresh Lua state for each preview
         self.load(path)
         return str(path)
 
     # --- forms and dialogs
+    def asset_dir(self, scope=None):
+        """The folder a form's own files (pictures, databases, other forms) are looked for in."""
+        scope = str(scope or self.active_scope() or "")
+        if scope.startswith("design:"):
+            current = self.store.get_setting("current_file")
+            if current:
+                return str(Path(current).parent)
+            return str(self.design_project.folder) if self.design_project is not None else os.getcwd()
+        if scope in self.form_dirs:
+            return str(self.form_dirs[scope])
+        return str(Path(scope).parent) if scope else os.getcwd()
+
     def _form_path(self, path):
-        p = Path(os.path.expanduser(path))
+        p = Path(os.path.expanduser(str(path)))
         if not p.is_absolute():
-            scope = self.active_scope() or "."
-            base = getattr(self, "form_dirs", {}).get(scope) or Path(scope).parent
-            p = Path(base) / p
+            p = Path(self.asset_dir()) / p
+        if not p.suffix and not p.exists() and p.with_name(p.name + ".vml").exists():
+            p = p.with_name(p.name + ".vml")                 # FormOpen("frmLogin"): a form by its name
         return p
+
+    def _form_to_run(self, path):
+        """The file to open for a form: itself, or (running from the designer) the copy being designed."""
+        p = self._form_path(path)
+        try:
+            return Path(self.form_overrides.get(str(p.resolve()), p))
+        except OSError:
+            return p
 
     def _window_of_scope(self, scope):
         return next((w for w in self.windows if w.scope == scope and w.widget.isVisible()), None)
 
     def cmd_FormOpen(self, path):
         """Open another form (relative paths are next to this one). If it's already open, bring it forward."""
-        p = self._form_path(path)
+        p = self._form_to_run(path)
         open_already = self._window_of_scope(str(p.resolve()))
         if open_already is not None:
             open_already.widget.raise_()
@@ -1960,7 +2141,7 @@ class Engine:
 
     def cmd_FormOpenModal(self, path):
         """Open a form and wait until it closes; returns whatever it passed to SetDialogResult."""
-        p = self._form_path(path)
+        p = self._form_to_run(path)
         self.store.set_setting("dialog_result", "")
         before = len(self.windows)
         self.load(p, modal=True)
@@ -1981,6 +2162,7 @@ class Engine:
             if node is not None and node.parent is None:
                 self.delete(name, scope)
         self.scopes.pop(scope, None)
+        self._forget_sources(scope)
         self.luas.pop(scope, None)                           # its own Lua state goes with it
         return self.store.get_setting("dialog_result")
 
@@ -1997,22 +2179,31 @@ class Engine:
         return c
 
     def _parent_window(self):
-        return self.windows[-1].widget if self.windows else None
+        """The window a dialog belongs to: the one in use, else the newest still on screen."""
+        active = QApplication.activeWindow()
+        if active is not None and getattr(active, "vml_node", None) is not None and active.isVisible():
+            return active
+        shown = [w.widget for w in self.windows if w.widget.isVisible()]
+        return shown[-1] if shown else None
+
+    def _edge(self):
+        """The colour for a dialog's edge: its window's own (which is its menu bar's), else a quiet grey."""
+        w = self._parent_window()
+        return (w.edge_name() if w is not None and hasattr(w, "edge_name") else "") or dialogs.NEUTRAL
 
     def cmd_InfoDialog(self, message, title="Information"):
-        QMessageBox.information(self._parent_window(), str(title), str(message))
+        dialogs.message(self._parent_window(), title, message, self._edge())
 
     def cmd_ErrorDialog(self, message, title="Error"):
-        QMessageBox.critical(self._parent_window(), str(title), str(message))
+        dialogs.message(self._parent_window(), title, message, self._edge())
 
     def cmd_ConfirmDialog(self, message, title="Confirm"):
-        return QMessageBox.question(self._parent_window(), str(title), str(message)) == QMessageBox.Yes
+        return dialogs.confirm(self._parent_window(), title, message, self._edge())
 
-    def cmd_PromptDialog(self, title="", prompt="", default=""):
-        """Ask for one line of text. Returns what was typed, or "" if cancelled."""
-        from PySide6.QtWidgets import QInputDialog
-        text, ok = QInputDialog.getText(self._parent_window(), str(title or "Enter a value"), str(prompt), text=str(default))
-        return text if ok else ""
+    def cmd_PromptDialog(self, title="", prompt="", default="", secret=""):
+        """Ask for one line of text. Returns what was typed, or "" if cancelled. secret "true" shows dots, for a password."""
+        return dialogs.prompt(self._parent_window(), title or "Enter a value", prompt, default, self._edge(),
+                              secret=str(secret).strip().lower() in ("true", "1", "yes"))
 
     def cmd_FileOpenDialog(self, title="Open", ext=""):
         kinds = [e.strip().lstrip(".") for e in str(ext).split(",") if e.strip()]       # "vml", or "vb,cs" for several

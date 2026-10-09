@@ -1,0 +1,24 @@
+Imported from Stock.vbp
+
+Stock: 2 forms brought across, with 10 controls, 0 menu items and 6 event handlers.
+Start-up form: frmStock.vml.
+5 plain steps of the code (opening and closing forms, messages, simple settings) were translated and now run. The rest of the code does not run: it is kept as comments to rewrite.
+The original project is untouched. IMPORT-NOTES.txt in the new folder lists every form's details.
+
+The code names the Access database stock.mdb, which isn't with the project. Put a copy beside the original project file and import again, and its data will come across.
+
+== frmStock  (frmStock.frm)
+   frmStock: 7 controls brought across.
+   Bound to a data control, so given an ItemsSource that asks the database for the same rows: cboDear (datDear: SELECT name, price FROM items WHERE price > 2;), lstNames (datStock: items), grdStock (datStock: items). They fill themselves once the project names that database.
+   Bound to one field of a data control's current record, which has no equal here yet, so they come across unfilled: txtPrice (price). Fill them from a script with DbQuery.
+   Not on the form itself, so not brought across (timers, dialogs and the like): datDear (Data), datStock (Data).
+   5 event handlers from frmStock.frm came across as scripts. The Visual Basic is kept as comments for reference; it does not run.
+   Except the plain steps, which were translated and do run: 4 lines in 2 scripts (opening and closing forms, messages, simple settings). Check them.
+   4 other lines of code in frmStock.frm (helpers, variables) are not in the form; the original file is untouched.
+
+== frmAbout  (frmAbout.frm)
+   frmAbout: 3 controls brought across.
+   1 event handler from frmAbout.frm came across as scripts. The Visual Basic is kept as comments for reference; it does not run.
+   Except the plain steps, which were translated and do run: 1 line in 1 script (opening and closing forms, messages, simple settings). Check them.
+   1 other line of code in frmAbout.frm is not in the form; the original file is untouched.
+

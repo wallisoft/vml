@@ -1,0 +1,8 @@
+# Visualised project
+Name=Shop
+Startup=frmMain.vml
+Form=frmAbout.vml
+Form=frmMain.vml
+Module=frmMain_code.lua
+Module=modPricing.lua
+Module=clsOrder.lua

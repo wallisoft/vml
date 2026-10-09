@@ -1,0 +1,37 @@
+@Window Pick
+Title=Pick one
+Width=300
+Height=200
+OnOpened=PickOpened
+
+@Canvas PickCanvas
+Parent=Pick
+Background=#ffffff
+
+@TextBlock lblWho
+Parent=PickCanvas
+Canvas.Left=16
+Canvas.Top=16
+Text=
+
+@Button btnOK
+Parent=PickCanvas
+Canvas.Left=16
+Canvas.Top=60
+Content=OK
+OnClick=PickOK
+
+@Script PickOpened
+Interpreter=lua
+<<LUA
+-- the module is here too, and so is what main put in the Project table
+Vml("SetProperty", "lblWho", "Text", Shout("for") .. " " .. tostring(Project.user) .. " (loads " .. tostring(loads) .. ")")
+LUA
+
+@Script PickOK
+Interpreter=lua
+<<LUA
+Project.picked = "widgets"
+Vml("SetDialogResult", "widgets")
+Vml("CloseSelf")
+LUA

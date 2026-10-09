@@ -56,9 +56,10 @@ PRO, ENT, OLD = make("pro|1|V1A2B3|20261008||steve@example.com"), make("enterpri
 eng = designer()
 bar = [a.text() for a in eng.find("File").action.menu().parent().actions()] if False else None
 check("File has Import and Export", [text(eng, n) for n in ("FileImport", "FileExport")], ["Import", "Export"])
-imports = ["FileImportVB", "FileImportWinForms", "FileImportDelphi", "FileImportQt", "FileImportXaml", "FileImportHtml"]
-check("Community: every import is listed and greyed", [enabled(eng, n) for n in imports], [False] * 6)
-check("the Windows Forms import is marked Pro; Visual Basic 5/6 is listed as still to come", (text(eng, "FileImportWinForms").endswith("(Pro)"), text(eng, "FileImportVB")), (True, "Visual Basic 5/6 form (.frm)..."))
+imports = ["FileImport_VB6", "FileImportProject_VB6", "FileImport_WinForms", "FileImportProject_WinForms", "FileImportDelphi", "FileImportQt", "FileImportXaml", "FileImportHtml"]
+check("Community: every import is listed and greyed", [enabled(eng, n) for n in imports], [False] * 8)
+check("the importers in the library are marked Pro; those not written yet are listed as still to come", (text(eng, "FileImport_WinForms"), text(eng, "FileImportProject_VB6"), text(eng, "FileImportDelphi")),
+      ("Windows Forms form (Visual Studio, VB or C#)...   (Pro)", "Visual Basic 5/6 project...   (Pro)", "Delphi form (.dfm)..."))
 check("Community: the three exports are greyed and marked Pro", [(enabled(eng, n), text(eng, n).endswith("(Pro)")) for n in ("FileExportWeb", "FileExportWin", "FileExportLinux")], [(False, True)] * 3)
 check("Community can still save: New, Open, Save and Save As are live", [enabled(eng, n) for n in ("FileNew", "FileOpen", "FileSave", "FileSaveAs")], [True] * 4)
 check("Settings shows the licence", text(eng, "SetLicenceInfo"), "Licence: Community")
@@ -96,7 +97,7 @@ check("a key past its date is refused, saying when it ran out", ("ran out on 31/
 designer.prompt = "  " + PRO[:40] + "\n" + PRO[40:] + " "; said.clear(); click(eng2, "SetLicenceEnter")
 check("a Pro key (even wrapped over two lines) is accepted", (said[-1], text(eng2, "SetLicenceInfo")), ("Visualised Pro is active on this computer.", "Licence: Pro"))
 check("Pro: the exports are live and no longer marked", [(enabled(eng2, n), text(eng2, n)) for n in ("FileExportWeb", "FileExportWin", "FileExportLinux")], [(True, "Web page..."), (True, "Windows app..."), (True, "Linux app...")])
-check("Pro: the Windows Forms import is live; the ones still to come stay greyed", [enabled(eng2, n) for n in imports], [False, True, False, False, False, False])
+check("Pro: every importer in the library is live; the ones not written yet stay greyed", [enabled(eng2, n) for n in imports], [True] * 4 + [False] * 4)
 check("Pro: the menu offers Change, Remove and Upgrade to Enterprise", [text(eng2, "SetLicenceEnter"), enabled(eng2, "SetLicenceRemove"), text(eng2, "SetLicenceUpgrade")], ["Change Licence Key...", True, "Upgrade to Enterprise..."])
 out = eng2.cmd_ExportHtml("Surface", os.path.join(HOME, "pro.html"))
 check("Pro: exporting a web page really writes one", os.path.exists(out) and os.path.getsize(out) > 1000)
@@ -131,6 +132,49 @@ check("this version is rightly seen as newer than 0.9.9", said[-1], f"You have t
 def offline(req, timeout=0): raise OSError("no network")
 urllib.request.urlopen = offline; said.clear(); click(eng3, "SetUpdate")
 check("with no network it says it couldn't check, without an error", said[-1].startswith("Couldn't check for updates just now"))
+
+real = sys.executable
+sys.executable = r"C:\Program Files\WindowsApps\tiny-web.visualised_1.0.0.0_x64__abc\vml.exe"
+def must_not_ask(req, timeout=0): raise AssertionError("a Store copy must not go looking for installers")
+urllib.request.urlopen = must_not_ask; said.clear(); opened.clear(); click(eng3, "SetUpdate")
+sys.executable = real
+check("a copy from the Microsoft Store says the Store keeps it up to date, and offers no download", ("Microsoft Store" in said[-1], opened), (True, []))
+
+# ---------------------------------------------------------------- the version, where a user looks for it
+check("Help shows which Visualised this is", text(eng3, "HelpVersion"), f"Visualised {V}")
+said.clear(); click(eng3, "HelpAbout")
+check("and so does About", f"Visualised {V} (Community)" in said[-1])
+
+# ---------------------------------------------------------------- C# scripting: off until .NET is there, and Settings sets it up
+from vml import csharp as C
+state = {"sdk": "", "ready": False, "built": 0, "build_ok": True, "install": ""}
+C.available = lambda: state["ready"]
+C.sdk_version = lambda: state["sdk"]
+C.find_dotnet = lambda: "/usr/bin/dotnet" if state["sdk"] else None
+def fake_build():
+    state["built"] += 1
+    state["ready"] = state["build_ok"]
+    return (True, "C# scripting is ready") if state["build_ok"] else (False, "error CS0000: it broke")
+C.build = fake_build
+eng4 = designer()
+eng4.cmd_InstallDotnet = lambda: state["install"]
+check("with no .NET, C# is off and not offered as a script language", (text(eng4, "SetCSharp"), "C#" in json.loads(eng4.cmd_GetLanguages())), ("C# Scripting: Off...", False))
+said.clear(); opened.clear(); designer.confirm = False; click(eng4, "SetCSharp")
+check("Settings explains that C# needs Microsoft's .NET SDK, and asks before doing anything", ("free .NET SDK" in said[-1], opened, state["built"]), (True, [], 0))
+designer.confirm = True; click(eng4, "SetCSharp")
+check("saying yes opens Microsoft's download page (on Linux, with the one-line way too)", (opened, "sudo apt install dotnet-sdk-8.0" in said[-1] or not sys.platform.startswith("linux")), (["https://dotnet.microsoft.com/download/dotnet/8.0"], True))
+state["install"] = "started"; said.clear(); opened.clear(); click(eng4, "SetCSharp")
+check("where it can be installed for the user (Windows, winget), it is, and no page is opened", ("installing in a window of its own" in said[-1], opened), (True, []))
+state["sdk"] = "6.0.428"; said.clear(); opened.clear(); state["install"] = ""; click(eng4, "SetCSharp")
+check("an SDK older than 8 is not enough, and it says which one is here", ("version 8 or later" in said[0], "6.0.428" in said[0], state["built"]), (True, True, 0))
+state["sdk"] = "8.0.131"; said.clear(); designer.confirm = False; click(eng4, "SetCSharp")
+check("with the SDK there, it offers to turn C# on, and No leaves it off", ("Turn on C# scripting?" in said[-1], state["built"], text(eng4, "SetCSharp")), (True, 0, "C# Scripting: Off..."))
+state["build_ok"] = False; designer.confirm = True; said.clear(); click(eng4, "SetCSharp")
+check("if the build fails it says why, and C# stays off", ("couldn't be set up" in said[-1] and "it broke" in said[-1], text(eng4, "SetCSharp")), (True, "C# Scripting: Off..."))
+state["build_ok"] = True; said.clear(); click(eng4, "SetCSharp")
+check("when it works, C# is on, and in the script editor's languages", (state["built"], "C# scripting is on" in said[-1], text(eng4, "SetCSharp"), "C#" in json.loads(eng4.cmd_GetLanguages())), (2, True, "C# Scripting: On", True))
+said.clear(); click(eng4, "SetCSharp")
+check("choosing it again just says it is on, and builds nothing", ("C# scripting is on" in said[-1], state["built"]), (True, 2))
 
 print(f"{sum(ok)}/{len(ok)} passed")
 sys.exit(0 if all(ok) else 1)

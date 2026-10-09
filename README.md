@@ -112,6 +112,22 @@ pip install -r requirements.txt
 - **Export** (File → Export): a **Windows app** or **Linux app** (the compiled runtime renamed after your app,
   beside your forms: unzip and double-click), or a **web page** with the Lua engine inside it, so it works offline.
 - **F5 previews** the form running for real. **Ctrl+S** saves plain VML; **Ctrl+O** opens it again.
+- **Projects** (the Project menu): several forms and modules as one app, with a project tree above the properties.
+  F5 then runs the whole app from its start-up form. See [Projects](#projects).
+- **Import** (File → Import, Pro): forms and whole projects from Visual Basic 5/6 (`.frm`, `.vbp`) and from Visual
+  Studio Windows Forms (`.vbproj`, `.csproj`, VB.NET or C#). Controls, layout, menus and pictures come across; each
+  event handler's original code is kept as comments on its control, and the rest of the code as modules of
+  comments, to rewrite. It does not run, with one exception: the plain steps of Visual Basic that can only mean one
+  thing (`frmAbout.Show`, `Unload Me`, `End`, a `MsgBox` whose words are written out, `x.Enabled = False`,
+  `x.Caption = "…"`) are turned into Lua, so an imported app opens and closes its own forms from the start. Nothing
+  inside an `If` or a loop is turned, nor anything after a line that might have left the routine early; each turned
+  line keeps its original beside it. C# is kept whole as comments.
+- **Data comes too.** SQLite files in the project's folder are copied and named in the project. Access files (`.mdb`,
+  `.accdb`) there, or named in the code, have their tables and rows copied into a SQLite file the app carries with it
+  (to the web as well) where the computer has an ODBC driver for Access (it comes with Access, or free as Microsoft's
+  Access Database Engine; on Linux, `sudo apt install odbc-mdbtools`). Grids and lists that were bound to a Visual
+  Basic data control are given an `ItemsSource` asking for the same rows. Importers are not built in: see
+  [Importers](#importers).
 
 ## On the web
 
@@ -126,7 +142,7 @@ HTML…**, or from a terminal:
 Layout is faithful: canvas forms are positioned exactly, and **anchors become CSS**, so controls move and stretch as
 the browser window resizes. Frames, menus, StackPanel, Grid, Border and DockPanel all carry across. **Lua scripts run
 unchanged** in the browser (Lua 5.4 compiled to WebAssembly, bundled into the page, so no network is needed), against a JavaScript `Vml()` that speaks the same
-commands, `require("dkjson")` included. Shell, C# and Python scripts are desktop-only and say so in the browser
+commands, `require("dkjson")` included, databases too (see [Data](#data)). Shell, C# and Python scripts are desktop-only and say so in the browser
 console. Open the console and `vml.Vml("GetProperty", "txtName", "Text")` works there too.
 
 ![The same form, in a browser](docs/web.png)
@@ -173,11 +189,9 @@ described in `~/.vml/api.json` (readable only by you; the token in it is require
 
 ### C# (optional)
 
-With the .NET SDK (8.0 or later) installed, build the C# host once:
-
-```bash
-./vml.py setup-csharp
-```
+C# scripts need Microsoft's free .NET SDK (8.0 or later). **Settings → C# Scripting** in the designer checks for
+it, helps you get it if it's missing, and builds the C# host (into `~/.vml/csharp`, so it works for an installed
+copy too). From a terminal, `./vml.py setup-csharp` does the same build.
 
 C# then appears in the script editor alongside Lua and the shell, with the same API:
 
@@ -210,6 +224,111 @@ Vml("CloseSelf")
 Plain control names always mean "my own form", so two forms can both have a `btnOK`. `ShowForm`, `HideForm` and
 `CloseForm` manage open forms by name. Previewing a saved form in the designer finds its child forms next to the file.
 
+### Importers
+
+An importer is not part of the engine. It is a VML file of Lua scripts in `designer/importers` (the ones that come
+with Visualised) or `~/.vml/importers` (your own, and other people's). File → Import lists whatever is there, and
+**Add an importer…** at the foot of that menu copies one in.
+
+```vml
+@Importer VB6
+Title=Visual Basic 5/6 form
+Files=frm
+ProjectTitle=Visual Basic 5/6 project
+ProjectFiles=vbp
+
+@Script Library         -- optional: run once, for functions the other two share
+@Script ImportForm      -- args[1] the file, args[2] a folder for its pictures or ""; returns JSON {vml, notes} or {error}
+@Script ImportProject   -- args[1] the project file, args[2] the new folder; returns JSON {project, summary, ...}
+@Script ExportForm      -- the way back (reserved: nothing in 1.0 calls it yet): args[1] a .vml, args[2] the file to write
+@Script ExportProject   -- likewise for a whole project: args[1] a .vmlproj, args[2] the new folder
+```
+
+`local kit = require("importkit")` gives an importer what it needs: regular expressions, reading and writing files
+(text and binary), a builder for the VML form, and one for a whole project (`designer/importers/lib/importkit.lua`).
+It also holds what importers share, so each is written once: `kit.basic_steps` (the plain steps of Basic, made to
+run) and `project:access_databases` (Access data into SQLite).
+To change how something comes across, copy the importer, give the copy a name of its own on its `@Importer` line,
+and add it: the built-in importers keep their names (as do Delphi, Qt, XAML and HTML, which are on their way). `vb6.vml` and `winforms.vml` are the two to read before writing your own.
+
+### Projects
+
+A project is one small text file, `MyApp.vmlproj`, in the folder that holds the app (after VB's `.vbp`):
+
+```
+# Visualised project
+Name=MyApp
+Startup=frmMain.vml
+Form=frmMain.vml
+Form=frmLogin.vml
+Module=helpers.lua
+Database=main=sqlite:data.db
+```
+
+- **Forms** open each other by name: `Vml("FormOpen", "frmLogin")`.
+- **Modules** are Lua files whose functions every form's scripts can call, with no `require`.
+- **A handler can be a function in a module.** `OnClick=SaveOrder` runs the form's script of that name, or, if it
+  has none, the function `SaveOrder` in one of the project's modules, in the form that asked (so
+  `Vml("GetProperty", "txtName", "Text")` reads that form's box). `OnClick=Greet(Ann, Bob)` passes arguments,
+  `Vml("RunScript", "SaveOrder")` runs one from a script, and `ItemsSource=Names` fills a list from one. A form
+  can then be all layout, with its code in the project's modules. It works the same on the web.
+- **The designer is a project.** `designer/Designer.vmlproj` is its five forms and the modules that hold what its
+  menus do (`designer/modules/*.lua`). Open it in the designer to read or change it. It keeps its own modules and
+  its own `Project` table while it runs yours.
+- Each form keeps its own Lua state. For a value the whole app shares, use the **`Project` table**:
+  `Project.user = "steve"` in one form is `Project.user` in all of them.
+- **Databases** named here open by themselves when first used (see below).
+- `./vml.py MyApp.vmlproj` runs the app; a form opened on its own finds its project; and **Export** packages the
+  whole project (forms, modules, pictures, local databases) as one app.
+
+### Data
+
+**Settings → Databases (ODBC)…** shows the project's databases, the ODBC drivers and data sources this computer has,
+builds an address from boxes (driver or DSN, server, database, user), tests it, and can copy an ODBC database's
+tables and rows into a SQLite file the app carries with it. A password need not be kept in the project file:
+
+```
+Database=sales=odbc:Driver={ODBC Driver 18 for SQL Server};Server=db1;Database=Sales;UID=reports;PWD=?
+Database=stock=odbc:DSN=Stock;UID=${STOCK_USER};PWD=${STOCK_PASSWORD}
+Database=hr=odbc:Driver={ODBC Driver 18 for SQL Server};Server=db1;Database=HR;Trusted_Connection=Yes
+```
+
+`PWD=?` asks for the password the first time the app connects (it is not saved), `${NAME}` reads an environment
+variable, and `Trusted_Connection=Yes` is Windows sign-in. Passwords are never written to the log.
+
+```lua
+Vml("DbOpen", "main", "sqlite:data.db")                -- a SQLite file beside the form
+Vml("DbOpen", "sales", "odbc:DSN=Sales;UID=me;PWD=x")  -- anything with an ODBC driver: SQL Server, MySQL, Access...
+local rows = Vml("DbQuery", "main", "SELECT name FROM people WHERE age > ?", 30)   -- JSON, one object per row
+Vml("DbExecute", "main", "UPDATE people SET age = ? WHERE id = ?", 31, 7)
+```
+
+A ListBox, ComboBox, DataGrid or TreeView with **`ItemsSource`** fills itself, and fills itself again whenever a
+control it names changes, with no event scripts:
+
+```vml
+@ComboBox cboCategory
+ItemsSource=SELECT DISTINCT category FROM questions ORDER BY 1
+
+@ListBox lstQuestion
+ItemsSource=SELECT question FROM questions WHERE category = {cboCategory}
+```
+
+`{cboCategory}` is that control's current choice (`{txtName}` a text box's text, `{chkAll}` true or false,
+`{grid.SelectedItem}` any property). Values go to the database as parameters, never pasted into the SQL.
+`Database=` names which database to ask (default: the project's first, or the form's own). `ItemsSource` can also
+name a script, `ItemsSource=LoadQuestions(cboCategory)`, which returns a JSON array or one item per line.
+`Vml("Requery")` fills them again after the data changes. ODBC needs the driver for your database installed
+(and, on Linux, unixODBC: `sudo apt install unixodbc`).
+
+**On the web too.** A page exported from a form that uses a database carries SQLite inside it (compiled to
+WebAssembly, about 0.9 MB, and only for pages that need it), along with the project's SQLite files. `ItemsSource`,
+cascades, `DbQuery` and `DbExecute` work in the browser as on the desktop. Changes made in the browser are kept in
+that browser and shared by the app's other pages; they don't go back into the file. ODBC is desktop-only.
+
+`apps/datablocks` is a small worked example: content kept as tagged "data blocks", lists that narrow each other,
+and a form to maintain them. It is two forms and one Lua module, with nothing added to the engine.
+
 Commonly used `Vml()` commands:
 
 | | |
@@ -218,14 +337,18 @@ Commonly used `Vml()` commands:
 | Controls | `CreateControl` · `DeleteControl` · `ControlExists` · `GetChildControls` · `ClearChildren` |
 | Shared state | `GetSetting` · `SetSetting` |
 | Scripts | `RunScript` · `ExecuteScript` · `Shell` |
-| Data | `SqlQuery` (JSON) · `SqlExecute` |
+| Data | `DbOpen` · `DbQuery` (JSON) · `DbExecute` · `DbClose` · `DbTables` · `DbCopyTable` · `DbDrivers` · `DbSources` · `DbTest` · `DbError` · `Requery` · `GridSetData` · `SqlQuery` · `SqlExecute` (the form's own database) |
+| Files | `FileExists` · `FileRead` · `FileWrite` · `FileList` · `FileCopy` · `FileSize` · `FileReadBase64` · `FileWriteBase64` · `FolderDialog` |
+| Text | `RegexMatch` · `RegexFindAll` · `RegexReplace` |
 | Forms and dialogs | `FormOpen` · `FormOpenModal` · `SetDialogResult` · `ShowForm` · `HideForm` · `CloseForm` · `CloseSelf` · `InfoDialog` · `ConfirmDialog` · `FileOpenDialog` · `FileSaveDialog` |
 | Menus | `ShowContextMenu` · `SetMenuItemEnabled` · `SetMenuItemText` |
 
 ## Controls
 
-Window, Frame, StackPanel, Grid, DockPanel, Canvas, Border, ScrollViewer, TextBlock, TextBox, Button, CheckBox, ComboBox,
-ListBox, Rectangle, menus (TinyMenu, MenuItem, ContextMenu, MenuTheme), and **composite controls** defined in VML
+Window, Frame, StackPanel, Grid, DockPanel, Canvas, Border, ScrollViewer, TextBlock, TextBox (also a password box:
+`IsPassword`), Button, CheckBox, RadioButton (grouped by container and `GroupName`), ComboBox, ListBox, DataGrid
+(rows and columns, read-only), TreeView (`Items` are paths: `Forms/Main,Forms/Login`), Image (`Source` a file beside
+the form, or a `data:` address), Rectangle, menus (TinyMenu, MenuItem, ContextMenu, MenuTheme), and **composite controls** defined in VML
 itself with `@ControlTemplate` and `@PropertyMap`. Layout follows Avalonia's rules (DockPanel docking order, Grid
 star sizing, Margin outside and Padding inside), so existing forms look the same.
 
@@ -240,8 +363,13 @@ vml/            the engine
   engine.py     rendering, the Vml() API, the script host
   design.py     DesignSurface and PropertyGrid
   store.py      SQLite, and the Lua parser runner
+  data.py       databases (SQLite, ODBC) and ItemsSource
+  projects.py   projects: forms, modules and databases as one app
+  dialogs.py    the message, question and input boxes
+  library.py    the importer library, and the file and pattern commands importers are written with
   lua/          vml-parser.lua, dkjson.lua
-designer/       the designer and script editor (VML + Lua)
+designer/       the designer, script editor, menu editor and module editor (VML + Lua)
+  importers/    the importers: Visual Basic 5/6 and Windows Forms, each one VML file of Lua
 tests/          tests that drive forms like a user does
 packaging/      icon, installers (Windows, Linux) and the Store manifest
 .github/        the release workflow: tag a version, get every download
@@ -257,6 +385,15 @@ python3 tests/run_frames.py     # frames, nesting, keys, live geometry, window o
 python3 tests/run_menus.py      # menus: editor, menu bar and items as controls, saved, reopened and run
 python3 tests/run_multiform.py  # forms opening forms, Form.Control names, dialog results, Lua states
 python3 tests/run_csharp.py     # C# scripting (skips itself if .NET isn't set up)
+python3 tests/run_controls.py   # option buttons, password box, pictures, grid, tree, the window edge, dialogs
+python3 tests/run_data.py       # databases (SQLite, and ODBC if a driver is installed) and ItemsSource
+python3 tests/run_projects.py   # projects: modules, the Project table, the designer's panel, export, importing from Visual Studio
+python3 tests/run_web_controls.py  # the 1.0 controls and a project's modules, as a web page in a real browser
+python3 tests/run_web_data.py   # databases inside a web page: ItemsSource, cascades and the Db commands, in a real browser
+python3 tests/run_datablocks.py # the data blocks sample project, on the desktop and as web pages
+python3 tests/run_library.py    # the importer library, an importer of your own, and the file and pattern commands
+python3 tests/run_import_winforms.py  # the Windows Forms importer
+python3 tests/run_import_vb6.py # the Visual Basic 5/6 importer
 python3 tests/run_api.py        # the vml command and Python: calling back, chains across languages, outside programs
 python3 tests/run_web.py        # the HTML renderer in a real browser (needs: pip install playwright)
 python3 tests/run_formscripts.py # the form's own scripts (OnOpened, helpers) survive open, save and preview

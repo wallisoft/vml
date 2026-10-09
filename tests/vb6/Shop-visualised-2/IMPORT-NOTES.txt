@@ -1,0 +1,30 @@
+Imported from Shop.vbp
+
+Shop: 2 forms brought across, with 26 controls, 12 menu items and 22 event handlers.
+Start-up form: frmMain.vml.
+6 plain steps of the code (opening and closing forms, messages, simple settings) were translated and now run. The rest of the code does not run: it is kept as comments to rewrite.
+3 modules of original code, kept as comments for reference (the code does not run: it is there to rewrite).
+The original project is untouched. IMPORT-NOTES.txt in the new folder lists every form's details.
+
+== frmAbout  (frmAbout.frm)
+   frmAbout: 3 controls brought across.
+   1 event handler from frmAbout.frm came across as scripts. The Visual Basic is kept as comments for reference; it does not run.
+   Except the plain steps, which were translated and do run: 1 line in 1 script (opening and closing forms, messages, simple settings). Check them.
+   1 other line of code in frmAbout.frm is not in the form; the original file is untouched.
+
+== frmMain  (frmMain.frm)
+   frmMain: 23 controls brought across, and 12 menu items.
+   No equal yet for Slider: sldDiscount is shown as a labelled frame of the same size.
+   grdOrders: a grid comes across empty: fill it with ItemsSource or GridSetData.
+   linRule: a line becomes a thin rectangle.
+   cboCategory, lstProducts: its list is in frmMain.frx, which wasn't beside the form: set Items.
+   imgLogo: its picture is in frmMain.frx, which wasn't beside the form: set Source to a picture file.
+   txtNotes: its text is in frmMain.frx, which wasn't beside the form.
+   mnuHelpTips: the tick beside a menu item is not carried over.
+   Not on the form itself, so not brought across (timers, dialogs and the like): tmrClock (Timer), dlgFile (CommonDialog).
+   21 event handlers from frmMain.frm came across as scripts. The Visual Basic is kept as comments for reference; it does not run.
+   Except the plain steps, which were translated and do run: 5 lines in 5 scripts (opening and closing forms, messages, simple settings). Check them.
+   Kept as scripts but not attached, because there is no matching event here yet: the form.Activate, the form.Resize, txtPin.KeyPress, sldDiscount.Change.
+   Handlers for things that were not brought across were left behind: tmrClock.Timer.
+   18 other lines of code in frmMain.frm (helpers, variables) are not in the form; the original file is untouched.
+

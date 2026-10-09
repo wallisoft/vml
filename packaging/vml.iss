@@ -1,5 +1,5 @@
 ; Visualised Windows installer (built by the release workflow from the Nuitka output).
-; Installs for the current user (no admin), associates .vml files, and can add VML to the PATH.
+; Installs for the current user (no admin), associates .vml and .vmlproj files, and can add VML to the PATH.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -47,6 +47,11 @@ Root: HKCU; Subkey: "Software\Classes\.vml"; ValueType: string; ValueName: ""; V
 Root: HKCU; Subkey: "Software\Classes\VML.Form"; ValueType: string; ValueName: ""; ValueData: "VML form"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\VML.Form\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\vml.exe,0"
 Root: HKCU; Subkey: "Software\Classes\VML.Form\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vml.exe"" ""%1"""
+; ...and double-clicking a .vmlproj runs that project
+Root: HKCU; Subkey: "Software\Classes\.vmlproj"; ValueType: string; ValueName: ""; ValueData: "VML.Project"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\VML.Project"; ValueType: string; ValueName: ""; ValueData: "Visualised project"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\VML.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\vml.exe,0"
+Root: HKCU; Subkey: "Software\Classes\VML.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vml.exe"" ""%1"""
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Run]

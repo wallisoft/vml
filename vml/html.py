@@ -21,11 +21,17 @@ WEB_DIR = next((d for d in (Path(__file__).resolve().parent / "web", Path(__file
                 if (d / "glue.wasm").is_file()), Path(__file__).resolve().parent / "web")
 
 WASMOON = "https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/+esm"
+SQLJS = "https://cdn.jsdelivr.net/npm/sql.js@1.13.0/dist/"      # SQLite in WebAssembly, for pages that use a database
+MAX_DATABASE = 16_000_000        # a SQLite file bigger than this isn't put inside a page
 MENU_H = 26
 WEIGHTS = {"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600,
            "Bold": 700, "ExtraBold": 800, "Black": 900}
 EVENT_NAMES = ("OnClick", "TextChanged", "SelectionChanged", "OnKeyDown", "OnKeyUp", "OnPointerPressed",
-               "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus", "OnChecked", "OnOpened")
+               "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus", "OnChecked", "OnOpened", "OnDoubleClick")
+FIT = {"Fill": "fill", "UniformToFill": "cover", "None": "none"}        # Image.Stretch -> CSS object-fit
+EMBED_LIMIT = 2_000_000          # a picture file smaller than this goes inside the page, so the page stays one file
+MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".bmp": "image/bmp",
+        ".svg": "image/svg+xml", ".webp": "image/webp"}
 
 
 def css_id(name):
@@ -37,8 +43,9 @@ def esc(s):
 
 
 class Page:
-    def __init__(self, vml_path):
+    def __init__(self, vml_path, project=None, base_dir=None):
         self.path = Path(vml_path)
+        self.base = Path(base_dir) if base_dir else self.path.parent      # where the form's pictures are
         rows, props, scripts = Store(":memory:").parse_form(str(vml_path))
         self.rows = rows
         self.props = props
@@ -50,6 +57,64 @@ class Page:
         self.handlers = []                 # (element id, event, handler, control name)
         self.names = {}                    # control name -> element id
         self.menus = {}                    # ContextMenu name -> html
+        self.modules = []                  # a project's modules: Lua every script can use
+        from .projects import project_for
+        project = project or project_for(self.path)
+        self.project = project
+        self.project_name = project.name if project is not None else ""
+        if project is not None:
+            for rel in project.modules:
+                try:
+                    self.modules.append({"name": rel, "code": project.absolute(rel).read_text(encoding="utf-8-sig", errors="replace")})
+                except OSError:
+                    pass
+
+    def sources(self):
+        """The controls that fill themselves: [{name, src, db}]."""
+        return [{"name": self.by_id[c][3], "src": self.props[c]["ItemsSource"], "db": self.props[c].get("Database", "")}
+                for c in self.props if str(self.props[c].get("ItemsSource") or "").strip() and c in self.by_id]
+
+    def uses_data(self):
+        """Does this page need a database engine? Yes if anything fills itself from a query, or a script asks one."""
+        code = "\n".join(c or "" for _, c in self.scripts.values()) + "\n".join(m["code"] for m in self.modules)
+        return bool(self.sources()) or bool(re.search(r"""["'](Db[A-Z]\w+|SqlQuery|SqlExecute|Requery)["']""", code))
+
+    def databases(self):
+        """The project's SQLite files, to travel inside the page: {name: {file, data (base64), hash}}."""
+        import base64
+        import hashlib
+        out = {}
+        if self.project is None:
+            return out
+        for name, address in self.project.databases.items():
+            kind, _, rest = address.partition(":")
+            rel = rest.strip() if kind.strip().lower() == "sqlite" else address.strip()
+            if "=" in rel or kind.strip().lower() == "odbc":
+                continue                                    # ODBC: there is no such thing in a web page
+            file = Path(rel) if Path(rel).is_absolute() else self.project.folder / rel
+            try:
+                if file.stat().st_size > MAX_DATABASE:
+                    continue
+                raw = file.read_bytes()
+            except OSError:
+                raw = b""                                   # not made yet: it starts empty in the page, as it would on disk
+            out[name] = {"file": file.name, "data": base64.b64encode(raw).decode(),
+                         "hash": hashlib.sha1(raw).hexdigest()[:12] if raw else "new"}
+        return out
+
+    def picture(self, src):
+        """An Image's Source for the page: a small file beside the form goes inside the page itself."""
+        src = str(src or "").strip()
+        if not src or src.startswith(("data:", "http://", "https://")):
+            return src
+        file = Path(src) if Path(src).is_absolute() else self.base / src
+        try:
+            if file.suffix.lower() in MIME and file.stat().st_size <= EMBED_LIMIT:
+                import base64
+                return f"data:{MIME[file.suffix.lower()]};base64,{base64.b64encode(file.read_bytes()).decode()}"
+        except OSError:
+            pass
+        return src
 
     # ------------------------------------------------------------------ styles
 
@@ -147,8 +212,27 @@ class Page:
             ph = esc(p.get("Watermark", ""))
             ro = " readonly" if str(p.get("IsReadOnly", "")).lower() == "true" else ""
             if str(p.get("AcceptsReturn", "")).lower() == "true":
-                return f'<textarea {attrs} placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>{esc(p.get("Text", ""))}</textarea>'
-            return f'<input type="text" {attrs} value="{esc(p.get("Text", ""))}" placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>'
+                wrap = ' wrap="off"' if p.get("TextWrapping") == "NoWrap" else ""
+                return f'<textarea {attrs}{wrap} placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>{esc(p.get("Text", ""))}</textarea>'
+            kind = "password" if str(p.get("IsPassword", "")).lower() == "true" else "text"
+            return f'<input type="{kind}" {attrs} value="{esc(p.get("Text", ""))}" placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>'
+        if ctype == "RadioButton":
+            checked = " checked" if str(p.get("IsChecked", "")).lower() == "true" else ""
+            group = esc(f"{self.by_id[self.by_id[cid][1]][3] if self.by_id[cid][1] in self.by_id else 'form'}.{p.get('GroupName', '')}")
+            return (f'<label {attrs} class="cb" style="{";".join(css)}"><input type="radio" name="{group}"{checked}{disabled}>'
+                    f'<span>{esc(p.get("Content", ""))}</span></label>')
+        if ctype == "Image":
+            css.append(f"object-fit:{FIT.get(p.get('Stretch'), 'contain')}")
+            src = self.picture(p.get("Source"))
+            return f'<img {attrs} alt="" src="{esc(src)}" onerror="this.removeAttribute(\'src\')" style="{";".join(css)}">' if src else f'<img {attrs} alt="" style="{";".join(css)}">'
+        if ctype == "DataGrid":
+            cols = [c.strip() for c in str(p.get("Columns", "")).split(",") if c.strip()]
+            rows = [[c.strip() for c in r.split("|")] for r in str(p.get("Items", "")).split(";") if r.strip()]
+            return (f'<div {attrs} class="grid" tabindex="0" data-cols="{esc(json.dumps(cols))}" data-rows="{esc(json.dumps(rows))}" '
+                    f'style="{";".join(css)}"></div>')
+        if ctype == "TreeView":
+            paths = [x.strip() for x in re.split(r"[,\n]", str(p.get("Items", ""))) if x.strip()]
+            return f'<div {attrs} class="tree" tabindex="0" data-paths="{esc(json.dumps(paths))}" style="{";".join(css)}"></div>'
         if ctype == "CheckBox":
             checked = " checked" if str(p.get("IsChecked", "")).lower() == "true" else ""
             return (f'<label {attrs} class="cb" style="{";".join(css)}"><input type="checkbox"{checked}{disabled}>'
@@ -294,7 +378,12 @@ class Page:
                        if self.by_id[k][2] not in ("ContextMenu", "MenuItem", "MenuTheme"))
         scripts = {n: {"interp": (i or "lua").split()[0].lower(), "code": c} for n, (i, c) in self.scripts.items()}
         dkjson = (LUA_DIR / "dkjson.lua").read_text(encoding="utf-8")
+        self.with_data = self.uses_data()
+        main = next(iter(self.project.databases), "") if self.project is not None else ""
         data = {"form": win[3], "names": self.names, "scripts": scripts, "onOpened": wp.get("OnOpened", ""),
+                "modules": self.modules, "project": self.project_name, "sources": self.sources(),
+                "data": self.with_data, "databases": self.databases() if self.with_data else {}, "mainDb": main,
+                "sqljs": SQLJS, "named": list(self.project.databases) if self.project is not None else [],
                 "handlers": [{"id": e, "event": ev, "handler": h, "name": n} for e, ev, h, n in self.handlers]}
         bg = colour(wp.get("Background", "#ffffff"))
         return TEMPLATE.replace("%%TITLE%%", esc(wp.get("Title", win[3]))).replace("%%BG%%", bg) \
@@ -309,13 +398,20 @@ class Page:
         import base64
         js = (WEB_DIR / "wasmoon.js").read_text(encoding="utf-8").replace("</script", "<\\/script")
         wasm = base64.b64encode((WEB_DIR / "glue.wasm").read_bytes()).decode()
-        return (f"<script>{js}</script>\n"
-                f'<script>window.VML_WASM = "data:application/wasm;base64,{wasm}";</script>')
+        out = (f"<script>{js}</script>\n"
+               f'<script>window.VML_WASM = "data:application/wasm;base64,{wasm}";</script>')
+        if self.with_data:                                  # SQLite too, only for pages that use a database
+            sql = (WEB_DIR / "sql-wasm.js").read_text(encoding="utf-8").replace("</script", "<\\/script")
+            sqlwasm = base64.b64encode((WEB_DIR / "sql-wasm.wasm").read_bytes()).decode()
+            out += f'\n<script>{sql}</script>\n<script>window.VML_SQLWASM = "{sqlwasm}";</script>'
+        return out
 
 
-def export_html(vml_path, out_path=None, offline=True):
-    """offline=True (the default) puts the Lua engine inside the page (about 420 KB more); False loads it from a CDN."""
-    page = Page(vml_path).build(offline=offline)
+def export_html(vml_path, out_path=None, offline=True, project=None, base_dir=None):
+    """offline=True (the default) puts the Lua engine inside the page (about 420 KB more); False loads it from a CDN.
+    project: the form's project, when it can't be found from where the file is (its modules go in the page);
+    base_dir: where the form's picture files are, if not beside vml_path."""
+    page = Page(vml_path, project, base_dir).build(offline=offline)
     out = Path(out_path) if out_path else Path(vml_path).with_suffix(".html")
     out.write_text(page, encoding="utf-8")
     return str(out)
@@ -336,7 +432,17 @@ TEMPLATE = r"""<!DOCTYPE html>
   #vml_window > .menubar { flex: 0 0 auto; }
   button { font: inherit; padding: 4px 10px; border: 1px solid #c4c8cf; border-radius: 4px; background: #f7f7f8; cursor: pointer; }
   button:hover { border-color: #9ca3af; } button:active { background: #e5e7eb; }
-  input[type=text], textarea, select { font: inherit; box-sizing: border-box; border: 1px solid #c4c8cf; border-radius: 3px; padding: 3px 5px; background: #fff; }
+  input[type=text], input[type=password], textarea, select { font: inherit; box-sizing: border-box; border: 1px solid #c4c8cf; border-radius: 3px; padding: 3px 5px; background: #fff; }
+  .grid, .tree { box-sizing: border-box; border: 1px solid #c4c8cf; background: #fff; overflow: auto; outline: none; }
+  .grid table { border-collapse: collapse; width: 100%; }
+  .grid th { position: sticky; top: 0; background: #f3f4f6; text-align: left; font-weight: 600; border-bottom: 1px solid #c4c8cf; padding: 3px 8px; white-space: nowrap; }
+  .grid td { padding: 3px 8px; border-bottom: 1px solid #eef0f3; white-space: nowrap; cursor: default; }
+  .grid tr:nth-child(even) td { background: #fafafa; }
+  .grid tr.sel td, .tree .ti.sel > span { background: #2563eb; color: #fff; }
+  .tree { padding: 3px 0; }
+  .tree .ti > span { display: block; padding: 2px 6px; white-space: nowrap; cursor: default; }
+  .tree .kids { margin-left: 16px; }
+  img[data-type=Image]:not([src]) { visibility: hidden; }
   textarea { resize: none; }
   .cb { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .tb { overflow: hidden; text-overflow: ellipsis; }
@@ -385,7 +491,187 @@ const truthy = v => ["true", "1", "yes"].includes(String(v).toLowerCase());
 let lastPointer = { x: 40, y: 40 }, lua = null;
 document.addEventListener("mousemove", e => lastPointer = { x: e.clientX, y: e.clientY }, true);
 
+// grids and trees are built here, so the page and a script filling them later go the same way
+const changed = e => e.dispatchEvent(new Event("change"));
+function fillGrid(e, cols, rows) {
+  const keep = gridValue(e);
+  e._cols = cols.map(String); e._rows = rows.map(r => r.map(v => v == null ? "" : String(v)));
+  const cell = (tag, t) => { const c = document.createElement(tag); c.textContent = t; return c; };
+  const table = document.createElement("table"), head = table.createTHead().insertRow(), body = table.createTBody();
+  e._cols.forEach(c => head.appendChild(cell("th", c)));
+  e._rows.forEach((r, i) => { const tr = body.insertRow(); tr.dataset.i = i; e._cols.forEach((_, c) => tr.appendChild(cell("td", r[c] ?? ""))); });
+  e.replaceChildren(table);
+  e._sel = keep === "" ? -1 : e._rows.findIndex(r => r[0] === keep);
+  markGrid(e);
+  if (gridValue(e) !== keep) changed(e);
+}
+function markGrid(e) { e.querySelectorAll("tbody tr").forEach(tr => tr.classList.toggle("sel", Number(tr.dataset.i) === e._sel)); }
+const gridValue = e => e._rows && e._sel >= 0 && e._rows[e._sel] ? (e._rows[e._sel][0] ?? "") : "";
+const gridItem = e => e._rows && e._sel >= 0 && e._rows[e._sel] ? JSON.stringify(Object.fromEntries(e._cols.map((c, i) => [c, e._rows[e._sel][i] ?? ""]))) : "";
+function rowsFrom(json) {
+  const text = String(json ?? "");
+  if (!/^\s*[\[{]/.test(text)) return [["Item"], text.split("\n").filter(l => l.trim()).map(l => [l])];   // one item per line
+  let data = []; try { data = JSON.parse(text); } catch { data = []; }
+  if (!Array.isArray(data)) data = Object.values(data || {});
+  if (data.length && data.every(d => d && typeof d === "object" && !Array.isArray(d))) { const cols = Object.keys(data[0]); return [cols, data.map(d => cols.map(c => d[c]))]; }
+  if (data.length && data.every(Array.isArray)) return [data[0].map((_, i) => "Column" + (i + 1)), data];
+  return [["Item"], data.map(d => [d])];
+}
+function fillTree(e, paths) {
+  const keep = e._path || "";
+  const made = new Map(); e.replaceChildren(); e._path = "";
+  for (const path of paths) {
+    const parts = String(path).split("/").map(s => s.trim()).filter(Boolean);
+    parts.forEach((part, d) => {
+      const key = parts.slice(0, d + 1).join("/");
+      if (made.has(key)) return;
+      const item = document.createElement("div"); item.className = "ti"; item.dataset.path = key;
+      const label = document.createElement("span"); label.textContent = part; item.appendChild(label);
+      const kids = document.createElement("div"); kids.className = "kids"; item.appendChild(kids);
+      (d ? made.get(parts.slice(0, d).join("/")).querySelector(":scope > .kids") : e).appendChild(item);
+      made.set(key, item);
+    });
+  }
+  if (made.has(keep)) pickTree(e, keep);
+  if ((e._path || "") !== keep) changed(e);
+}
+function fillSelect(e, items) {
+  const keep = e.selectedIndex >= 0 ? e.options[e.selectedIndex].text : "";
+  e.replaceChildren(...items.map(t => new Option(t)));
+  const i = items.indexOf(keep), list = e.dataset.type === "ListBox";
+  e.selectedIndex = keep !== "" && i >= 0 ? i : (list || !items.length ? -1 : 0);
+  if ((e.selectedIndex >= 0 ? e.options[e.selectedIndex].text : "") !== keep) changed(e);
+}
+function pickTree(e, path) {
+  e._path = ""; e.querySelectorAll(".ti.sel").forEach(t => t.classList.remove("sel"));
+  const item = [...e.querySelectorAll(".ti")].find(t => t.dataset.path === path);
+  if (item) { item.classList.add("sel"); e._path = path; }
+}
+document.querySelectorAll(".grid").forEach(e => {
+  fillGrid(e, JSON.parse(e.dataset.cols), JSON.parse(e.dataset.rows));
+  if (!e._cols.length && e._rows.length) fillGrid(e, e._rows[0].map((_, i) => "Column" + (i + 1)), e._rows);
+  e.addEventListener("click", ev => { const tr = ev.target.closest("tbody tr"); if (!tr) return; const i = Number(tr.dataset.i); if (i !== e._sel) { e._sel = i; markGrid(e); changed(e); } });
+});
+document.querySelectorAll(".tree").forEach(e => {
+  fillTree(e, JSON.parse(e.dataset.paths));
+  e.addEventListener("click", ev => { const t = ev.target.closest(".ti"); if (!t || t.dataset.path === e._path) return; pickTree(e, t.dataset.path); changed(e); });
+});
+
+// ---- databases inside the page (SQLite compiled to WebAssembly): the same Db commands and ItemsSource as on the desktop.
+// A project's SQLite files travel in the page. Changes are kept in this browser (localStorage), so they survive a
+// reload and are shared by the app's other pages; they never go back into the file the page was made from.
+let SQL = null, dbError = "";
+const dbs = {}, dbSeen = {}, OWN_DB = "\u0000own";
+const b64bytes = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+const bytesB64 = u => { let t = ""; for (let i = 0; i < u.length; i += 0x8000) t += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(t); };
+const storeKey = name => VML.databases[name] ? `vmldb:${VML.project}:${name}:${VML.databases[name].hash}` : null;
+function openStored(name) {
+  const key = storeKey(name); let bytes = null;
+  try { const saved = localStorage.getItem(key); if (saved) { bytes = b64bytes(saved); dbSeen[name] = localStorage.getItem(key + ":t") || ""; } } catch {}
+  if (!bytes && VML.databases[name].data) bytes = b64bytes(VML.databases[name].data);
+  return bytes ? new SQL.Database(bytes) : new SQL.Database();
+}
+function persist(name) {
+  const key = storeKey(name); if (!key || !dbs[name]) return;
+  try { const t = bytesB64(dbs[name].export()); if (t.length > 4e6) return; localStorage.setItem(key, t); dbSeen[name] = String(Date.now()); localStorage.setItem(key + ":t", dbSeen[name]); } catch {}
+}
+const dbName = name => name || VML.mainDb || OWN_DB;
+function db(name) {
+  name = dbName(name);
+  if (!SQL) throw new Error("the database engine didn't load in this page");
+  if (!dbs[name]) {
+    if (VML.databases[name]) dbs[name] = openStored(name);
+    else if (name === OWN_DB) { dbs[name] = new SQL.Database(); dbs[name].run("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)"); for (const [k, v] of Object.entries(settings)) dbs[name].run("INSERT OR REPLACE INTO settings VALUES (?, ?)", [k, v]); }
+    else if ((VML.named || []).includes(name)) throw new Error(`the database '${name}' isn't inside this page (only SQLite files up to 16 MB travel with a page)`);
+    else throw new Error(`no database called '${name}' is open (DbOpen it first, or name it in the project)`);
+  }
+  return dbs[name];
+}
+function query(name, sql, params = []) {
+  const st = db(name).prepare(sql);
+  try {
+    st.bind(params);
+    const cols = st.getColumnNames(), rows = [];
+    while (st.step()) rows.push(st.get().map(v => v instanceof Uint8Array ? `(${v.length} bytes)` : v));
+    return [cols, rows];
+  } finally { st.free(); }
+}
+const REF = /\{\s*([A-Za-z_]\w*)(?:\.([A-Za-z_][\w.]*))?\s*\}/g;
+const OWN_VALUE = { ComboBox: "SelectedItem", ListBox: "SelectedItem", TreeView: "SelectedItem", DataGrid: "SelectedValue", CheckBox: "IsChecked", RadioButton: "IsChecked", Button: "Content" };
+const valueOf = (name, prop) => commands.GetProperty(name, prop || OWN_VALUE[el(name)?.dataset.type] || "Text");
+function plan(src) {
+  const m = /^\s*([A-Za-z_]\w*)\s*(?:\((.*)\))?\s*$/.exec(src.src);
+  if (m && (VML.scripts[m[1]] || luaFunction(m[1]))) return ["script", m[1], (m[2] || "").split(",").map(a => a.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean).map(a => [a, ""])];
+  const refs = [];
+  return ["sql", src.src.replace(REF, (_, n, p) => { refs.push([n, p || ""]); return "?"; }), refs];
+}
+let filling = 0;
+const watched = new Set();
+function fill(src) {
+  const e = el(src.name);
+  if (!e || filling > 20 || !String(src.src || "").trim()) return;
+  const [kind, text, refs] = plan(src);
+  const values = refs.map(([n, p]) => { if (!el(n)) return kind === "script" ? n : ""; watch(n); return valueOf(n, p); });
+  filling++;
+  try {
+    let cols = [], rows = [];
+    if (kind === "script") [cols, rows] = rowsFrom(run(text, values));
+    else try { [cols, rows] = query(src.db, text, values); dbError = ""; } catch (err) { dbError = String(err.message || err); console.warn(`${src.name}.ItemsSource: ${dbError}`); }
+    const first = rows.filter(r => r.length).map(r => r[0] == null ? "" : String(r[0]));
+    if (e.matches(".grid")) { const own = JSON.parse(e.dataset.cols); fillGrid(e, own.length && own.length === cols.length ? own : cols, rows); }
+    else if (e.matches(".tree")) fillTree(e, first);
+    else if (e.matches("select")) fillSelect(e, first);
+  } finally { filling--; }
+}
+function watch(n) {
+  if (watched.has(n)) return;
+  watched.add(n);
+  const outer = el(n), t = outer.matches("label.cb") ? outer.querySelector("input") : outer;
+  const again = () => dependents(n);
+  if (outer.matches("input[type=text],input[type=password],textarea")) { let timer; t.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(again, 250); }); }
+  else t.addEventListener("change", again);
+}
+function dependents(n) { for (const src of VML.sources) if (plan(src)[2].some(r => r[0] === n)) fill(src); }
+function refill(test = () => true) { for (const src of VML.sources) if (test(src)) fill(src); }
+window.addEventListener("focus", () => {              // another page of the app may have changed the data
+  for (const name of Object.keys(dbs)) {
+    const key = storeKey(name); if (!key) continue;
+    let t = ""; try { t = localStorage.getItem(key + ":t") || ""; } catch {}
+    if (t && t !== (dbSeen[name] || "")) { dbs[name] = openStored(name); refill(src => dbName(src.db) === name); }
+  }
+});
+
 const commands = {
+  DbOpen(name, connection) {
+    try {
+      const m = /^\s*sqlite\s*:(.*)$/i.exec(connection), target = (m ? m[1] : connection).trim();
+      if (/^\s*odbc\s*:/i.test(connection) || (!m && target.includes("="))) throw new Error("ODBC isn't available in a web page: use a SQLite database, which travels inside the page");
+      if (!SQL) throw new Error("the database engine didn't load in this page");
+      const file = target.split(/[\\/]/).pop(), inside = Object.keys(VML.databases).find(n => VML.databases[n].file === file);
+      if (inside === name) { delete dbs[name]; db(name); }
+      else if (inside) dbs[name] = new SQL.Database(b64bytes(VML.databases[inside].data));
+      else { dbs[name] = new SQL.Database(); if (target !== ":memory:") console.info(`${file} isn't inside this page, so the database '${name}' starts empty here`); }
+      dbError = "";
+      refill(src => dbName(src.db) === name);
+      return "true";
+    } catch (err) { dbError = String(err.message || err); console.warn("DbOpen", name, dbError); return ""; }
+  },
+  DbClose(name) { const had = !!dbs[name]; delete dbs[name]; return had ? "true" : "false"; },
+  DbQuery(name, sql, ...params) {
+    try { const [cols, rows] = query(name, sql, params); dbError = ""; return JSON.stringify(rows.map(r => Object.fromEntries(cols.map((c, i) => [c, r[i]])))); }
+    catch (err) { dbError = String(err.message || err); console.warn("DbQuery", dbError); return "[]"; }
+  },
+  DbExecute(name, sql, ...params) {
+    try { const d = db(name); d.run(sql, params); const n = d.getRowsModified(); dbError = ""; persist(dbName(name)); return String(n); }
+    catch (err) { dbError = String(err.message || err); console.warn("DbExecute", dbError); return ""; }
+  },
+  DbError: () => dbError,
+  DbTables(name = "") { try { return JSON.stringify(query(name, "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name")[1].map(r => r[0])); } catch { return "[]"; } },
+  DbList: () => JSON.stringify([...new Set([...Object.keys(VML.databases), ...Object.keys(dbs).filter(n => n !== OWN_DB)])].map(n => ({ name: n, open: !!dbs[n], kind: dbs[n] ? "sqlite" : "" }))),
+  DbDrivers: () => "[]",
+  SqlQuery(sql, ...params) { try { const [cols, rows] = query(OWN_DB, sql, params); return JSON.stringify(rows.map(r => Object.fromEntries(cols.map((c, i) => [c, r[i]])))); } catch (err) { console.warn("SqlQuery", err); return "[]"; } },
+  SqlExecute(sql, ...params) { try { const d = db(OWN_DB); d.run(sql, params); return String(d.getRowsModified()); } catch (err) { console.warn("SqlExecute", err); return ""; } },
+  Requery(control = "") { refill(control ? src => src.name === control : undefined); return "true"; },
   SetProperty(name, prop, value = "") {
     const e = name === VML.form ? null : el(name);
     if (name === VML.form || !e) { if (prop === "Title") document.title = value; return ""; }
@@ -396,6 +682,20 @@ const commands = {
     else if (prop === "IsVisible") e.style.display = truthy(value) ? "" : "none";
     else if (prop === "IsEnabled") { const t = e.matches("label.cb") ? e.querySelector("input") : e; truthy(value) ? t.removeAttribute("disabled") : t.setAttribute("disabled", ""); }
     else if (prop === "IsChecked") e.querySelector("input").checked = truthy(value);
+    else if (prop === "ItemsSource" || prop === "Database") {
+      let src = VML.sources.find(x => x.name === name);
+      if (!src) VML.sources.push(src = { name, src: "", db: "" });
+      src[prop === "Database" ? "db" : "src"] = value;
+      if (lua) fill(src);
+    }
+    else if (prop === "IsPassword") e.type = truthy(value) ? "password" : "text";
+    else if (prop === "Source") value ? e.setAttribute("src", value) : e.removeAttribute("src");
+    else if (prop === "Stretch") e.style.objectFit = { Fill: "fill", UniformToFill: "cover", None: "none" }[value] || "contain";
+    else if (e.matches(".grid") && prop === "Columns") fillGrid(e, value.split(",").map(s => s.trim()).filter(Boolean), e._rows);
+    else if (e.matches(".grid") && prop === "Items") fillGrid(e, e._cols, value.split(";").filter(s => s.trim()).map(r => r.split("|").map(c => c.trim())));
+    else if (e.matches(".grid") && prop === "SelectedIndex") { e._sel = Number(value) >= 0 && Number(value) < e._rows.length ? Number(value) : -1; markGrid(e); }
+    else if (e.matches(".tree") && prop === "Items") fillTree(e, value.split(/[,\n]/).map(s => s.trim()).filter(Boolean));
+    else if (e.matches(".tree") && prop === "SelectedItem") pickTree(e, value);
     else if (prop === "Watermark") e.placeholder = value;
     else if (prop === "Width") e.style.width = value + "px";
     else if (prop === "Height") e.style.height = value + "px";
@@ -406,6 +706,7 @@ const commands = {
     else if (prop === "SelectedItem") e.value = value;
     else if (prop === "ToolTip") e.title = value;
     else e.dataset["p_" + prop.replace(/\W/g, "_")] = value;
+    if (watched.has(name) && ["SelectedIndex", "SelectedItem", "Text", "IsChecked", "Items"].includes(prop)) dependents(name);
     return "";
   },
   GetProperty(name, prop) {
@@ -413,6 +714,14 @@ const commands = {
     if (!e) return "";
     if (prop === "Text" || prop === "Content" || prop === "Header") return textOf(e);
     if (prop === "IsChecked") return e.querySelector("input").checked ? "true" : "false";
+    if (e.matches(".grid")) {
+      if (prop === "SelectedIndex") return String(e._sel);
+      if (prop === "SelectedValue") return gridValue(e);
+      if (prop === "SelectedItem") return gridItem(e);
+      if (prop === "RowCount") return String(e._rows.length);
+    }
+    if (e.matches(".tree") && prop === "SelectedItem") return e._path || "";
+    if (prop === "Source") return e.getAttribute("src") || "";
     if (prop === "SelectedIndex") return String(e.selectedIndex);
     if (prop === "SelectedItem") return e.selectedIndex >= 0 ? e.options[e.selectedIndex].text : "";
     if (prop === "IsVisible") return e.style.display === "none" ? "false" : "true";
@@ -422,11 +731,12 @@ const commands = {
     return e.dataset["p_" + prop.replace(/\W/g, "_")] || "";
   },
   GetSetting: k => settings[k] ?? "",
-  SetSetting(k, v = "") { settings[k] = String(v); return ""; },
+  SetSetting(k, v = "") { settings[k] = String(v); if (dbs[OWN_DB]) dbs[OWN_DB].run("INSERT OR REPLACE INTO settings VALUES (?, ?)", [k, String(v)]); return ""; },
   RunScript: (name, ...args) => run(name, args),
   InfoDialog(msg, title) { alert(msg); return ""; },
   ErrorDialog(msg, title) { alert(msg); return ""; },
   ConfirmDialog: (msg, title) => confirm(msg) ? "true" : "false",
+  PromptDialog: (title = "", text = "", start = "") => prompt(text || title, start) ?? "",
   SetStatusText(t) { console.log("[status]", t); return ""; },
   ControlExists: name => el(name) ? "true" : "false",
   GetControlType: name => el(name)?.dataset.type ?? "",
@@ -439,8 +749,16 @@ const commands = {
     m.style.top = Math.min(lastPointer.y, innerHeight - m.offsetHeight - 4) + "px";
     return "";
   },
-  FormOpen(path) { open(String(path).replace(/\.vml$/i, ".html"), "_blank"); return ""; },
-  FormOpenModal(path) { open(String(path).replace(/\.vml$/i, ".html"), "_blank"); return ""; },
+  FormOpen(path) { open(/\.\w+$/.test(path) ? String(path).replace(/\.vml$/i, ".html") : path + ".html", "_blank"); return ""; },
+  FormOpenModal(path) { return commands.FormOpen(path); },
+  GridSetData(name, json, columns = "") {
+    const e = el(name); if (!e || !e.matches(".grid")) return "";
+    const [cols, rows] = rowsFrom(json), own = columns.split(",").map(s => s.trim()).filter(Boolean);
+    fillGrid(e, own.length === cols.length ? own : cols, rows);
+    return String(rows.length);
+  },
+  GridGetData(name) { const e = el(name); return e && e._rows ? JSON.stringify(e._rows.map(r => Object.fromEntries(e._cols.map((c, i) => [c, r[i] ?? ""])))) : "[]"; },
+  ProjectName() { return VML.project || ""; },
   SetDialogResult() { return ""; },
   CloseSelf() { window.close(); return ""; },
   AppExit() { window.close(); return ""; },
@@ -456,9 +774,18 @@ function Vml(cmd, ...args) {
 window.vml = { Vml, settings };                 // handy in the browser console: vml.Vml("GetProperty", "txtName", "Text")
 
 let fns = null;
+function luaFunction(name) {                    // a function one of the project's modules defined
+  if (!lua || !/^[A-Za-z_]\w*$/.test(name)) return null;
+  try { const f = lua.global.get(name); return typeof f === "function" ? f : null; } catch (err) { return null; }
+}
 function run(name, args = []) {
   const s = VML.scripts[name];
-  if (!s) { console.warn("no script called", name); return ""; }
+  if (!s) {
+    const f = luaFunction(name);
+    if (!f) { console.warn("no script called", name); return ""; }
+    try { const r = f(...args); return r == null ? "" : String(r); }
+    catch (err) { console.error(`script error in ${name}:`, err); return ""; }
+  }
   if (s.interp !== "lua") { console.warn(`${name} is a ${s.interp} script: that runs on the desktop, not in a browser`); return ""; }
   if (!fns) return "";
   try { const r = fns.get(name)(...args); return r == null ? "" : String(r); }
@@ -468,9 +795,9 @@ function run(name, args = []) {
 function handle(handler, name, details = {}) {
   for (const [k, v] of Object.entries(details)) settings[k] = String(v);
   settings.event_control = name;
-  if (VML.scripts[handler]) return run(handler, [name]);
+  if (VML.scripts[handler] || luaFunction(handler)) return run(handler, [name]);
   let m = handler.match(/^\s*(\w+)\s*\((.*)\)\s*$/);
-  if (m && VML.scripts[m[1]]) return run(m[1], m[2].split(",").map(s => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean));
+  if (m && (VML.scripts[m[1]] || luaFunction(m[1]))) return run(m[1], m[2].split(",").map(s => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean));
   m = handler.match(/^\s*(\w+)\s+(.+)$/);
   if (m && commands[m[1]] && !handler.includes("(")) return Vml(m[1], ...m[2].split(/\s+/));
   if (commands[handler]) return Vml(handler);
@@ -504,6 +831,7 @@ function wire() {
       OnPointerPressed: () => outer.addEventListener("mousedown", ev => go(pointer(ev, outer))),
       OnPointerReleased: () => outer.addEventListener("mouseup", ev => go(pointer(ev, outer))),
       OnPointerMoved: () => outer.addEventListener("mousemove", ev => go(pointer(ev, outer))),
+      OnDoubleClick: () => outer.addEventListener("dblclick", () => go()),
       OnLostFocus: () => e.addEventListener("blur", () => go()),
       OnGotFocus: () => e.addEventListener("focus", () => go()),
     };
@@ -525,12 +853,24 @@ wire();
 try {
   // bundled in the page (offline), or fetched from the CDN
   const { LuaFactory } = window.wasmoon ? window.wasmoon : await import("%%WASMOON%%");
+  if (VML.data) {                                          // only pages that use a database carry the engine for one
+    try {
+      const init = window.initSqlJs || await new Promise((ok, no) => {      // not bundled: fetch it
+        const t = document.createElement("script"); t.src = VML.sqljs + "sql-wasm.js";
+        t.onload = () => ok(window.initSqlJs); t.onerror = no; document.head.appendChild(t); });
+      SQL = await init(window.VML_SQLWASM ? { wasmBinary: b64bytes(window.VML_SQLWASM) } : { locateFile: f => VML.sqljs + f });
+    } catch (err) { console.error("the database engine couldn't load:", err); }
+  }
   const factory = new LuaFactory(window.VML_WASM);
   await factory.mountFile("dkjson.lua", DKJSON);
   lua = await factory.createEngine();
   lua.global.set("Vml", Vml);
   lua.global.set("print", (...a) => console.log("[lua]", ...a));
-  await lua.doString("__vml_scripts = {}");
+  await lua.doString("Project = {}; __vml_scripts = {}");
+  for (const m of VML.modules || []) {                     // a project's modules: there for every script
+    try { await lua.doString(m.code); } catch (err) { console.error(`module ${m.name} has an error:`, err); }
+  }
+
   for (const [name, s] of Object.entries(VML.scripts)) {
     if (s.interp !== "lua") continue;
     try { await lua.doString(`__vml_scripts[${JSON.stringify(name)}] = function(...) local args = {...}; local arg = args\n${s.code}\nend`); }
@@ -539,6 +879,7 @@ try {
   fns = { get: name => lua.global.get("__vml_scripts")[name] };
   status.textContent = ""; status.dataset.ready = "1";
   if (VML.onOpened) handle(VML.onOpened, VML.form);
+  refill();                                                // controls that fill themselves, once OnOpened has set things up
 } catch (err) {
   status.textContent = "Lua couldn't load (offline?): scripts are off";
   console.error(err);

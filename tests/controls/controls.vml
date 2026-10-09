@@ -1,0 +1,187 @@
+# The controls added in 1.0: option buttons, a password box, a picture, a grid and a tree.
+
+@Window Controls
+Title=New controls
+Width=640
+Height=420
+OnOpened=Opened
+
+@Canvas ControlsCanvas
+Parent=Controls
+Background=#ffffff
+
+@RadioButton optSmall
+Parent=ControlsCanvas
+Canvas.Left=16
+Canvas.Top=16
+Content=Small
+IsChecked=true
+OnChecked=SizeChanged
+
+@RadioButton optLarge
+Parent=ControlsCanvas
+Canvas.Left=16
+Canvas.Top=44
+Content=Large
+OnChecked=SizeChanged
+
+@RadioButton optRed
+Parent=ControlsCanvas
+Canvas.Left=120
+Canvas.Top=16
+Content=Red
+GroupName=colour
+IsChecked=true
+
+@RadioButton optBlue
+Parent=ControlsCanvas
+Canvas.Left=120
+Canvas.Top=44
+Content=Blue
+GroupName=colour
+
+@Frame fraInner
+Parent=ControlsCanvas
+Canvas.Left=220
+Canvas.Top=8
+Width=140
+Height=70
+Text=Delivery
+
+@RadioButton optPost
+Parent=fraInner
+Canvas.Left=10
+Canvas.Top=18
+Content=Post
+IsChecked=true
+
+@RadioButton optCourier
+Parent=fraInner
+Canvas.Left=10
+Canvas.Top=42
+Content=Courier
+
+@TextBlock lblSize
+Parent=ControlsCanvas
+Canvas.Left=16
+Canvas.Top=80
+Text=(nothing yet)
+
+@TextBox txtSecret
+Parent=ControlsCanvas
+Canvas.Left=16
+Canvas.Top=110
+Width=160
+IsPassword=true
+Text=hunter2
+
+@Image imgDot
+Parent=ControlsCanvas
+Canvas.Left=400
+Canvas.Top=16
+Width=64
+Height=48
+Source=dot.png
+Stretch=Fill
+
+@Image imgInline
+Parent=ControlsCanvas
+Canvas.Left=480
+Canvas.Top=16
+Source=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==
+
+@Image imgMissing
+Parent=ControlsCanvas
+Canvas.Left=540
+Canvas.Top=16
+Width=40
+Height=40
+Source=not-there.png
+
+@DataGrid grid
+Parent=ControlsCanvas
+Canvas.Left=16
+Canvas.Top=150
+Width=300
+Height=140
+Columns=Name,Age
+Items=Ann|34;Bob|27;Cy, Jr|51
+SelectionChanged=GridPicked
+OnDoubleClick=GridOpened
+
+@TextBlock lblGrid
+Parent=ControlsCanvas
+Canvas.Left=16
+Canvas.Top=300
+Text=
+
+@TreeView tree
+Parent=ControlsCanvas
+Canvas.Left=336
+Canvas.Top=150
+Width=220
+Height=140
+Items=Forms/Main,Forms/Login,Modules/helpers,Notes
+SelectionChanged=TreePicked
+OnDoubleClick=TreeOpened
+
+@TextBlock lblTree
+Parent=ControlsCanvas
+Canvas.Left=336
+Canvas.Top=300
+Text=
+
+@ListBox lst
+Parent=ControlsCanvas
+Canvas.Left=16
+Canvas.Top=330
+Width=160
+Height=60
+Items=One,Two
+OnDoubleClick=ListOpened
+
+@Script Opened
+Interpreter=lua
+<<LUA
+opened = true
+LUA
+
+@Script SizeChanged
+Interpreter=lua
+<<LUA
+-- runs for the one that was chosen and the one that was cleared: only the chosen one writes
+local who = args[1]
+if Vml("GetProperty", who, "IsChecked") == "true" then
+    Vml("SetProperty", "lblSize", "Text", "size: " .. Vml("GetProperty", who, "Content"))
+end
+LUA
+
+@Script GridPicked
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "lblGrid", "Text", Vml("GetProperty", "grid", "SelectedIndex") .. " " .. Vml("GetProperty", "grid", "SelectedValue") .. " " .. Vml("GetProperty", "grid", "SelectedItem"))
+LUA
+
+@Script GridOpened
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "opened", "grid:" .. Vml("GetProperty", "grid", "SelectedValue"))
+LUA
+
+@Script TreePicked
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "lblTree", "Text", Vml("GetProperty", "tree", "SelectedItem"))
+LUA
+
+@Script TreeOpened
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "opened", "tree:" .. Vml("GetProperty", "tree", "SelectedItem"))
+LUA
+
+@Script ListOpened
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "opened", "list:" .. Vml("GetProperty", "lst", "SelectedItem"))
+LUA

@@ -1,0 +1,5 @@
+# Visualised project
+Name=Stock
+Startup=frmStock.vml
+Form=frmStock.vml
+Form=frmAbout.vml

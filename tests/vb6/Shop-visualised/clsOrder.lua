@@ -1,0 +1,27 @@
+-- clsOrder: imported from clsOrder.cls (Visual Basic), kept for reference.
+-- It does not run: rewrite what you need below, in Lua, and every form in the project can call it.
+--
+--   Option Explicit
+--
+--   Private mCustomer As String
+--   Private mLines As Collection
+--
+--   Private Sub Class_Initialize()
+--       Set mLines = New Collection
+--   End Sub
+--
+--   Public Property Get Customer() As String
+--       Customer = mCustomer
+--   End Property
+--
+--   Public Property Let Customer(ByVal Value As String)
+--       mCustomer = Trim$(Value)
+--   End Property
+--
+--   Public Sub AddLine(ByVal Product As String, ByVal Quantity As Integer)
+--       mLines.Add Array(Product, Quantity)
+--   End Sub
+--
+--   Public Function LineCount() As Long
+--       LineCount = mLines.Count
+--   End Function

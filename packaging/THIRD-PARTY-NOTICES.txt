@@ -8,4 +8,8 @@ lupa (Lua for Python)              MIT          https://github.com/scoder/lupa
 dkjson (JSON for Lua)              MIT          http://dkolf.de/dkjson-lua
 Wasmoon (Lua in WebAssembly)       MIT          https://github.com/ceifa/wasmoon
   Bundled into exported web pages so they work offline (licence: web/WASMOON-LICENSE).
+sql.js (SQLite in WebAssembly)     MIT          https://github.com/sql-js/sql.js
+  Bundled into exported web pages that use a database (licence: web/SQLJS-LICENSE). SQLite itself is public domain.
+pyodbc (ODBC for Python)           MIT-0        https://github.com/mkleehammer/pyodbc
+  ODBC itself is the system's own: Windows' built-in ODBC, or unixODBC on Linux if you have installed it.
 Nuitka (compiler runtime)          Apache-2.0   https://nuitka.net

@@ -1,0 +1,92 @@
+# ============================================================================
+# Module editor: a project's module is a Lua file of functions that every form
+# in the project can call. Opened from the project tree (double-click a module).
+# ============================================================================
+
+@Window ModuleEditor
+Title=Module
+Width=780
+Height=560
+BorderBrush=#1E3A8A
+OnOpened=ModuleLoad
+
+@DockPanel ModRoot
+Parent=ModuleEditor
+
+@Border ModHeader
+Parent=ModRoot
+DockPanel.Dock=Top
+Background=#1E3A8A
+Padding=12,8
+
+@TextBlock lblModule
+Parent=ModHeader
+Text=Module
+FontSize=14
+FontWeight=Bold
+Foreground=White
+
+@Border ModFooter
+Parent=ModRoot
+DockPanel.Dock=Bottom
+Background=#F3F4F6
+BorderBrush=#E5E7EB
+BorderThickness=0,1,0,0
+Padding=12,8
+
+@StackPanel ModButtons
+Parent=ModFooter
+Orientation=Horizontal
+Spacing=8
+
+@TextBlock lblModHint
+Parent=ModButtons
+Text=Functions here can be called from any form's scripts. Share values through the Project table.
+Foreground=#6B7280
+FontSize=11
+VerticalAlignment=Center
+
+@Button btnModCancel
+Parent=ModButtons
+Content=Cancel
+Padding=14,5
+OnClick=CloseSelf
+
+@Button btnModSave
+Parent=ModButtons
+Content=Save
+Background=#2563EB
+Foreground=White
+Padding=18,5
+OnClick=ModuleSave
+
+@TextBox txtModule
+Parent=ModRoot
+AcceptsReturn=true
+TextWrapping=NoWrap
+FontFamily=monospace
+FontSize=13
+Background=#FFFFFF
+Padding=8
+
+@Script ModuleLoad
+Interpreter=lua
+<<LUA
+local path = Vml("GetSetting", "module_file")
+local name = path:match("([^/\\]+)$") or path
+Vml("SetProperty", "ModuleEditor", "Title", "Module - " .. name)
+Vml("SetProperty", "lblModule", "Text", name)
+Vml("SetProperty", "txtModule", "Text", Vml("FileRead", path))
+LUA
+
+@Script ModuleSave
+Interpreter=lua
+<<LUA
+local path = Vml("GetSetting", "module_file")
+if Vml("FileWrite", path, Vml("GetProperty", "txtModule", "Text")) == "true" then
+    Vml("SetDialogResult", "saved")
+    Vml("CloseSelf")
+else
+    Vml("InfoDialog", "The module couldn't be saved:\n" .. path, "Module")
+end
+LUA

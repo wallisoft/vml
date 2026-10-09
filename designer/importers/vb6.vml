@@ -1,0 +1,1179 @@
+# The Visual Basic 5/6 importer: forms (.frm, with the .frx beside them) and whole projects (.vbp).
+# It is an ordinary VML file of Lua scripts: copy it to ~/.vml/importers to change how it works.
+
+@Importer VB6
+Title=Visual Basic 5/6 form
+Files=frm
+ProjectTitle=Visual Basic 5/6 project
+ProjectFiles=vbp
+Description=Forms (.frm) and projects (.vbp) from Visual Basic 5 and 6
+
+@Script Library
+Interpreter=lua
+<<VB6_LIBRARY
+-- What the two scripts below share. The work is done by VB6.convert(path, assets), which reads one .frm and
+-- hands back the Visualised form, the notes about it, and the code that did not belong to any control.
+--
+-- What comes out is an ordinary canvas form: controls at the same places and sizes, inside the same frames,
+-- with each event handler's Visual Basic kept on its control as comments (it cannot run here, and nothing
+-- is thrown away). A control with no equal yet becomes a labelled frame of the same size, so the layout
+-- stays true, and the notes say exactly which those were.
+local kit = require("importkit")
+
+VB6 = {}
+
+local TWIPS = 15                 -- Visual Basic measures in twips: 15 to a pixel
+local DEFAULT_FONT = 11          -- MS Sans Serif 8.25 point, Visual Basic's standard text, in pixels
+local MENU_BAR = 19              -- the height a menu bar adds to the window here
+local EMBED_LIMIT = 400000       -- a picture whose base64 is longer than this isn't put inside the form itself
+local OFF_TAB = -20000           -- an SSTab parks the controls of its other tabs 75000 twips to the left
+local TAB_SHIFT = 75000
+
+-- Visual Basic's own controls -> { Visualised control, the property its text goes in, a note if it is only close }
+local CONTROLS = {
+    ["vb.commandbutton"] = { "Button", "Content" },
+    ["vb.textbox"] = { "TextBox", "Text" },
+    ["vb.label"] = { "TextBlock", "Text" },
+    ["vb.checkbox"] = { "CheckBox", "Content" },
+    ["vb.optionbutton"] = { "RadioButton", "Content" },
+    ["vb.combobox"] = { "ComboBox" },
+    ["vb.listbox"] = { "ListBox" },
+    ["vb.frame"] = { "Frame", "Text" },
+    ["vb.picturebox"] = { "Image" },                 -- or a Frame, when it holds controls
+    ["vb.image"] = { "Image" },
+    ["vb.shape"] = { "Rectangle", nil, "a shape becomes a rectangle (rounded where it was round)" },
+    ["vb.line"] = { "Rectangle", nil, "a line becomes a thin rectangle" },
+}
+
+-- Controls from the OCX files that came with Visual Basic, by their class name whichever library it was in
+local EMPTY_GRID = "a grid comes across empty: fill it with ItemsSource or GridSetData"
+local OCX = {
+    msflexgrid = { "DataGrid", nil, EMPTY_GRID }, mshflexgrid = { "DataGrid", nil, EMPTY_GRID },
+    datagrid = { "DataGrid", nil, EMPTY_GRID }, dbgrid = { "DataGrid", nil, EMPTY_GRID },
+    listview = { "DataGrid", nil, "a list view becomes a grid with its column headings" },
+    treeview = { "TreeView", nil, "a tree comes across empty: fill it with Items or ItemsSource" },
+    sstab = { "Frame" },
+    tabstrip = { "Frame", nil, "a tab strip becomes a plain frame" },
+    richtextbox = { "TextBox", "Text", "rich text becomes a plain multi-line box" },
+    maskedbox = { "TextBox", "Text", "an input mask is not carried over" },
+    dtpicker = { "TextBox", nil, "a date picker becomes a text box" },
+    dblist = { "ListBox" }, datalist = { "ListBox" }, dbcombo = { "ComboBox" }, datacombo = { "ComboBox" },
+}
+
+-- Never seen when the program runs (or, for a data control, of no use here): not placed, listed in the notes
+local SILENT = { ["vb.timer"] = true, ["vb.data"] = true, commondialog = true, imagelist = true, winsock = true,
+                 inet = true, mscomm = true, adodc = true, msrdc = true }
+local DATA_CONTROLS = { ["vb.data"] = true, adodc = true, msrdc = true }
+
+-- What can hold other controls and choose its own measuring scale (a Frame cannot: it is always twips)
+local SCALED = { ["vb.form"] = true, ["vb.mdiform"] = true, ["vb.picturebox"] = true, ["vb.usercontrol"] = true,
+                 ["vb.propertypage"] = true }
+
+local POINTER = { OnPointerPressed = true, OnPointerReleased = true, OnPointerMoved = true, OnLostFocus = true, OnGotFocus = true }
+local function with(base, extra)
+    local out = {}
+    for k in pairs(base) do out[k] = true end
+    for _, k in ipairs(extra) do out[k] = true end
+    return out
+end
+-- Which events each Visualised control really has: a handler is only attached where it can fire
+local SUPPORTS = {
+    Button = with(POINTER, { "OnClick", "OnKeyDown", "OnKeyUp" }),
+    CheckBox = with(POINTER, { "OnClick", "OnChecked", "OnKeyDown", "OnKeyUp" }),
+    RadioButton = with(POINTER, { "OnClick", "OnChecked", "OnKeyDown", "OnKeyUp" }),
+    TextBox = with(POINTER, { "TextChanged", "OnKeyDown", "OnKeyUp" }),
+    ComboBox = with({}, { "SelectionChanged", "OnKeyDown", "OnKeyUp" }),
+    ListBox = with({}, { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" }),
+    DataGrid = with({}, { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" }),
+    TreeView = with({}, { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" }),
+    Image = POINTER, TextBlock = POINTER, Frame = POINTER, Rectangle = POINTER,
+    MenuItem = { OnClick = true },
+    Window = { OnOpened = true, OnClosing = true, OnKeyDown = true, OnKeyUp = true },
+}
+
+-- Visual Basic event -> Visualised event, where it is the same for every control
+local EVENTS = {
+    dblclick = "OnDoubleClick", keydown = "OnKeyDown", keyup = "OnKeyUp", keypress = "OnKeyDown",
+    gotfocus = "OnGotFocus", lostfocus = "OnLostFocus",
+    mousedown = "OnPointerPressed", mouseup = "OnPointerReleased", mousemove = "OnPointerMoved",
+}
+local WINDOW_EVENTS = { load = "OnOpened", activate = "OnOpened", unload = "OnClosing", queryunload = "OnClosing" }
+-- When two handlers want the same event (Form_Load and Form_Activate, KeyDown and KeyPress), these win
+local FIRST_CHOICE = { load = true, unload = true, click = true, keydown = true }
+
+-- &H8000000F& and the like: the colours of the Windows theme, by their number
+local SYSTEM_COLOURS = {
+    [0x00] = "#c8c8c8", [0x01] = "#000000", [0x02] = "#99b4d1", [0x03] = "#bfcddb", [0x04] = "#f0f0f0",
+    [0x05] = "#ffffff", [0x06] = "#646464", [0x07] = "#000000", [0x08] = "#000000", [0x09] = "#000000",
+    [0x0A] = "#b4b4b4", [0x0B] = "#f4f7fc", [0x0C] = "#ababab", [0x0D] = "#0078d7", [0x0E] = "#ffffff",
+    [0x0F] = "#f0f0f0", [0x10] = "#a0a0a0", [0x11] = "#6d6d6d", [0x12] = "#000000", [0x13] = "#000000",
+    [0x14] = "#ffffff", [0x15] = "#696969", [0x16] = "#e3e3e3", [0x17] = "#000000", [0x18] = "#ffffe1",
+}
+
+-- ------------------------------------------------------------------ reading the layout
+-- One value from a "Key = Value" line: a string ({text = ...}), a place in the .frx file ({frx = file, at = offset}),
+-- or anything else as written, without its trailing comment ({raw = ...}).
+local function read_value(written)
+    local quoted = written:match('^%$?(".*)$')
+    if not quoted then
+        return { raw = kit.trim((written:gsub("'.*$", ""))) }
+    end
+    local parts, pos = {}, 2
+    while true do
+        local q = quoted:find('"', pos, true)
+        if not q then                                        -- no closing quote: take what is there
+            parts[#parts + 1] = quoted:sub(pos)
+            pos = #quoted + 1
+            break
+        end
+        parts[#parts + 1] = quoted:sub(pos, q - 1)
+        if quoted:sub(q + 1, q + 1) == '"' then              -- "" is a quote mark inside the string
+            parts[#parts + 1] = '"'
+            pos = q + 2
+        else
+            pos = q + 1
+            break
+        end
+    end
+    local text = table.concat(parts)
+    local at = quoted:sub(pos):match("^:(%x+)")
+    if at then return { frx = text, at = tonumber(at, 16) } end
+    return { text = text }
+end
+
+-- The tree of Begin ... End blocks. Returns the form's block and the number of the first line after it,
+-- or nil if the file has no form in it.
+local function read_layout(lines)
+    local root, stack, inner = nil, {}, {}
+    for i, line in ipairs(lines) do
+        local kind, name = line:match("^%s*Begin%s+([%w_]+%.[%w_]+)%s+(%S+)%s*$")
+        if kind then
+            local node = { kind = kind, class = kind:lower(), short = kind:match("%.(.+)$"), name = name,
+                           props = {}, subs = {}, children = {} }
+            if #stack > 0 then table.insert(stack[#stack].children, node) else root = node end
+            stack[#stack + 1] = node
+        elseif root and line:match("^Attribute%s+VB_") then
+            return root, i                                   -- an End went missing: the layout stops here all the same
+        elseif #stack > 0 then
+            local block = line:match("^%s*BeginProperty%s+(%S+)")
+            if block then                                    -- Font, or a list view's column headings
+                local sub = { name = block, props = {}, subs = {} }
+                local holder = inner[#inner] or stack[#stack]
+                holder.subs[#holder.subs + 1] = sub
+                holder.subs[block] = sub
+                inner[#inner + 1] = sub
+            elseif line:match("^%s*EndProperty%s*$") then
+                inner[#inner] = nil
+            elseif line:match("^%s*End%s*$") then
+                stack[#stack] = nil
+                if #stack == 0 then return root, i + 1 end
+            else
+                local key, value = line:match("^%s*([%w_%.%(%)]+)%s*=%s*(.-)%s*$")
+                if key then (inner[#inner] or stack[#stack]).props[key] = read_value(value) end
+            end
+        end
+    end
+    return nil
+end
+
+local function text_of(node, key)
+    local v = node.props[key]
+    return v and v.text or nil
+end
+
+local function raw_of(node, key)
+    local v = node.props[key]
+    return v and (v.raw or v.text) or nil
+end
+
+local function number_of(node, key)
+    local raw = raw_of(node, key)
+    return raw and tonumber((raw:gsub(",", "."))) or nil       -- some countries' Windows wrote 8,25
+end
+
+-- Visual Basic writes True as -1 and False as 0.
+local function is_on(node, key, default)
+    local n = number_of(node, key)
+    if n == nil then return default end
+    return n ~= 0
+end
+
+-- &H00BBGGRR& (blue first) or &H800000nn& (a colour of the Windows theme) as #rrggbb.
+local function colour(raw, theme_default)
+    if not raw then return nil end
+    local hex = raw:match("^&[Hh](%x+)&?$")
+    local n = hex and tonumber(hex, 16) or math.tointeger(tonumber(raw))
+    if not n then return nil end
+    if n < 0 then n = n + 0x100000000 end
+    if n >= 0x80000000 then return SYSTEM_COLOURS[n & 0xFF] or theme_default or "#f0f0f0" end
+    return string.format("#%02x%02x%02x", n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF)
+end
+
+-- A control's font: family, size in pixels, bold. Nil if it kept Visual Basic's standard one.
+local function font_of(node)
+    local block = node.subs.Font
+    local family, points, bold
+    if block then
+        family, points = text_of(block, "Name"), number_of(block, "Size")
+        bold = (number_of(block, "Weight") or 400) >= 700
+    else                                                     -- Visual Basic 4 and before wrote these instead
+        family, points, bold = text_of(node, "FontName"), number_of(node, "FontSize"), is_on(node, "FontBold", false)
+    end
+    if not family and not points then return nil end
+    return family, points and kit.round(points * 96 / 72) or DEFAULT_FONT, bold
+end
+
+-- ^S, {F1}, +{F1}, ^{DEL}: a menu shortcut the way Visualised writes it (Ctrl+S, F1, Shift+F1, Ctrl+Del).
+local KEY_NAMES = { DEL = "Del", INSERT = "Ins", BKSP = "Backspace" }
+local function shortcut(raw)
+    local rest, ctrl, shift, alt = raw or "", false, false, false
+    while true do
+        local mark = rest:sub(1, 1)
+        if mark == "^" then ctrl = true elseif mark == "+" then shift = true elseif mark == "%" then alt = true else break end
+        rest = rest:sub(2)
+    end
+    local key = rest:match("^{(.+)}$") or rest
+    if key == "" then return "" end
+    key = KEY_NAMES[key:upper()] or key:upper()
+    local parts = {}
+    if ctrl then parts[#parts + 1] = "Ctrl" end
+    if shift then parts[#parts + 1] = "Shift" end
+    if alt then parts[#parts + 1] = "Alt" end
+    parts[#parts + 1] = key
+    return table.concat(parts, "+")
+end
+
+-- A file by its name whatever capitals it was written with (projects copied from Windows often disagree).
+local function find_file(path)
+    if kit.exists(path) then return path end
+    return kit.list(kit.dirname(path), kit.basename(path))[1]
+end
+VB6.find_file = find_file
+
+-- ------------------------------------------------------------------ the .frx file (pictures, lists, long text)
+local B64 = {}
+for i = 1, 64 do
+    B64[("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"):byte(i)] = i - 1
+end
+
+local function from_base64(data)
+    local out = {}
+    for i = 1, #data - 3, 4 do
+        local a, b, c, d = data:byte(i, i + 3)
+        local n = ((B64[a] or 0) << 18) | ((B64[b] or 0) << 12) | ((B64[c] or 0) << 6) | (B64[d] or 0)
+        if c == 61 then                                      -- "=": one byte in this group
+            out[#out + 1] = string.char(n >> 16)
+        elseif d == 61 then
+            out[#out + 1] = string.char(n >> 16, (n >> 8) & 0xFF)
+        else
+            out[#out + 1] = string.char(n >> 16, (n >> 8) & 0xFF, n & 0xFF)
+        end
+    end
+    return table.concat(out)
+end
+
+-- Text in a .frx is in the Windows-1252 character set: 0x80 to 0x9F are its own, the rest match Unicode.
+local CP1252 = {
+    [0x80] = 0x20AC, [0x82] = 0x201A, [0x83] = 0x0192, [0x84] = 0x201E, [0x85] = 0x2026, [0x86] = 0x2020,
+    [0x87] = 0x2021, [0x88] = 0x02C6, [0x89] = 0x2030, [0x8A] = 0x0160, [0x8B] = 0x2039, [0x8C] = 0x0152,
+    [0x8E] = 0x017D, [0x91] = 0x2018, [0x92] = 0x2019, [0x93] = 0x201C, [0x94] = 0x201D, [0x95] = 0x2022,
+    [0x96] = 0x2013, [0x97] = 0x2014, [0x98] = 0x02DC, [0x99] = 0x2122, [0x9A] = 0x0161, [0x9B] = 0x203A,
+    [0x9C] = 0x0153, [0x9E] = 0x017E, [0x9F] = 0x0178,
+}
+local function from_windows(bytes)
+    return (bytes:gsub("[\128-\255]", function(ch) return utf8.char(CP1252[ch:byte()] or ch:byte()) end))
+end
+
+local function u16(bytes, at) return bytes:byte(at) | (bytes:byte(at + 1) << 8) end
+local function u32(bytes, at) return u16(bytes, at) | (u16(bytes, at + 2) << 16) end
+
+-- The .frx beside a form, read a piece at a time. Nil if it is not there.
+local function open_frx(form_path, file)
+    local path = find_file(kit.join(kit.dirname(form_path), kit.slashes(file)))
+    if not path then return nil end
+    local frx = { path = path, size = kit.size(path), start = 0, data = "" }
+    -- count bytes starting at an offset, or nil if the file does not reach that far
+    function frx:bytes(at, count)
+        if at < 0 or count < 0 or at + count > self.size then return nil end
+        if at < self.start or at + count > self.start + #self.data then
+            self.start = at
+            self.data = from_base64(kit.read_b64(self.path, at, math.max(count, 16384)))
+        end
+        local from = at - self.start
+        if from + count > #self.data then return nil end
+        return self.data:sub(from + 1, from + count)
+    end
+    return frx
+end
+
+-- A list box's or combo box's items: a count, two bytes to pass over, then each item as its length and its text.
+local function frx_list(frx, at)
+    local head = frx:bytes(at, 4)
+    if not head then return nil end
+    local items, pos = {}, at + 4
+    for _ = 1, u16(head, 1) do
+        local length = frx:bytes(pos, 2)
+        local item = length and frx:bytes(pos + 2, u16(length, 1))
+        if not item then return nil end
+        items[#items + 1] = from_windows(item)
+        pos = pos + 2 + #item
+    end
+    return items
+end
+
+-- A text box's text when it has more than one line: its length (in one, two or four bytes), then the text.
+local function frx_text(frx, at)
+    local first = frx:bytes(at, 1)
+    if not first then return nil end
+    local length, pos = first:byte(), at + 1
+    if length == 0xFF then
+        local wide = frx:bytes(at + 1, 2)
+        if not wide then return nil end
+        length, pos = u16(wide, 1), at + 3
+        if length == 0xFFFF then
+            local wider = frx:bytes(at + 3, 4)
+            if not wider then return nil end
+            length, pos = u32(wider, 1), at + 7
+        end
+    end
+    local text = frx:bytes(pos, length)
+    return text and from_windows(text) or nil
+end
+
+-- A picture: twelve bytes (its size + 8, "lt", its size), then a picture file whole.
+-- Returns where the picture file starts and how long it is, or nil.
+local function frx_picture(frx, at)
+    local head = frx:bytes(at, 12)
+    if not head or head:sub(5, 8) ~= "lt\0\0" then return nil end
+    local size = u32(head, 9)
+    if size == 0 or at + 12 + size > frx.size then return nil end
+    return at + 12, size
+end
+
+-- ------------------------------------------------------------------ the code after the layout
+-- The name of the procedure a line begins, if it begins one.
+local function procedure_name(line)
+    local lower = line:lower()
+    if not (lower:find("sub", 1, true) or lower:find("function", 1, true) or lower:find("property", 1, true)) then
+        return nil
+    end
+    return kit.match([[\s*(?:(?:Private|Public|Friend|Global)\s+)?(?:Static\s+)?(?:Sub|Function|Property\s+(?:Get|Let|Set))\s+(\w+)]], line, "i")
+end
+
+local ENDINGS = { sub = true, ["function"] = true, property = true }
+local function ends_procedure(line)
+    return ENDINGS[line:lower():match("^%s*end%s+(%a+)") or ""] == true
+end
+
+-- The code of a form: its lines (without the Attribute lines Visual Basic keeps above them), and every procedure
+-- named Control_Event for a control on the form, as { control, event, first, last } by line number.
+local function read_code(lines, from, known)
+    local code, i = {}, from
+    while i <= #lines and (lines[i]:match("^%s*Attribute%s+VB_") or not lines[i]:match("%S")) do i = i + 1 end
+    for n = i, #lines do code[#code + 1] = lines[n] end
+    local handlers = {}
+    i = 1
+    while i <= #code do
+        local name = procedure_name(code[i])
+        if name then
+            local last = i + 1
+            while last <= #code and not ends_procedure(code[last]) do last = last + 1 end
+            if last <= #code then
+                local control, event = name:match("^(.+)_([^_]+)$")
+                if control and known[control:lower()] then
+                    handlers[#handlers + 1] = { control = control:lower(), event = event, first = i, last = last }
+                end
+                i = last
+            end
+        end
+        i = i + 1
+    end
+    return code, handlers
+end
+
+-- ------------------------------------------------------------------ writing the Visualised form
+-- Everything below works on one state table, s: the form being read and the form being written.
+
+local function add(props, key, value)
+    for _, p in ipairs(props) do
+        if p[1] == key then return end                       -- the first value given for a property stands
+    end
+    props[#props + 1] = { key, value }
+end
+
+local function has(props, key)
+    for _, p in ipairs(props) do
+        if p[1] == key then return true end
+    end
+    return false
+end
+
+-- Remember that a control is only close to what it was: the notes list each reason once, with every name.
+local function approximate(s, why, name)
+    s.approx[why] = s.approx[why] or {}
+    table.insert(s.approx[why], name)
+end
+
+-- A name nothing else on the form has. Control arrays (cmdDigit(0), cmdDigit(1)) become cmdDigit_0, cmdDigit_1.
+local function unique(s, wanted)
+    local base = kit.safe_name(wanted)
+    local name, n = base, 1
+    while s.taken[name:lower()] do
+        n = n + 1
+        name = base .. "_" .. n
+    end
+    s.taken[name:lower()] = true
+    return name
+end
+
+-- kind and text: what it becomes here and the property its caption goes in, for the code that mentions it
+local function name_for(s, node, kind, text)
+    local index = number_of(node, "Index")
+    index = index and math.tointeger(index // 1)
+    local name = unique(s, index and (node.name .. "_" .. index) or node.name)
+    s.names[node.name:lower() .. (index and ("(" .. index .. ")") or "")] = { name = name, kind = kind, text = text }
+    return name
+end
+
+local function px(value, scale) return kit.round((value or 0) / scale) end
+
+-- What the controls inside a container are measured in: 15 (twips) or 1 (pixels).
+local function scale_inside(s, node, name)
+    if not SCALED[node.class] then return TWIPS end
+    local mode = number_of(node, "ScaleMode") or 1
+    if mode == 3 then return 1 end
+    if mode ~= 1 then
+        approximate(s, "has its own measuring scale (ScaleMode " .. math.tointeger(mode // 1) .. "), which is not converted: "
+            .. "what is inside was placed as if it were measured in twips, so check where it sits", name)
+    end
+    return TWIPS
+end
+
+-- The .frx a property points into, opened once. Nil (and remembered as missing) if it is not beside the form.
+local function frx_for(s, file)
+    local key = file:lower()
+    if s.frx[key] == nil then s.frx[key] = open_frx(s.path, file) or false end
+    return s.frx[key] or nil
+end
+
+-- Keep one event handler as a script: the original code as comments. Returns the script's name.
+local function keep_script(s, wanted, handler)
+    local name, n = wanted, 1
+    while s.script_names[name:lower()] do
+        n = n + 1
+        name = wanted .. "_" .. n
+    end
+    s.script_names[name:lower()] = true
+    local body, lines = {}, {}
+    for i = handler.first, handler.last do lines[#lines + 1] = s.code[i] end
+    s.scripts = s.scripts + 1
+    s.kept[#s.kept + 1] = { body = body, lines = lines, event = handler.event:lower() }   -- written when every name is known
+    return s.f:script(name, body)
+end
+
+-- Write the scripts that were kept: the plain steps (open a form, close this one, a message, a simple setting)
+-- as Lua that runs, and every other line as the comment it was.
+local CLOSING = { unload = true, queryunload = true, terminate = true }
+local function write_scripts(s)
+    local ctx = { form = s.name, forms = s.forms, controls = s.names }
+    for _, kept in ipairs(s.kept) do
+        ctx.closing = CLOSING[kept.event] == true
+        local lines, made = kit.basic_steps(kept.lines, ctx)
+        local body = kept.body
+        if made > 0 then
+            s.live = s.live + made
+            s.live_scripts = s.live_scripts + 1
+            body[1] = "-- Imported from " .. s.file .. ". The lines that are Lua were translated from the Visual Basic beside them, and run."
+            body[2] = "-- The lines that are comments are the original Visual Basic: they do not run, and are there to rewrite."
+        else
+            body[1] = "-- Imported from " .. s.file .. ": the original Visual Basic, kept here for reference."
+            body[2] = "-- It does not run. Write what this should do below, in Lua (or change the script's language)."
+        end
+        body[3] = "--"
+        for _, line in ipairs(lines) do body[#body + 1] = line end
+    end
+end
+
+-- The Visualised event a Visual Basic one becomes on this kind of control (nil if there is none).
+local function our_event(kind, event)
+    event = event:lower()
+    if kind == "Window" then return WINDOW_EVENTS[event] or EVENTS[event] end
+    if event == "click" then
+        if kind == "ComboBox" or kind == "ListBox" or kind == "DataGrid" then return "SelectionChanged" end
+        return SUPPORTS[kind].OnClick and "OnClick" or "OnPointerPressed"     -- a label or picture used as a button
+    elseif event == "change" then
+        return (kind == "TextBox" and "TextChanged") or (kind == "ComboBox" and "SelectionChanged") or nil
+    elseif (event == "nodeclick" and kind == "TreeView")
+        or ((event == "rowcolchange" or event == "selchange" or event == "itemclick") and kind == "DataGrid") then
+        return "SelectionChanged"
+    end
+    return EVENTS[event]
+end
+
+-- Attach the handlers a control had, where Visualised has the matching event. The elements of a control array
+-- share their handlers, so each handler becomes one script however many controls point at it.
+--   key: the control's Visual Basic name ("form" for the form itself); owner: what its scripts are named after
+local function wire(s, key, owner, shown, kind, props)
+    for _, handler in ipairs(s.handlers[key:lower()] or {}) do
+        local ours = our_event(kind, handler.event)
+        if ours and SUPPORTS[kind][ours] and not has(props, ours) then
+            handler.script = handler.script or keep_script(s, owner .. "_" .. ours, handler)
+            add(props, ours, handler.script)
+        elseif not handler.script then
+            handler.script = keep_script(s, owner .. "_" .. handler.event, handler)
+            s.loose[#s.loose + 1] = shown .. "." .. handler.event
+        end
+    end
+end
+
+-- Colours, font, enabled, visible, tool tip: the properties most controls share.
+local function look(s, node, kind, props, plain)
+    if not plain and kind ~= "Image" and kind ~= "Rectangle" then
+        local back = colour(raw_of(node, "BackColor"), "#f0f0f0")
+        -- a command button only shows its colour in the graphical style; a see-through label shows none
+        if kind == "Button" and number_of(node, "Style") ~= 1 then back = nil end
+        if kind == "TextBlock" and number_of(node, "BackStyle") == 0 then back = nil end
+        if back then add(props, "Background", back) end
+        local fore = kind ~= "Button" and colour(raw_of(node, "ForeColor"), "#000000") or nil
+        if fore then add(props, "Foreground", fore) end
+    end
+    if kind ~= "Image" and kind ~= "Rectangle" then
+        local family, size, bold = font_of(node)
+        if family then add(props, "FontFamily", family) end
+        -- Visual Basic's standard text is 8.25 point (11 pixels), smaller than the default here: without this,
+        -- captions would be cut off by boxes that were sized for the smaller text.
+        add(props, "FontSize", size or DEFAULT_FONT)
+        if bold then add(props, "FontWeight", "Bold") end
+    end
+    if kind == "TextBlock" then
+        local side = ({ [1] = "Right", [2] = "Center" })[number_of(node, "Alignment") or 0]
+        if side then add(props, "TextAlignment", side) end
+    end
+    if not is_on(node, "Enabled", true) then add(props, "IsEnabled", "false") end
+    if not is_on(node, "Visible", true) then add(props, "IsVisible", "false") end
+    local tip = text_of(node, "ToolTipText")
+    if tip and tip ~= "" then add(props, "ToolTip", tip) end
+end
+
+-- A picture out of the .frx: a file in the assets folder when one was given, otherwise inside the form.
+local function picture(s, node, name, props)
+    local ref = node.props.Picture
+    if not (ref and ref.frx) then return end
+    local frx = frx_for(s, ref.frx)
+    if not frx then
+        approximate(s, "its picture is in " .. ref.frx .. ", which wasn't beside the form: set Source to a picture file", name)
+        return
+    end
+    local at, size = frx_picture(frx, ref.at)
+    if not at then
+        approximate(s, "its picture couldn't be read from " .. ref.frx .. ": set Source to a picture file", name)
+        return
+    end
+    local kind = kit.picture_kind(kit.read_b64(frx.path, at, 6))
+    if kind == "" then
+        approximate(s, "its picture is an icon or a metafile, which can't be shown here: set Source to a picture file", name)
+        return
+    end
+    local data = kit.read_b64(frx.path, at, size)
+    if s.assets ~= "" then
+        local file = s.name .. "_" .. name .. "." .. kind
+        if kit.write_b64(kit.join(s.assets, file), data) then
+            s.pictures = s.pictures + 1
+            add(props, "Source", "images/" .. file)
+        else
+            approximate(s, "its picture couldn't be saved: set Source to a picture file", name)
+        end
+    elseif #data < EMBED_LIMIT then
+        add(props, "Source", "data:image/" .. (kind == "jpg" and "jpeg" or kind) .. ";base64," .. data)
+    else
+        approximate(s, "its picture is too large to keep inside the form: save it beside the form and set Source", name)
+    end
+end
+
+-- A list box's or combo box's items, out of the .frx.
+local function list_items(s, node, name, props)
+    local ref = node.props.List
+    if not (ref and ref.frx) then return end
+    local frx = frx_for(s, ref.frx)
+    local items = frx and frx_list(frx, ref.at)
+    if not items then
+        approximate(s, frx and ("its list couldn't be read from " .. ref.frx .. ": set Items")
+            or ("its list is in " .. ref.frx .. ", which wasn't beside the form: set Items"), name)
+        return
+    end
+    for i, item in ipairs(items) do items[i] = (item:gsub("%s*,%s*", " ")) end    -- a comma would split one item into two
+    add(props, "Items", table.concat(items, ","))
+end
+
+-- A text box's starting text: on the line itself, or (more than one line of it) in the .frx.
+local function box_text(s, node, name)
+    local ref = node.props.Text
+    if not (ref and ref.frx) then return text_of(node, "Text") end
+    local frx = frx_for(s, ref.frx)
+    local text = frx and frx_text(frx, ref.at)
+    if not text then
+        approximate(s, frx and ("its text couldn't be read from " .. ref.frx)
+            or ("its text is in " .. ref.frx .. ", which wasn't beside the form"), name)
+        return nil
+    end
+    if text:find("[\r\n]") then
+        approximate(s, "its starting text had more than one line: the lines are joined with spaces", name)
+        text = text:gsub("\r\n", "\n")
+    end
+    return text
+end
+
+-- A grid's column headings: a list view's ColumnHeader blocks, or a flex grid's FormatString ("<Item|>Quantity").
+local function grid_columns(node, props)
+    local heads = {}
+    for _, sub in ipairs(node.subs) do                         -- BeginProperty ColumnHeader(1) ... EndProperty
+        if sub.name:match("^ColumnHeader%(") then heads[#heads + 1] = text_of(sub, "Text") or "" end
+    end
+    if #heads == 0 and text_of(node, "FormatString") then
+        local across = text_of(node, "FormatString"):match("^[^;]*")           -- after a ; come the row headings
+        for head in (across .. "|"):gmatch("(.-)|") do heads[#heads + 1] = kit.trim((head:gsub("^[<^>]", ""))) end
+    end
+    local any = false
+    for i, head in ipairs(heads) do
+        any = any or head ~= ""
+        heads[i] = head ~= "" and (kit.caption(head):gsub(",", " ")) or ("Column" .. i)
+    end
+    if any then add(props, "Columns", table.concat(heads, ",")) end
+end
+
+local function holds_controls(node)
+    for _, child in ipairs(node.children) do
+        if child.class ~= "vb.menu" then return true end
+    end
+    return false
+end
+
+-- A Line: Visualised has no sloping lines, so it is drawn level or upright, whichever it was nearer to.
+local function line_box(s, node, name, scale, props)
+    local x1, y1 = px(number_of(node, "X1"), scale), px(number_of(node, "Y1"), scale)
+    local x2, y2 = px(number_of(node, "X2"), scale), px(number_of(node, "Y2"), scale)
+    local thick = math.max(1, kit.round(number_of(node, "BorderWidth") or 1))
+    local across, down = math.abs(x2 - x1), math.abs(y2 - y1)
+    if across > 0 and down > 0 then
+        approximate(s, "a sloping line can't be drawn yet: it is shown level or upright", name)
+    end
+    add(props, "Canvas.Left", math.min(x1, x2))
+    add(props, "Canvas.Top", math.min(y1, y2))
+    add(props, "Width", across >= down and math.max(across, 1) or thick)
+    add(props, "Height", across >= down and thick or math.max(down, 1))
+    add(props, "Fill", colour(raw_of(node, "BorderColor"), "#000000") or "#000000")
+end
+
+-- A Shape: its outline, its filling if it had one, and round corners for the round ones.
+local function shape_look(node, width, height, props)
+    if number_of(node, "FillStyle") == 0 then                  -- solid: Visual Basic's standard is see-through
+        add(props, "Fill", colour(raw_of(node, "FillColor"), "#000000") or "#000000")
+    elseif number_of(node, "BackStyle") == 1 then
+        add(props, "Fill", colour(raw_of(node, "BackColor"), "#ffffff") or "#ffffff")
+    end
+    if number_of(node, "BorderStyle") ~= 0 then
+        add(props, "Stroke", colour(raw_of(node, "BorderColor"), "#000000") or "#000000")
+        add(props, "StrokeThickness", math.max(1, kit.round(number_of(node, "BorderWidth") or 1)))
+    end
+    local shape = number_of(node, "Shape") or 0                -- 2 oval, 3 circle, 4 and 5 rounded
+    if shape == 2 or shape == 3 then
+        add(props, "CornerRadius", math.min(width or 0, height or 0) // 2)
+    elseif shape == 4 or shape == 5 then
+        add(props, "CornerRadius", 8)
+    end
+end
+
+local place_children, bound_rows
+
+-- One control, and whatever it holds.
+--   parent: the Visualised container it goes in; scale: what that container measures in; in_tabs: it is on an SSTab
+local function control(s, node, parent, scale, in_tabs)
+    if node.class == "vb.menu" then return end
+    local class_name = node.short:lower()
+    if SILENT[node.class] or SILENT[class_name] then
+        s.silent[#s.silent + 1] = node.name .. " (" .. node.short .. ")"
+        return
+    end
+    local map = CONTROLS[node.class] or OCX[class_name]
+    local known = map ~= nil
+    local kind, text_prop, why = "Frame", nil, nil
+    if map then kind, text_prop, why = map[1], map[2], map[3] end
+    if node.class == "vb.picturebox" and holds_controls(node) then kind = "Frame" end
+    local name = name_for(s, node, kind, text_prop)
+    s.controls = s.controls + 1
+    local rows, rows_db
+    if kind == "DataGrid" or kind == "ListBox" or kind == "ComboBox" then rows, rows_db = bound_rows(s, node, kind, name) end
+    if why and not (rows and why == EMPTY_GRID) then approximate(s, why, name) end
+
+    -- where it sits, and how big it is
+    local props = {}
+    local width, height = number_of(node, "Width"), number_of(node, "Height")
+    width, height = width and px(width, scale), height and px(height, scale)
+    local auto = is_on(node, "AutoSize", false)
+    if node.class == "vb.line" then
+        line_box(s, node, name, scale, props)
+    else
+        local left = number_of(node, "Left") or 0
+        local hidden_tab = in_tabs and left < OFF_TAB
+        if hidden_tab then left = left + TAB_SHIFT end
+        add(props, "Canvas.Left", px(left, scale))
+        add(props, "Canvas.Top", px(number_of(node, "Top"), scale))
+        if kind == "TextBlock" and auto then                   -- a label that fits its text: no size of its own,
+            if is_on(node, "WordWrap", false) and width then   -- unless it wraps, when its width is the fixed part
+                add(props, "Width", width)
+            end
+        else
+            if width then add(props, "Width", width) end
+            if height then add(props, "Height", height) end
+        end
+        if hidden_tab then add(props, "IsVisible", "false") end
+    end
+
+    -- what it says
+    if not known then                                          -- nothing like it yet: a labelled frame, same size
+        s.unknown[node.short] = s.unknown[node.short] or {}
+        table.insert(s.unknown[node.short], name)
+        add(props, "Text", node.short .. ": " .. name)
+        add(props, "Background", "#fafafa")
+        add(props, "BorderBrush", "#9ca3af")
+        add(props, "BorderThickness", 1)
+    elseif kind == "TextBox" then
+        local text = text_prop and box_text(s, node, name)
+        if text and text ~= "" then add(props, "Text", text) end
+        if is_on(node, "MultiLine", false) or class_name == "richtextbox" then add(props, "AcceptsReturn", "true") end
+        if is_on(node, "Locked", false) then add(props, "IsReadOnly", "true") end
+        if (text_of(node, "PasswordChar") or "") ~= "" then add(props, "IsPassword", "true") end
+    elseif text_prop then
+        local text = text_of(node, "Caption")
+        if text and not (kind == "TextBlock" and not is_on(node, "UseMnemonic", true)) then text = kit.caption(text) end
+        if text and text ~= "" then add(props, text_prop, text) end
+    end
+    if kind == "ComboBox" or kind == "ListBox" then list_items(s, node, name, props) end
+    if kind == "CheckBox" and number_of(node, "Value") == 1 then add(props, "IsChecked", "true") end
+    if kind == "RadioButton" and is_on(node, "Value", false) then add(props, "IsChecked", "true") end
+    if kind == "Image" then
+        add(props, "Stretch", is_on(node, "Stretch", false) and "Fill" or "None")
+        picture(s, node, name, props)
+    end
+    if kind == "DataGrid" then grid_columns(node, props) end
+    if rows then                                               -- it was bound to a data control: it asks for itself now
+        add(props, "ItemsSource", rows)
+        if rows_db then add(props, "Database", rows_db) end
+    elseif known and (text_of(node, "DataField") or "") ~= "" and s.data[(text_of(node, "DataSource") or ""):lower()] then
+        s.fields[#s.fields + 1] = name .. " (" .. text_of(node, "DataField") .. ")"
+    end
+    if kind == "TextBlock" then
+        if not auto or is_on(node, "WordWrap", false) then add(props, "TextWrapping", "Wrap") end
+        if number_of(node, "BorderStyle") == 1 then
+            add(props, "BorderBrush", "#9ca3af")
+            add(props, "BorderThickness", 1)
+        end
+    end
+    if node.class == "vb.shape" then shape_look(node, width, height, props) end
+    if node.class == "vb.picturebox" and kind == "Frame" then
+        if number_of(node, "BorderStyle") ~= 0 then
+            add(props, "BorderBrush", "#9ca3af")
+            add(props, "BorderThickness", 1)
+        end
+        if node.props.Picture then
+            approximate(s, "holds controls, so it became a frame and its own picture is not shown", name)
+        end
+    end
+    if class_name == "tabstrip" then
+        add(props, "BorderBrush", "#9ca3af")
+        add(props, "BorderThickness", 1)
+    end
+    if class_name == "sstab" then
+        local tabs = math.tointeger((number_of(node, "Tabs") or 3) // 1)
+        local front = math.tointeger((number_of(node, "Tab") or 0) // 1)
+        local caption = kit.caption(text_of(node, "TabCaption(" .. front .. ")") or ("Tab " .. front))
+        add(props, "Text", caption)
+        s.extra[#s.extra + 1] = name .. " has " .. kit.plural(tabs, "tab") .. ": it became one frame, showing the tab that was in "
+            .. "front (" .. caption .. "). The controls on the other tabs are there, hidden: set IsVisible on them to see them."
+    end
+
+    look(s, node, kind, props, not known)
+    wire(s, node.name, node.name, node.name, kind, props)
+    s.f:emit(kind, name, parent, props)
+    if kind == "Frame" then
+        place_children(s, node, name, scale_inside(s, node, name), class_name == "sstab")
+    end
+end
+
+-- Data controls (Data1, Adodc1): what each one read, so the grids and lists that were bound to it can ask for the
+-- same rows themselves. { source = a table's name or a SELECT, db = the database file's name without its ending }
+local function data_controls(s, node)
+    for _, child in ipairs(node.children) do
+        if DATA_CONTROLS[child.class] or DATA_CONTROLS[child.short:lower()] then
+            local file = text_of(child, "DatabaseName") or ""
+            if file == "" then file = kit.search([[(?i)(?:Data Source|Dbq)\s*=\s*([^;"]+)]], text_of(child, "ConnectionString") or text_of(child, "Connect") or "") or "" end
+            local db = file ~= "" and kit.safe_name(kit.stem(kit.slashes(file))) or nil
+            if db and not db:match("^[%a_]") then db = "db_" .. db end
+            s.data[child.name:lower()] = { name = child.name, source = kit.trim(text_of(child, "RecordSource") or ""), db = db }
+        end
+        data_controls(s, child)
+    end
+end
+
+local function rows_of(source)                               -- a table's name, or a query already written out
+    if source:lower():match("^select%s") then return (source:gsub("%s*;%s*$", "")), true end
+    return '"' .. source:gsub('"', '""') .. '"', false
+end
+
+-- The query a bound grid or list fills itself with here (nil if it wasn't bound to a data control).
+bound_rows = function(s, node, kind, name)
+    local from = s.data[(text_of(node, kind == "DataGrid" and "DataSource" or "RowSource") or ""):lower()]
+        or (kind ~= "DataGrid" and s.data[(text_of(node, "DataSource") or ""):lower()]) or nil
+    if not from or from.source == "" then return nil end
+    local rows, query = rows_of(from.source)
+    local sql
+    if kind == "DataGrid" then
+        sql = query and rows or ("SELECT * FROM " .. rows)
+    else
+        local field = text_of(node, "ListField") or text_of(node, "DataField") or ""
+        if field == "" then return nil end
+        field = '"' .. field:gsub('"', '""') .. '"'
+        sql = "SELECT " .. field .. " FROM " .. (query and ("(" .. rows .. ")") or rows) .. " ORDER BY 1"
+    end
+    s.bound[#s.bound + 1] = name .. " (" .. from.name .. ": " .. from.source .. ")"
+    return sql, from.db
+end
+
+-- A container's controls. Visual Basic lists the front-most first; a canvas draws the last on top.
+place_children = function(s, node, parent, scale, in_tabs)
+    for i = #node.children, 1, -1 do
+        control(s, node.children[i], parent, scale, in_tabs)
+    end
+end
+
+-- One menu item and the items under it.
+local function menu_item(s, node, parent)
+    local name = name_for(s, node, "MenuItem")
+    local caption = text_of(node, "Caption") or ""
+    local props = {}
+    if caption == "-" then
+        add(props, "IsSeparator", "true")
+    else
+        s.menu_items = s.menu_items + 1
+        add(props, "Text", caption ~= "" and kit.caption(caption) or name)
+        local keys = shortcut(raw_of(node, "Shortcut"))
+        if keys ~= "" then add(props, "Shortcut", keys) end
+        if not is_on(node, "Enabled", true) then add(props, "IsEnabled", "false") end
+        if is_on(node, "Checked", false) then
+            approximate(s, "the tick beside a menu item is not carried over", name)
+        end
+        wire(s, node.name, node.name, node.name, "MenuItem", props)
+    end
+    if not is_on(node, "Visible", true) then add(props, "IsVisible", "false") end
+    s.f:emit("MenuItem", name, parent, props)
+    for _, child in ipairs(node.children) do
+        if child.class == "vb.menu" then menu_item(s, child, name) end
+    end
+end
+
+local function sorted_keys(t)
+    local keys = {}
+    for k in pairs(t) do keys[#keys + 1] = k end
+    table.sort(keys)
+    return keys
+end
+
+-- The notes: first what came across, then everything that is only close, was left out, or needs a look.
+local function report(s, other_lines)
+    local notes = {}
+    local summary = s.name .. ": " .. kit.plural(s.controls, "control") .. " brought across"
+    if s.menu_items > 0 then summary = summary .. ", and " .. kit.plural(s.menu_items, "menu item") end
+    notes[1] = summary .. "."
+    for _, kind in ipairs(sorted_keys(s.unknown)) do
+        local names = s.unknown[kind]
+        notes[#notes + 1] = "No equal yet for " .. kind .. ": " .. table.concat(names, ", ") .. " "
+            .. (#names == 1 and "is" or "are") .. " shown as a labelled frame of the same size."
+    end
+    for _, why in ipairs(sorted_keys(s.approx)) do
+        notes[#notes + 1] = table.concat(s.approx[why], ", ") .. ": " .. why .. "."
+    end
+    for _, note in ipairs(s.extra) do notes[#notes + 1] = note end
+    if #s.bound > 0 then
+        notes[#notes + 1] = "Bound to a data control, so given an ItemsSource that asks the database for the same rows: "
+            .. table.concat(s.bound, ", ") .. ". They fill themselves once the project names that database."
+    end
+    if #s.fields > 0 then
+        notes[#notes + 1] = "Bound to one field of a data control's current record, which has no equal here yet, so they come "
+            .. "across unfilled: " .. table.concat(s.fields, ", ") .. ". Fill them from a script with DbQuery."
+    end
+    if #s.silent > 0 then
+        notes[#notes + 1] = "Not on the form itself, so not brought across (timers, dialogs and the like): "
+            .. table.concat(s.silent, ", ") .. "."
+    end
+    if s.scripts > 0 then
+        notes[#notes + 1] = kit.plural(s.scripts, "event handler") .. " from " .. s.file .. " came across as scripts. "
+            .. "The Visual Basic is kept as comments for reference; it does not run."
+        if s.live > 0 then
+            notes[#notes + 1] = "Except the plain steps, which were translated and do run: " .. kit.plural(s.live, "line") .. " in "
+                .. kit.plural(s.live_scripts, "script") .. " (opening and closing forms, messages, simple settings). Check them."
+        end
+    end
+    if #s.loose > 0 then
+        notes[#notes + 1] = "Kept as scripts but not attached, because there is no matching event here yet: "
+            .. table.concat(s.loose, ", ") .. "."
+    end
+    local left = {}
+    for _, handler in ipairs(s.all_handlers) do
+        if not handler.script then left[#left + 1] = handler.shown .. "." .. handler.event end
+    end
+    if #left > 0 then
+        table.sort(left)
+        notes[#notes + 1] = "Handlers for things that were not brought across were left behind: " .. table.concat(left, ", ") .. "."
+    end
+    if other_lines == 1 then
+        notes[#notes + 1] = "1 other line of code in " .. s.file .. " is not in the form; the original file is untouched."
+    elseif other_lines > 1 then
+        notes[#notes + 1] = other_lines .. " other lines of code in " .. s.file .. " (helpers, variables) are not in the form; "
+            .. "the original file is untouched."
+    end
+    return notes
+end
+
+-- Every name used in the layout, so the code's Control_Event procedures can be told from its other ones.
+local function known_names(node, into)
+    for _, child in ipairs(node.children) do
+        into[child.name:lower()] = child.name
+        known_names(child, into)
+    end
+    return into
+end
+
+-- Turn a Visual Basic form into a Visualised canvas form.
+--   path: the .frm; assets: a folder to save its pictures into, or "" to keep them inside the form;
+--   forms: { lower name = name } of the project's forms, so the code that opens one can be made to (nil: one form alone)
+-- Returns { vml, notes, name, controls, menu_items, scripts, pictures, other_code }, or { error = why }.
+function VB6.convert(path, assets, forms)
+    path = kit.slashes(path)
+    local lines = kit.lines(kit.read(path))
+    local form, code_from = read_layout(lines)
+    if not form then
+        return { error = "no form was found in that file (it has no Begin VB.Form)" }
+    end
+    local s = {
+        path = path, file = kit.basename(path), form = form, name = kit.safe_name(form.name),
+        assets = kit.slashes(assets or ""), f = kit.form(), frx = {}, taken = {}, script_names = {},
+        unknown = {}, approx = {}, extra = {}, silent = {}, loose = {}, handlers = {},
+        controls = 0, menu_items = 0, scripts = 0, pictures = 0,
+        names = {}, kept = {}, forms = forms, live = 0, live_scripts = 0,
+        data = {}, bound = {}, fields = {},
+    }
+    for _, reserved in ipairs({ s.name, s.name .. "Canvas", s.name .. "Root", s.name .. "Menu", "MenuBar" }) do
+        s.taken[reserved:lower()] = true
+    end
+
+    -- the code: which procedures are handlers, in the order they should be offered to their control
+    local known = known_names(form, { form = "the form", mdiform = "the form", usercontrol = "the form" })
+    s.code, s.all_handlers = read_code(lines, code_from, known)
+    for _, handler in ipairs(s.all_handlers) do
+        handler.shown = known[handler.control]
+        local key = (handler.shown == "the form") and "form" or handler.control
+        s.handlers[key] = s.handlers[key] or {}
+        table.insert(s.handlers[key], handler)
+    end
+    for _, list in pairs(s.handlers) do
+        table.sort(list, function(a, b)
+            local first_a, first_b = FIRST_CHOICE[a.event:lower()] or false, FIRST_CHOICE[b.event:lower()] or false
+            if first_a ~= first_b then return first_a end
+            return a.first < b.first
+        end)
+    end
+
+    -- the window: its client area, which Visual Basic always gives in twips
+    local menus = {}
+    for _, child in ipairs(form.children) do
+        if child.class == "vb.menu" then menus[#menus + 1] = child end
+    end
+    local width = px(number_of(form, "ClientWidth") or number_of(form, "Width") or 9600, TWIPS)
+    local height = px(number_of(form, "ClientHeight") or number_of(form, "Height") or 7200, TWIPS)
+    local window = { { "Title", text_of(form, "Caption") or s.name }, { "Width", width },
+                     { "Height", height + (#menus > 0 and MENU_BAR or 0) } }
+    local border = number_of(form, "BorderStyle") or 2        -- 2 and 5 can be resized; none, single and dialog cannot
+    if border ~= 2 and border ~= 5 then add(window, "Resizable", "false") end
+    wire(s, "form", s.name, "the form", "Window", window)
+
+    local f = s.f
+    f:comment(s.name .. ": imported from " .. s.file .. " (Visual Basic 5/6)")
+    f:emit("Window", s.name, "", window)
+    local canvas = s.name .. "Canvas"
+    local background = colour(raw_of(form, "BackColor"), "#f0f0f0") or "#f0f0f0"
+    if #menus > 0 then
+        local root = s.name .. "Root"
+        f:emit("DockPanel", root, s.name, {})
+        f:emit("TinyMenu", s.name .. "Menu", root, { { "DockPanel.Dock", "Top" } })
+        f:emit("Canvas", canvas, root, { { "Background", background } })
+        for _, item in ipairs(menus) do menu_item(s, item, "MenuBar") end
+    else
+        f:emit("Canvas", canvas, s.name, { { "Background", background } })
+    end
+    data_controls(s, form)
+    place_children(s, form, canvas, scale_inside(s, form, s.name), false)
+    write_scripts(s)
+
+    -- the rest of the code: every line that did not go into a script
+    local used = {}
+    for _, handler in ipairs(s.all_handlers) do
+        if handler.script then
+            for i = handler.first, handler.last do used[i] = true end
+        end
+    end
+    local other, count = {}, 0
+    for i, line in ipairs(s.code) do
+        if not used[i] then
+            other[#other + 1] = line
+            if line:match("%S") then count = count + 1 end
+        end
+    end
+    return { vml = f:text(), notes = report(s, count), name = s.name, controls = s.controls, menu_items = s.menu_items,
+             scripts = s.scripts, pictures = s.pictures, other_code = other, live = s.live }
+end
+
+-- ------------------------------------------------------------------ projects
+-- What a .vbp says: { name, startup (a form's name, or nil), forms = { path, ... },
+-- modules = { { name, path, kind }, ... } } with every path made whole.
+function VB6.read_project(path)
+    path = kit.slashes(path)
+    local folder = kit.dirname(path)
+    local project = { name = kit.stem(path), forms = {}, modules = {} }
+    local unquote = function(v) return (v:gsub('^"(.*)"$', "%1")) end
+    for _, line in ipairs(kit.lines(kit.read(path))) do
+        local key, value = line:match("^%s*(%w+)%s*=%s*(.-)%s*$")
+        key = key and key:lower()
+        if key == "form" then
+            project.forms[#project.forms + 1] = kit.join(folder, kit.slashes(unquote(value)))
+        elseif key == "module" or key == "class" or key == "usercontrol" or key == "propertypage" then
+            -- "modPricing; modPricing.bas": its name, then its file (a user control gives only the file)
+            local name, file = value:match("^(.-)%s*;%s*(.+)$")
+            file = kit.slashes(unquote(file or value))
+            project.modules[#project.modules + 1] = { name = name or kit.stem(file), path = kit.join(folder, file), kind = key }
+        elseif key == "name" and unquote(value) ~= "" then
+            project.name = unquote(value)
+        elseif key == "startup" then
+            local start = unquote(value)
+            if start ~= "" and start ~= "(None)" and start:lower() ~= "sub main" then project.startup = start end
+        end
+    end
+    return project
+end
+
+-- The code of a module, class or user control file, without what Visual Basic keeps above it (the VERSION line,
+-- a BEGIN ... END block of settings or layout, the Attribute lines).
+function VB6.code_of(path)
+    local lines = kit.lines(kit.read(path))
+    local i, depth = 1, 0
+    while i <= #lines do
+        local line = lines[i]
+        local word = (line:match("^%s*(%a+)") or ""):lower()
+        if depth > 0 then
+            if word == "begin" then depth = depth + 1 elseif word == "end" and line:match("^%s*%a+%s*$") then depth = depth - 1 end
+        elseif word == "begin" then
+            depth = 1
+        elseif not (word == "version" or word == "object" or line:match("^%s*Attribute%s+VB_") or not line:match("%S")) then
+            break
+        end
+        i = i + 1
+    end
+    local code = {}
+    for n = i, #lines do code[#code + 1] = lines[n] end
+    return code
+end
+VB6_LIBRARY
+
+@Script ImportForm
+Interpreter=lua
+<<VB6_IMPORT_FORM
+-- args[1] = the .frm (a whole path), args[2] = a folder to save its pictures into, or "" to keep them in the form
+local kit = require("importkit")
+
+local form = VB6.convert(args[1], args[2] or "")
+if form.error then
+    return kit.json.encode({ error = form.error })
+end
+return kit.json.encode(form)
+VB6_IMPORT_FORM
+
+@Script ImportProject
+Interpreter=lua
+<<VB6_IMPORT_PROJECT
+-- args[1] = the .vbp, args[2] = the new folder to fill. The original project is only read, never changed.
+-- What is made: a form for each .frm; for each form with code of its own beyond its handlers, a module
+-- <Form>_code.lua holding that code as comments; a module for each .bas and .cls, again as comments;
+-- images/ with the forms' pictures; the project file, and IMPORT-NOTES.txt listing every form's details.
+local kit = require("importkit")
+
+local source = kit.slashes(args[1])
+local folder = (kit.slashes(args[2]):gsub("/+$", ""))
+if folder == kit.dirname(source) then
+    return kit.json.encode({ error = "choose a new folder for the Visualised project, not the Visual Basic project's own folder" })
+end
+local vbp = VB6.read_project(source)
+local p = kit.project(folder, vbp.name)
+
+local function busy(lines)                                   -- how many lines have something on them
+    local n = 0
+    for _, line in ipairs(lines) do
+        if line:match("%S") then n = n + 1 end
+    end
+    return n
+end
+
+local forms = {}                                             -- the forms' own names (what the code calls them)
+for _, listed in ipairs(vbp.forms) do
+    local path = VB6.find_file(listed)
+    local name = path and kit.search([[(?m)^\s*Begin\s+VB\.(?:MDI)?Form\s+(\w+)]], kit.read(path))
+    if name then forms[name:lower()] = kit.safe_name(name) end
+end
+
+for _, listed in ipairs(vbp.forms) do
+    local path = VB6.find_file(listed)                       -- a form the project lists but that is gone is passed over
+    local form = path and VB6.convert(path, kit.join(folder, "images"), forms)
+    if not path then
+        p:note(kit.basename(listed) .. " is listed in the project but wasn't found, so it was left out.")
+    elseif form.error then
+        p:note(kit.basename(path) .. " was left out: " .. form.error)
+    end
+    if form and not form.error then
+        local file = kit.basename(path)
+        local added = p:form(form.name, form.vml, form.notes, { controls = form.controls, menu_items = form.menu_items,
+                                                                scripts = form.scripts, pictures = form.pictures, live = form.live }, file)
+        if added and busy(form.other_code) > 4 then          -- more than Option Explicit and a stray line or two
+            p:module(form.name .. "_code", {
+                form.name .. ": the rest of " .. file .. " (Visual Basic), kept for reference.",
+                "The event handlers are on the form's controls (Edit Script). What is here is everything else:",
+                "the form's own routines and variables. It does not run: rewrite what you need below, in Lua,",
+                "and every form in the project can call it." }, form.other_code)
+        end
+    end
+end
+
+for _, module in ipairs(vbp.modules) do
+    local path = VB6.find_file(module.path)
+    local code = path and VB6.code_of(path) or {}
+    if not path then p:note(kit.basename(module.path) .. " is listed in the project but wasn't found, so it was left out.") end
+    if busy(code) > 0 then
+        local heading = { module.name .. ": imported from " .. kit.basename(path) .. " (Visual Basic), kept for reference.",
+                          "It does not run: rewrite what you need below, in Lua, and every form in the project can call it." }
+        if module.kind == "usercontrol" or module.kind == "propertypage" then
+            heading[#heading + 1] = "This was a control of the project's own: only its code is here, not its layout."
+        end
+        p:module(module.name, heading, code)
+    end
+end
+
+p:databases(kit.dirname(source))
+local mentions = { kit.read(source) }                        -- everything that might name a database
+for _, listed in ipairs(vbp.forms) do
+    local path = VB6.find_file(listed)
+    if path then mentions[#mentions + 1] = kit.read(path) end
+end
+for _, module in ipairs(vbp.modules) do
+    local path = VB6.find_file(module.path)
+    if path then mentions[#mentions + 1] = kit.read(path) end
+end
+p:access_databases(kit.dirname(source), table.concat(mentions, "\n"))
+return p:finish(vbp.startup, kit.basename(source))
+VB6_IMPORT_PROJECT

@@ -1,0 +1,250 @@
+# Data blocks: add, change and remove the blocks under each tag, and make new tags with their own field names.
+
+@Window Maintain
+Title=Data blocks
+Width=720
+Height=500
+OnOpened=MaintainOpened
+
+@Canvas MaintainCanvas
+Parent=Maintain
+Background=#ffffff
+
+@TextBlock lblTag
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=20
+Text=Tag
+
+@ComboBox cboTag
+Parent=MaintainCanvas
+Canvas.Left=56
+Canvas.Top=16
+Width=200
+ItemsSource=SELECT tag FROM tags ORDER BY tag
+SelectionChanged=TagChanged
+
+@Button btnNewTag
+Parent=MaintainCanvas
+Canvas.Left=268
+Canvas.Top=14
+Width=110
+Height=28
+Content=New tag...
+OnClick=NewTag
+
+@DataGrid grdBlocks
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=54
+Width=688
+Height=190
+Anchor=Top,Left,Right
+ItemsSource=BlockRows(cboTag)
+SelectionChanged=BlockPicked
+
+@TextBlock lblF1
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=262
+Width=110
+Text=Field 1
+
+@TextBox txtF1
+Parent=MaintainCanvas
+Canvas.Left=132
+Canvas.Top=258
+Width=572
+Anchor=Top,Left,Right
+
+@TextBlock lblF2
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=294
+Width=110
+Text=Field 2
+
+@TextBox txtF2
+Parent=MaintainCanvas
+Canvas.Left=132
+Canvas.Top=290
+Width=572
+Anchor=Top,Left,Right
+
+@TextBlock lblF3
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=326
+Width=110
+Text=Field 3
+
+@TextBox txtF3
+Parent=MaintainCanvas
+Canvas.Left=132
+Canvas.Top=322
+Width=572
+Anchor=Top,Left,Right
+
+@TextBlock lblF4
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=358
+Width=110
+Text=Field 4
+
+@TextBox txtF4
+Parent=MaintainCanvas
+Canvas.Left=132
+Canvas.Top=354
+Width=572
+Anchor=Top,Left,Right
+
+@TextBlock lblF5
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=390
+Width=110
+Text=Field 5
+
+@TextBox txtF5
+Parent=MaintainCanvas
+Canvas.Left=132
+Canvas.Top=386
+Width=572
+Anchor=Top,Left,Right
+
+@TextBlock lblEditing
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=426
+Foreground=#6B7280
+Text=A new block
+
+@Button btnNew
+Parent=MaintainCanvas
+Canvas.Left=16
+Canvas.Top=454
+Width=100
+Height=30
+Anchor=Bottom,Left
+Content=New
+OnClick=NewBlock
+
+@Button btnSave
+Parent=MaintainCanvas
+Canvas.Left=124
+Canvas.Top=454
+Width=100
+Height=30
+Anchor=Bottom,Left
+Background=#2563EB
+Foreground=White
+Content=Save
+OnClick=SaveBlock
+
+@Button btnDelete
+Parent=MaintainCanvas
+Canvas.Left=232
+Canvas.Top=454
+Width=100
+Height=30
+Anchor=Bottom,Left
+Content=Delete
+OnClick=DeleteBlock
+
+@Button btnClose
+Parent=MaintainCanvas
+Canvas.Left=604
+Canvas.Top=454
+Width=100
+Height=30
+Anchor=Bottom,Right
+Content=Close
+OnClick=CloseSelf
+
+@Script MaintainOpened
+Interpreter=lua
+<<LUA
+Blocks.setup()
+editing = ""                    -- the id of the block in the boxes; "" for a new one
+LUA
+
+@Script BlockRows
+Interpreter=lua
+<<LUA
+-- the grid's ItemsSource: the chosen tag's blocks, under that tag's own field names
+return Blocks.rows(args[1] or "")
+LUA
+
+@Script TagChanged
+Interpreter=lua
+<<LUA
+-- label the boxes with this tag's field names, and hide the ones it doesn't use
+local names = Blocks.fields(Vml("GetProperty", "cboTag", "SelectedItem"))
+for i = 1, 5 do
+    local used = names[i] ~= nil
+    Vml("SetProperty", "lblF" .. i, "Text", names[i] or "")
+    Vml("SetProperty", "lblF" .. i, "IsVisible", used and "true" or "false")
+    Vml("SetProperty", "txtF" .. i, "IsVisible", used and "true" or "false")
+end
+Vml("RunScript", "NewBlock")
+LUA
+
+@Script BlockPicked
+Interpreter=lua
+<<LUA
+-- a row was chosen in the grid: put it in the boxes
+local id = Vml("GetProperty", "grdBlocks", "SelectedValue")
+if id == "" then return end
+editing = id
+local v = Blocks.get(id)
+for i = 1, 5 do Vml("SetProperty", "txtF" .. i, "Text", v[i]) end
+Vml("SetProperty", "lblEditing", "Text", "Block " .. id)
+LUA
+
+@Script NewBlock
+Interpreter=lua
+<<LUA
+editing = ""
+for i = 1, 5 do Vml("SetProperty", "txtF" .. i, "Text", "") end
+Vml("SetProperty", "grdBlocks", "SelectedIndex", "-1")
+Vml("SetProperty", "lblEditing", "Text", "A new block")
+LUA
+
+@Script SaveBlock
+Interpreter=lua
+<<LUA
+local tag = Vml("GetProperty", "cboTag", "SelectedItem")
+if tag == "" then return Vml("InfoDialog", "Choose a tag first, or make a new one.", "Data blocks") end
+local v = {}
+for i = 1, 5 do v[i] = Vml("GetProperty", "txtF" .. i, "Text") end
+if v[1] == "" then return Vml("InfoDialog", "The first field can't be empty.", "Data blocks") end
+Blocks.save(tag, editing, v)
+Vml("Requery", "grdBlocks")
+Vml("RunScript", "NewBlock")
+LUA
+
+@Script DeleteBlock
+Interpreter=lua
+<<LUA
+if editing == "" then return Vml("InfoDialog", "Choose a block in the grid first.", "Data blocks") end
+if Vml("ConfirmDialog", "Delete block " .. editing .. "?", "Data blocks") ~= "true" then return end
+Blocks.delete(editing)
+Vml("Requery", "grdBlocks")
+Vml("RunScript", "NewBlock")
+LUA
+
+@Script NewTag
+Interpreter=lua
+<<LUA
+local tag = Vml("PromptDialog", "New tag", "A name for the new tag:", "")
+if tag == "" then return end
+local fields = Vml("PromptDialog", "New tag", "Its field names, up to five, separated by commas:", "Name, Text")
+if fields == "" then return end
+local names = {}
+for name in fields:gmatch("[^,]+") do names[#names + 1] = (name:gsub("^%s+", ""):gsub("%s+$", "")) end
+Blocks.add_tag(tag, names)
+Vml("Requery", "cboTag")
+Vml("SetProperty", "cboTag", "SelectedItem", tag)
+Vml("RunScript", "TagChanged")
+LUA

@@ -6,6 +6,7 @@
 
 @Window MenuEditor
 Title=Menu Editor
+BorderBrush=#1E3A8A
 Width=600
 Height=520
 OnOpened=MenuEdLoad

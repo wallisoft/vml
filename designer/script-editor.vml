@@ -6,6 +6,7 @@
 
 @Window ScriptEditor
 Title=Edit Script
+BorderBrush=#1E3A8A
 Width=760
 Height=540
 OnOpened=EditorLoad
@@ -101,6 +102,7 @@ OnClick=EditorSave
 @TextBox txtCode
 Parent=EdRoot
 AcceptsReturn=true
+TextWrapping=NoWrap
 FontFamily=monospace
 FontSize=13
 Background=#FFFFFF

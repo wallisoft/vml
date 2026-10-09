@@ -4,8 +4,19 @@ import json, os, re, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("VML_PREFS", os.path.join(tempfile.mkdtemp(prefix="vml-prefs-"), "prefs.json"))   # never the real settings
 from PySide6.QtWidgets import QApplication
-from vml import import_winforms as W
 from vml.engine import Engine
+
+class W:
+    """The Windows Forms importer (designer/importers/winforms.vml), run the way the designer runs it."""
+    engine = None
+
+    @classmethod
+    def convert(cls, path, assets_dir=None):
+        cls.engine = cls.engine or Engine()
+        r = cls.engine.run_importer("WinForms", "ImportForm", os.path.abspath(path).replace(os.sep, "/"), (assets_dir or "").replace(os.sep, "/"))
+        if r.get("error"):
+            raise ValueError(r["error"])
+        return r["vml"], r["notes"]
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FORMS = os.path.join(HERE, "tests", "winforms")
@@ -30,12 +41,30 @@ check("VB: the form's title and size come across", (b["SignIn"][1]["Title"], b["
 check("VB: labels, boxes and buttons become their Visualised equals", [b[n][0] for n in ("NameLabel", "txtName", "txtPass", "OK", "Cancel")], ["TextBlock", "TextBox", "TextBox", "Button", "Button"])
 check("VB: a control keeps its place and size", [b["OK"][1][k] for k in ("Canvas.Left", "Canvas.Top", "Width", "Height")], ["197", "161", "94", "23"])
 check("VB: the & shortcut marks are taken out of captions", (b["NameLabel"][1]["Text"], b["OK"][1]["Content"]), ("User name", "OK"))
-check("VB: a picture has no equal yet, so it is a labelled frame of the same size", (b["Logo"][0], b["Logo"][1]["Text"], b["Logo"][1]["Width"]), ("Frame", "PictureBox: Logo", "165"))
+check("VB: a picture box becomes an Image of the same size", (b["Logo"][0], b["Logo"][1]["Width"], b["Logo"][1]["Height"]), ("Image", "165", "193"))
+check("VB: its picture comes out of the form's resources, into the form itself", b["Logo"][1]["Source"].startswith("data:image/png;base64,iVBOR"))
+import tempfile as _t
+_assets = os.path.join(_t.mkdtemp(prefix="vml-assets-"), "images")
+_vml2, _ = W.convert(os.path.join(FORMS, "SignIn.Designer.vb"), assets_dir=_assets)
+check("VB: given a folder, the picture is saved there as a file and the form points at it",
+      (blocks(_vml2)["Logo"][1]["Source"], open(os.path.join(_assets, "SignIn_Logo.png"), "rb").read(4)), ("images/SignIn_Logo.png", b"\x89PNG"))
+check("VB: a password box hides what is typed", b["txtPass"][1].get("IsPassword"), "true")
+# a picture kept in the project's own resources (My.Resources.Banner), not the form's
+import shutil as _sh
+_proj = _t.mkdtemp(prefix="vml-shared-")
+os.makedirs(os.path.join(_proj, "My Project")); os.makedirs(os.path.join(_proj, "Resources"))
+_sh.copy(os.path.join(HERE, "tests", "controls", "dot.png"), os.path.join(_proj, "Resources", "banner.png"))
+open(os.path.join(_proj, "My Project", "Resources.resx"), "w").write('<root><data name="Banner" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>..\\Resources\\banner.png;System.Drawing.Bitmap, System.Drawing</value></data></root>')
+open(os.path.join(_proj, "SignIn.Designer.vb"), "w").write(open(os.path.join(FORMS, "SignIn.Designer.vb")).read().replace(
+    'CType(resources.GetObject("Logo.Image"), System.Drawing.Image)', "Global.Shop.My.Resources.Resources.Banner"))
+_vml3, _notes3 = W.convert(os.path.join(_proj, "SignIn.Designer.vb"), assets_dir=os.path.join(_proj, "out", "images"))
+check("VB: a picture from the project's shared resources is found and saved too",
+      (blocks(_vml3)["Logo"][1].get("Source"), os.path.isfile(os.path.join(_proj, "out", "images", "SignIn_Logo.png"))), ("images/SignIn_Logo.png", True))
 check("VB: the OK button's code came across as a script, attached to its click", b["OK"][1].get("OnClick"), "OK_OnClick")
 check("VB: a declaration that runs over two lines is still recognised", "--   Private Sub OK_Click(ByVal sender As System.Object, _" in vml)
 check("VB: the original Visual Basic is in the script as comments, and nothing else is", ("--   Private Sub OK_Click" in vml, all(ln.startswith("--") for ln in vml.split("<<END_OK_ONCLICK\n")[1].split("\nEND_OK_ONCLICK")[0].splitlines())), (True, True))
 check("VB: the form's Load code is attached to the window opening", b["SignIn"][1].get("OnOpened"), "SignIn_OnOpened")
-check("VB: the notes say what was approximated", any("PictureBox" in n for n in notes) and any("password box" in n for n in notes))
+check("VB: nothing on this form needed approximating, and the notes don't pretend otherwise", any("No equal yet" in n or "password" in n for n in notes), False)
 check("VB: the notes never claim the code runs", any("does not run" in n for n in notes))
 
 # ---------------------------------------------------------------- a C# form with the awkward parts
@@ -53,12 +82,16 @@ check("C#: ticked, disabled and multi-line are kept", (b["chkGift"][1].get("IsCh
 check("C#: colours, font and alignment are kept", [b["lblTotal"][1].get(k) for k in ("Background", "Foreground", "FontFamily", "FontSize", "FontWeight", "TextAlignment")], ["#ffffc0", "navy", "Arial", "16", "Bold", "Right"])
 check("C#: anchoring is kept, and docking becomes anchoring", (b["tabs"][1]["Anchor"], b["txtCustomer"][1]["Anchor"], b["table"][1]["Anchor"], b["txtNotes"][1]["Anchor"]), ("Top,Bottom,Left,Right", "Top,Left,Right", "Bottom,Right", "Top,Bottom,Left,Right"))
 check("C#: the table layout's two buttons sit side by side inside it", (int(b["btnSave"][1]["Canvas.Left"]) < int(b["btnCancel"][1]["Canvas.Left"]), b["btnSave"][1]["Parent"]), (True, "table"))
-check("C#: an option button becomes a check box, and says so", (b["optExpress"][0], any("option button" in n for n in notes)), ("CheckBox", True))
+check("C#: option buttons stay option buttons, the chosen one chosen", (b["optExpress"][0], b["optStandard"][0], b["optStandard"][1].get("IsChecked"), b["optStandard"][1]["Content"]), ("RadioButton", "RadioButton", "true", "Standard"))
+check("C#: a PIN box hides what is typed", b["txtPin"][1].get("IsPassword"), "true")
+check("C#: a tree becomes a TreeView", (b["tree"][0], b["tree"][1]["Width"]), ("TreeView", "188"))
 check("C#: events wired in the designer file are attached", (b["btnSave"][1].get("OnClick"), b["txtCustomer"][1].get("TextChanged"), b["newItem"][1].get("OnClick"), b["OrderForm"][1].get("OnOpened")), ("btnSave_OnClick", "txtCustomer_TextChanged", "newItem_OnClick", "OrderForm_OnOpened"))
 save = vml.split("<<END_BTNSAVE_ONCLICK\n")[1].split("\nEND_BTNSAVE_ONCLICK")[0].splitlines()
 check("C#: the whole method is kept, from its first line to its closing brace, with its shape", (save[3], save[-1], "--           MessageBox.Show(\"Who is it for?\");" in save), ("--   private void btnSave_Click(object sender, EventArgs e)", "--   }", True))
 check("C#: a timer is not on the form, and the notes list it", any("timer1 (Timer)" in n for n in notes))
-check("C#: the grid has no equal yet, and the notes say so", (b["grid"][0], any("DataGridView" in n for n in notes)), ("Frame", True))
+check("C#: a grid becomes a DataGrid with its column headings, and its double-click handler", (b["grid"][0], b["grid"][1].get("Columns"), b["grid"][1].get("OnDoubleClick")), ("DataGrid", "Item,Quantity", "grid_OnDoubleClick"))
+check("C#: the notes say the grid comes across empty", any("comes across empty" in n and "grid" in n for n in notes))
+check("C#: a control with no equal yet is a labelled frame of the same size, and the notes say so", (b["progress"][0], b["progress"][1]["Text"], b["progress"][1]["Width"], any("No equal yet for ProgressBar" in n for n in notes)), ("Frame", "ProgressBar: progress", "200", True))
 
 # ---------------------------------------------------------------- through the engine, onto the design surface
 def designer(tier):
@@ -72,13 +105,13 @@ def designer(tier):
     return eng
 
 eng = designer(None)
-check("Community: the Windows Forms import is greyed and marked Pro", (eng.find("FileImportWinForms").action.isEnabled(), eng.find("FileImportWinForms").action.text().endswith("(Pro)")), (False, True))
+check("Community: the Windows Forms import is greyed and marked Pro", (eng.find("FileImport_WinForms").action.isEnabled(), eng.find("FileImport_WinForms").action.text().endswith("(Pro)")), (False, True))
 said.clear()
 check("Community: importing is refused in the engine too", (eng.cmd_ImportForm("winforms", os.path.join(FORMS, "SignIn.vb")), "Visualised Pro" in said[-1]), ("", True))
 
 eng = designer("pro")
-check("Pro: the Windows Forms import is live", (eng.find("FileImportWinForms").action.isEnabled(), eng.find("FileImportWinForms").action.text()), (True, "Windows Forms (Visual Studio, VB or C#)..."))
-check("Pro: the importers still to come stay greyed", [eng.find(n).action.isEnabled() for n in ("FileImportVB", "FileImportDelphi", "FileImportQt", "FileImportXaml", "FileImportHtml")], [False] * 5)
+check("Pro: the Windows Forms import is live", (eng.find("FileImport_WinForms").action.isEnabled(), eng.find("FileImport_WinForms").action.text()), (True, "Windows Forms form (Visual Studio, VB or C#)..."))
+check("Pro: the importers still to come stay greyed", [eng.find(n).action.isEnabled() for n in ("FileImportDelphi", "FileImportQt", "FileImportXaml", "FileImportHtml")], [False] * 4)
 check("Pro: choosing the code file works as well as the designer file", eng.cmd_ImportForm("winforms", os.path.join(FORMS, "SignIn.vb")), "true")
 for _ in range(6):
     QApplication.instance().processEvents()

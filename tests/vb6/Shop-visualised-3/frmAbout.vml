@@ -1,0 +1,52 @@
+# frmAbout: imported from frmAbout.frm (Visual Basic 5/6)
+
+@Window frmAbout
+Title=About Corner Shop
+Width=300
+Height=160
+Resizable=false
+
+@Canvas frmAboutCanvas
+Parent=frmAbout
+Background=#f0f0f0
+
+@TextBlock lblName
+Parent=frmAboutCanvas
+Canvas.Left=16
+Canvas.Top=16
+Text=Corner Shop
+FontFamily=Arial
+FontSize=19
+FontWeight=Bold
+
+@TextBlock lblVersion
+Parent=frmAboutCanvas
+Canvas.Left=16
+Canvas.Top=48
+Width=265
+Height=17
+Text=Version 1.2
+TextWrapping=Wrap
+FontSize=11
+
+@Button cmdOK
+Parent=frmAboutCanvas
+Canvas.Left=208
+Canvas.Top=124
+Width=81
+Height=25
+Content=OK
+FontSize=11
+OnClick=cmdOK_OnClick
+
+@Script cmdOK_OnClick
+Interpreter=lua
+<<END_CMDOK_ONCLICK
+-- Imported from frmAbout.frm. The lines that are Lua were translated from the Visual Basic beside them, and run.
+-- The lines that are comments are the original Visual Basic: they do not run, and are there to rewrite.
+--
+--   Private Sub cmdOK_Click()
+Vml("CloseSelf")   -- was: Unload Me
+--   End Sub
+END_CMDOK_ONCLICK
+

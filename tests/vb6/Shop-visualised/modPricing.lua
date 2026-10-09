@@ -1,0 +1,15 @@
+-- modPricing: imported from modPricing.bas (Visual Basic), kept for reference.
+-- It does not run: rewrite what you need below, in Lua, and every form in the project can call it.
+--
+--   Option Explicit
+--
+--   Public Const VAT_RATE As Double = 0.2
+--
+--   ' The price of a number of things, with VAT, to the nearest penny.
+--   Public Function PriceWithVat(ByVal UnitPrice As Currency, ByVal Quantity As Integer) As Currency
+--       PriceWithVat = Round(UnitPrice * Quantity * (1 + VAT_RATE), 2)
+--   End Function
+--
+--   Public Sub Main()
+--       frmMain.Show
+--   End Sub

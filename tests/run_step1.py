@@ -37,7 +37,7 @@ def steps():
     names = {p["name"]: p for p in props}
     check("reflection: dropdown property has options", names["FontWeight"]["type"], "dropdown")
     check("reflection: live SelectedItem", names["SelectedItem"]["value"], "Red")
-    check("reflection: groups present", sorted({p["group"] for p in props}), ["Appearance", "Behaviour", "Common", "Layout", "Placement", "Text"])
+    check("reflection: groups present", sorted({p["group"] for p in props}), ["Appearance", "Behaviour", "Common", "Data", "Layout", "Placement", "Text"])
     db = eng.store.db.execute("SELECT property_value FROM ui_properties p JOIN ui_tree t ON t.id=p.ui_tree_id "
                               "WHERE t.name='lblTitle' AND p.property_name='Foreground'").fetchone()[0]
     check("write-through to SQLite", db, "#991b1b")

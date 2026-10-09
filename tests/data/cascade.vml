@@ -1,0 +1,110 @@
+# Lists that fill themselves from a database, each from the one before: no event scripts at all.
+
+@Window Cascade
+Title=Questions
+Width=620
+Height=380
+OnOpened=Setup
+
+@Canvas CascadeCanvas
+Parent=Cascade
+Background=#ffffff
+
+@ComboBox cboCategory
+Parent=CascadeCanvas
+Canvas.Left=16
+Canvas.Top=16
+Width=180
+Database=q
+ItemsSource=SELECT DISTINCT category FROM questions ORDER BY category
+
+@ListBox lstQuestion
+Parent=CascadeCanvas
+Canvas.Left=16
+Canvas.Top=52
+Width=280
+Height=120
+Database=q
+ItemsSource=SELECT question FROM questions WHERE category = {cboCategory} ORDER BY id
+
+@DataGrid grdAnswers
+Parent=CascadeCanvas
+Canvas.Left=310
+Canvas.Top=52
+Width=290
+Height=120
+Database=q
+Columns=Answer,Score
+ItemsSource=SELECT answer, score FROM answers WHERE question = {lstQuestion} AND category = {cboCategory.SelectedItem} ORDER BY score DESC
+
+@TextBox txtFind
+Parent=CascadeCanvas
+Canvas.Left=16
+Canvas.Top=190
+Width=180
+
+@ListBox lstFound
+Parent=CascadeCanvas
+Canvas.Left=16
+Canvas.Top=222
+Width=280
+Height=100
+Database=q
+ItemsSource=SELECT question FROM questions WHERE {txtFind} <> '' AND question LIKE '%' || {txtFind} || '%' ORDER BY id
+
+@CheckBox chkAll
+Parent=CascadeCanvas
+Canvas.Left=310
+Canvas.Top=190
+Content=Show every category
+
+@TreeView treAll
+Parent=CascadeCanvas
+Canvas.Left=310
+Canvas.Top=222
+Width=290
+Height=100
+Database=q
+ItemsSource=SELECT category || '/' || question FROM questions WHERE {chkAll} = 'true' OR category = {cboCategory} ORDER BY id
+
+@ListBox lstScript
+Parent=CascadeCanvas
+Canvas.Left=16
+Canvas.Top=330
+Width=280
+Height=40
+ItemsSource=Shout(cboCategory)
+
+@ListBox lstOwn
+Parent=CascadeCanvas
+Canvas.Left=310
+Canvas.Top=330
+Width=290
+Height=40
+ItemsSource=SELECT value FROM settings WHERE key = 'greeting'
+
+@Script Setup
+Interpreter=lua
+<<LUA
+-- the database is opened here, in OnOpened: the lists fill themselves once this has run
+Vml("SetSetting", "greeting", "hello from the form's own database")
+Vml("DbOpen", "q", "sqlite::memory:")
+Vml("DbExecute", "q", "CREATE TABLE questions (id INTEGER PRIMARY KEY, category TEXT, question TEXT)")
+Vml("DbExecute", "q", "CREATE TABLE answers (category TEXT, question TEXT, answer TEXT, score INTEGER)")
+local rows = {
+    {"Memory", "Recalls digits"}, {"Memory", "Recalls O'Brien's story"}, {"Speed", "Symbol search"}, {"Speed", "Coding"},
+}
+for _, r in ipairs(rows) do Vml("DbExecute", "q", "INSERT INTO questions (category, question) VALUES (?, ?)", r[1], r[2]) end
+Vml("DbExecute", "q", "INSERT INTO answers VALUES ('Memory', 'Recalls digits', 'Seven forward', 10)")
+Vml("DbExecute", "q", "INSERT INTO answers VALUES ('Memory', 'Recalls digits', 'Three back', 4)")
+Vml("DbExecute", "q", "INSERT INTO answers VALUES ('Memory', 'Recalls O''Brien''s story', 'All of it', 9)")
+Vml("DbExecute", "q", "INSERT INTO answers VALUES ('Speed', 'Coding', 'Fast', 8)")
+LUA
+
+@Script Shout
+Interpreter=lua
+<<LUA
+-- a script as a source: it is given the controls it names, and hands back a JSON list
+local json = require("dkjson")
+return json.encode({ (args[1] or ""):upper() .. "!", "second line" })
+LUA

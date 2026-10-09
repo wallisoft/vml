@@ -1,0 +1,1013 @@
+# ============================================================================
+# Windows Forms importer: forms and whole projects from Visual Studio, in Visual Basic (.NET) or C#.
+#
+# What it reads
+#   * the designer file (frmLogin.Designer.vb / .Designer.cs): every control, where it sits, what it says, the menus;
+#   * the code beside it (frmLogin.vb / .cs), if it is there: each event handler is carried across as a script on the
+#     control it belonged to. The Visual Basic or C# is kept as comments, for reference: it cannot run here, and
+#     nothing is thrown away;
+#   * the resources beside it (frmLogin.resx), and the project's own (My.Resources): text and pictures.
+#
+# What comes out is an ordinary canvas form: controls at the same places and sizes, inside the same frames. Controls
+# Visualised has no equal for yet (a web browser, a progress bar, a chart) become a captioned frame of the same size,
+# so the layout stays true, and the notes say exactly which those were.
+#
+# This file is the whole importer. To change how something comes across, change it here.
+# ============================================================================
+
+@Importer WinForms
+Title=Windows Forms form (Visual Studio, VB or C#)
+Files=vb,cs
+ProjectTitle=Visual Studio project (.vbproj, .csproj)
+ProjectFiles=vbproj,csproj
+Description=Windows Forms forms and projects from Visual Studio, in Visual Basic (.NET) or C#
+
+@Script Library
+Interpreter=lua
+<<WINFORMS_LIBRARY
+local kit = require("importkit")
+WF = {}
+
+local MENU_BAR = 24            -- a Windows Forms MenuStrip's height: controls below it are measured from under it here
+local PT_TO_PX = 96 / 72
+
+-- Windows Forms control -> { Visualised control, the property its text goes in, a note if it is only an approximation }
+local CONTROLS = {
+    Label = { "TextBlock", "Text", "" }, LinkLabel = { "TextBlock", "Text", "a link label becomes plain text" },
+    Button = { "Button", "Content", "" },
+    TextBox = { "TextBox", "Text", "" }, MaskedTextBox = { "TextBox", "Text", "an input mask is not carried over" },
+    RichTextBox = { "TextBox", "Text", "rich text becomes a plain multi-line box" },
+    CheckBox = { "CheckBox", "Content", "" },
+    RadioButton = { "RadioButton", "Content", "" },
+    PictureBox = { "Image", "", "" },
+    DataGridView = { "DataGrid", "", "a grid comes across empty: fill it with ItemsSource or GridSetData" },
+    DataGrid = { "DataGrid", "", "a grid comes across empty: fill it with ItemsSource or GridSetData" },
+    ListView = { "DataGrid", "", "a list view becomes a grid with its column headings" },
+    TreeView = { "TreeView", "", "a tree comes across empty: fill it with Items or ItemsSource" },
+    ComboBox = { "ComboBox", "", "" }, ListBox = { "ListBox", "", "" },
+    CheckedListBox = { "ListBox", "", "a checked list becomes a plain list" },
+    GroupBox = { "Frame", "Text", "" }, Panel = { "Frame", "", "" }, FlowLayoutPanel = { "Frame", "", "" },
+    TableLayoutPanel = { "Frame", "", "a table layout is turned into fixed positions" },
+    SplitContainer = { "Frame", "", "a split container becomes two fixed areas" },
+    TabControl = { "Frame", "", "" }, TabPage = { "Frame", "Text", "" },
+    NumericUpDown = { "TextBox", "", "a number spinner becomes a text box" },
+    DateTimePicker = { "TextBox", "", "a date picker becomes a text box" },
+}
+local function set(list) local s = {} for _, v in ipairs(list) do s[v] = true end return s end
+local STRIPS = set { "MenuStrip", "ContextMenuStrip", "ToolStrip", "StatusStrip" }
+local STRIP_ITEMS = set { "ToolStripMenuItem", "ToolStripSeparator", "ToolStripButton", "ToolStripLabel", "ToolStripStatusLabel",
+    "ToolStripDropDownButton", "ToolStripSplitButton", "ToolStripTextBox", "ToolStripComboBox", "ToolStripProgressBar" }
+
+-- Windows Forms event -> Visualised event
+local EVENTS = {
+    Click = "OnClick", TextChanged = "TextChanged", SelectedIndexChanged = "SelectionChanged",
+    SelectedValueChanged = "SelectionChanged", SelectionChangeCommitted = "SelectionChanged",
+    AfterSelect = "SelectionChanged", SelectionChanged = "SelectionChanged", ItemSelectionChanged = "SelectionChanged",
+    DoubleClick = "OnDoubleClick", CellDoubleClick = "OnDoubleClick", NodeMouseDoubleClick = "OnDoubleClick",
+    CheckedChanged = "OnChecked", KeyDown = "OnKeyDown", KeyUp = "OnKeyUp", KeyPress = "OnKeyDown",
+    Enter = "OnGotFocus", GotFocus = "OnGotFocus", Leave = "OnLostFocus", LostFocus = "OnLostFocus",
+    MouseDown = "OnPointerPressed", MouseUp = "OnPointerReleased", MouseMove = "OnPointerMoved",
+    Load = "OnOpened", Shown = "OnOpened", FormClosing = "OnClosing", Closing = "OnClosing",
+}
+local POINTER = { "OnPointerPressed", "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus" }
+local function with(first, rest) local s = set(first) for _, v in ipairs(rest or {}) do s[v] = true end return s end
+-- which events each Visualised control really has
+local SUPPORTS = {
+    Button = with({ "OnClick", "OnKeyDown", "OnKeyUp" }, POINTER),
+    CheckBox = with({ "OnClick", "OnChecked", "OnKeyDown", "OnKeyUp" }, POINTER),
+    RadioButton = with({ "OnClick", "OnChecked", "OnKeyDown", "OnKeyUp" }, POINTER),
+    TextBox = with({ "TextChanged", "OnKeyDown", "OnKeyUp" }, POINTER),
+    ComboBox = set { "SelectionChanged", "OnKeyDown", "OnKeyUp" },
+    ListBox = set { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" },
+    DataGrid = set { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" },
+    TreeView = set { "SelectionChanged", "OnDoubleClick", "OnKeyDown", "OnKeyUp" },
+    Image = set(POINTER), TextBlock = set(POINTER), Frame = set(POINTER),
+    MenuItem = set { "OnClick" }, Window = set { "OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp" },
+}
+local SYSTEM_COLOURS = {
+    Control = "#f0f0f0", ControlText = "#000000", Window = "#ffffff", WindowText = "#000000",
+    ControlDark = "#a0a0a0", ControlDarkDark = "#696969", ControlLight = "#e3e3e3", ControlLightLight = "#ffffff",
+    Highlight = "#0078d7", HighlightText = "#ffffff", GrayText = "#6d6d6d", Info = "#ffffe1", InfoText = "#000000",
+    ActiveCaption = "#99b4d1", ActiveCaptionText = "#000000", InactiveCaption = "#bfcddb", AppWorkspace = "#ababab",
+    ButtonFace = "#f0f0f0", ButtonHighlight = "#ffffff", ButtonShadow = "#a0a0a0", Desktop = "#000000",
+    Menu = "#f0f0f0", MenuText = "#000000", ScrollBar = "#c8c8c8", HotTrack = "#0066cc",
+}
+local TEXT_KINDS = set { "Button", "CheckBox", "RadioButton", "TextBlock", "Frame" }
+
+local function is_true(v) return kit.trim(v) == "True" end
+local function is_false(v) return kit.trim(v) == "False" end
+
+-- ---------------------------------------------------------------- reading the designer file
+
+-- The statements inside InitializeComponent, one per item, written the Visual Basic way whichever language the file
+-- is in (Me.X = New T(...)), so the rest of the importer reads one dialect.
+local function statements(text, csharp)
+    local out = {}
+    if csharp then
+        local head = kit.search([[void\s+InitializeComponent\s*\(\s*\)\s*\{]], text)
+        if not head then return out end
+        local _, start = text:find(head, 1, true)
+        local depth, i = 1, start + 1
+        while i <= #text and depth > 0 do
+            local ch = text:sub(i, i)
+            if ch == "{" then depth = depth + 1 elseif ch == "}" then depth = depth - 1 end
+            i = i + 1
+        end
+        local body = kit.sub([[//[^\n]*]], "", text:sub(start + 1, i - 2))
+        for _, st in ipairs(kit.split([[;\s*\n]], body)) do
+            st = kit.trim(st:gsub("%s+", " "))
+            if st ~= "" then
+                st = st:gsub("%f[%w_]this%.", "Me."):gsub("%f[%w_]new%f[^%w_]", "New")
+                st = st:gsub("%f[%w_]true%f[^%w_]", "True"):gsub("%f[%w_]false%f[^%w_]", "False")
+                out[#out + 1] = kit.trim((st:gsub(";+$", "")))
+            end
+        end
+        return out
+    end
+    local body = kit.search([[Sub\s+InitializeComponent\s*\(\s*\)(.*?)\n\s*End\s+Sub]], text, "si")
+    if not body then return out end
+    body = kit.sub([[[ \t]+_[ \t]*\r?\n[ \t]*]], " ", body)                  -- a trailing " _" joins two lines
+    for _, line in ipairs(kit.lines(body)) do
+        line = kit.trim(line)
+        if line ~= "" and line:sub(1, 1) ~= "'" then out[#out + 1] = line end
+    end
+    return out
+end
+
+-- Split  a, f(b, c), "d, e"  at the commas that are not inside brackets or a string.
+local function split_args(text)
+    local out, depth, cur, quote = {}, 0, "", false
+    for ch in text:gmatch(".") do
+        local keep = true
+        if ch == '"' then quote = not quote end
+        if not quote then
+            if ch == "(" or ch == "[" or ch == "{" then
+                depth = depth + 1
+            elseif ch == ")" or ch == "]" or ch == "}" then
+                depth = depth - 1
+            elseif ch == "," and depth == 0 then
+                out[#out + 1] = kit.trim(cur)
+                cur, keep = "", false
+            end
+        end
+        if keep then cur = cur .. ch end
+    end
+    if kit.trim(cur) ~= "" then out[#out + 1] = kit.trim(cur) end
+    return out
+end
+
+-- The text of a string value, or nil if the value is not a string.
+local function string_of(value, resources, csharp)
+    value = kit.trim(value)
+    local key = value:match('^resources%.GetString%("([^"]+)"%)')
+    if key then return resources[key] or "" end
+    if #value >= 2 and value:sub(1, 1) == '"' and value:sub(-1) == '"' then
+        local inner = value:sub(2, -2)
+        if csharp then
+            return (inner:gsub('\\"', '"'):gsub("\\r\\n", "\n"):gsub("\\n", "\n"):gsub("\\t", " "):gsub("\\\\", "\\"))
+        end
+        return (inner:gsub('""', '"'))
+    end
+    if csharp and #value >= 3 and value:sub(1, 2) == '@"' and value:sub(-1) == '"' then
+        return (value:sub(3, -2):gsub('""', '"'))
+    end
+    return nil
+end
+
+local function numbers(value)
+    local out = {}
+    for _, n in ipairs(kit.findall([[(?<![\w.])-?\d+(?:\.\d+)?]], value)) do out[#out + 1] = tonumber(n) end
+    return out
+end
+
+-- {x, y} out of New System.Drawing.Point(12, 34) or Size(100, 23); nil if there isn't one.
+local function pair(value)
+    local inner = kit.search([[(?:Point|Size|SizeF)\((.*)\)]], value or "")
+    local nums = inner and numbers(inner) or {}
+    if #nums >= 2 then return { kit.round(nums[1]), kit.round(nums[2]) } end
+    return nil
+end
+
+local function colour(value)
+    value = value or ""
+    local argb = kit.search([[Color\.FromArgb\((.*)\)]], value)
+    if argb then
+        local nums = {}
+        for _, n in ipairs(kit.findall([[\((\d+),\s*(?:System\.)?Byte\)]], argb)) do nums[#nums + 1] = tonumber(n) end
+        if #nums == 0 then nums = numbers(argb) end
+        local bytes = {}
+        for _, n in ipairs(nums) do if n >= 0 and n <= 255 then bytes[#bytes + 1] = math.floor(n) end end
+        if #bytes >= 3 then
+            return string.format("#%02x%02x%02x", bytes[#bytes - 2], bytes[#bytes - 1], bytes[#bytes])
+        end
+        return nil
+    end
+    local system = value:match("SystemColors%.(%w+)")
+    if system then return SYSTEM_COLOURS[system] end
+    local named = value:match("Color%.(%w+)")
+    if named and named ~= "Transparent" and named ~= "Empty" then return named:lower() end
+    return nil
+end
+
+-- {family, size in pixels, bold} out of New System.Drawing.Font("Arial", 9.75!, FontStyle.Bold, ...)
+local function font(value)
+    local family, size = kit.search([[Font\(\s*"([^"]+)"\s*,\s*([\d.]+)]], value or "")
+    if not family then return nil end
+    return { family, kit.round(tonumber(size) * PT_TO_PX), value:find("FontStyle.Bold", 1, true) ~= nil }
+end
+
+local function shortcut(value)
+    local mods, main = {}, nil
+    local seen = {}
+    for key in (value or ""):gmatch("Keys%.(%w+)") do
+        if key ~= "Keys" then
+            seen[key] = true
+            if key ~= "Control" and key ~= "Shift" and key ~= "Alt" and key ~= "None" then main = key end
+        end
+    end
+    if not main then return "" end
+    for _, m in ipairs { { "Control", "Ctrl" }, { "Shift", "Shift" }, { "Alt", "Alt" } } do
+        if seen[m[1]] then mods[#mods + 1] = m[2] end
+    end
+    mods[#mods + 1] = (main:gsub("^D(%d)$", "%1"))
+    return table.concat(mods, "+")
+end
+
+local function unxml(text)
+    return (text:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&apos;", "'"):gsub("&#xD;", "\r"):gsub("&#xA;", "\n"):gsub("&amp;", "&"))
+end
+
+-- What Visual Studio keeps in the .resx beside the form: text (when a form is marked as translatable) and pictures.
+-- Returns text by name, and pictures by name as {kind, base64}.
+local function resources(designer)
+    local stem = kit.stem(designer):gsub("%.[Dd][Ee][Ss][Ii][Gg][Nn][Ee][Rr]$", "")
+    local resx = kit.join(kit.dirname(designer), stem .. ".resx")
+    local text, pictures = {}, {}
+    if not kit.exists(resx) then return text, pictures end
+    for _, data in ipairs(kit.findall([[<data\s+([^>]*?)>(.*?)</data>]], kit.read(resx), "s")) do
+        local attrs, inner = data[1], data[2]
+        local name, value = attrs:match('name="([^"]*)"') or "", inner:match("<value>(.-)</value>")
+        if value then
+            local kind, mime = attrs:match('%f[%w]type="([^"]*)"'), attrs:match('mimetype="([^"]*)"')
+            if not kind and not mime then
+                text[name] = unxml(value)
+            elseif mime and mime:find("bytearray.base64", 1, true) and kind and kind:find("Drawing", 1, true) then
+                local b64 = value:gsub("%s+", "")
+                local picture = kit.picture_kind(b64)
+                if picture ~= "" then pictures[name] = { picture, b64 } end      -- an ordinary picture file, stored whole
+            end
+        end
+    end
+    return text, pictures
+end
+
+-- Pictures a project keeps in its own resources (My Project/Resources.resx or Properties/Resources.resx), which
+-- forms use as My.Resources.Logo / Properties.Resources.Logo: {name: picture file}.
+local project_pictures_seen = {}
+local function project_pictures(designer)
+    local here = kit.dirname(designer)
+    for _, folder in ipairs { here, kit.dirname(here) } do
+        for _, sub in ipairs { "My Project", "Properties" } do
+            local resx = kit.join(kit.join(folder, sub), "Resources.resx")
+            if kit.exists(resx) then
+                if not project_pictures_seen[resx] then
+                    local found = {}
+                    for _, data in ipairs(kit.findall([[<data\s+([^>]*?)>(.*?)</data>]], kit.read(resx), "s")) do
+                        local attrs, value = data[1], data[2]:match("<value>(.-)</value>")
+                        if value and attrs:find("ResXFileRef", 1, true) then
+                            local rel = kit.slashes(kit.trim((unxml(value):match("^[^;]*") or "")))
+                            local file = kit.find_file(kit.join(kit.dirname(resx), rel))
+                            local ending = kit.ending(rel)
+                            if file and (ending == "png" or ending == "jpg" or ending == "jpeg" or ending == "gif" or ending == "bmp") then
+                                found[attrs:match('name="([^"]*)"') or ""] = file
+                            end
+                        end
+                    end
+                    project_pictures_seen[resx] = found
+                end
+                return project_pictures_seen[resx]
+            end
+        end
+    end
+    return {}
+end
+
+-- Everything the designer file says, sorted into: which components exist, their properties, who holds whom.
+local function read_form(designer)
+    local f = { path = designer, csharp = kit.ending(designer) == "cs",
+                types = {}, order = {}, props = {}, form = {},
+                children = {}, items = {}, cells = {},        -- container -> names, strip/menu -> names, child -> {col, row}
+                parent = {}, events = {}, columns = {} }      -- child -> container; {control, event, handler} from C#
+    local text = kit.read(designer):gsub("\r\n", "\n")
+    f.resources, f.pictures = resources(designer)
+    f.name = kit.search([[(?:Partial\s+Class|partial\s+class)\s+(\w+)]], text)
+    if not f.name then
+        f.name = kit.basename(designer):match("^[^.]*"):gsub("%W", "")
+        if f.name == "" then f.name = "Form1" end
+    end
+    local function new_type(name, kind)
+        if f.types[name] == nil then f.order[#f.order + 1] = name end
+        f.types[name] = kind:match("([^.]*)$")
+        f.props[name] = f.props[name] or {}
+    end
+    local function push(map, key, value) map[key] = map[key] or {}; table.insert(map[key], value) end
+
+    local function read(st)
+        local a, b, c, d = kit.match([[Me\.(\w+)\s*=\s*New\s+([\w.]+)\s*(?:\(.*)?$]], st)   -- older Visual Basic leaves the () off
+        -- (Me.ClientSize = New System.Drawing.Size(...) is a property of the form, not a new control)
+        if a and a ~= "components" and b:sub(1, 14) ~= "System.Drawing" then
+            new_type(a, b)
+            return
+        end
+        a, b, c, d = kit.match([[Me\.(\w+)((?:\.Panel[12])?)\.Controls\.Add(Range)?\((.*)\)$]], st)
+        if a then
+            local holder, names = a .. b, kit.findall([[Me\.(\w+)]], d)
+            if c == "" and #names > 0 then                         -- Add(Me.X, column, row) inside a table layout
+                local first = d:match("^[^)]*")
+                local after = first:match("^[^,]*,(.*)$")
+                local rest = after and numbers(after) or {}
+                if #rest >= 2 then f.cells[names[1]] = { math.floor(rest[1]), math.floor(rest[2]) } end
+                names = { names[1] }
+            end
+            for _, n in ipairs(names) do push(f.children, holder, n); f.parent[n] = holder end
+            return
+        end
+        a, b = kit.match([[Me\.Controls\.Add(Range)?\((.*)\)$]], st)
+        if a then
+            for _, n in ipairs(kit.findall([[Me\.(\w+)]], b)) do push(f.children, "", n); f.parent[n] = "" end
+            return
+        end
+        a, b, c = kit.match([[Me\.(\w+)\.Columns\.Add(Range)?\((.*)\)$]], st)
+        if a then                                                  -- a list view's or grid's column headings
+            for _, n in ipairs(kit.findall([[Me\.(\w+)]], c)) do push(f.columns, a, n) end
+            return
+        end
+        a, b, c, d = kit.match([[Me\.(\w+)\.(Items|DropDownItems|TabPages)\.Add(Range)?\((.*)\)$]], st)
+        if a then
+            local names = kit.findall([[Me\.(\w+)]], d)
+            if b == "TabPages" or #names > 0 then
+                local target = b == "TabPages" and f.children or f.items
+                for _, n in ipairs(names) do push(target, a, n); f.parent[n] = a end
+            else                                                   -- a list of plain strings: a combo or list box
+                local brace = kit.search([[\{(.*)\}]], d)
+                f.props[a] = f.props[a] or {}
+                f.props[a].__items = f.props[a].__items or {}
+                for _, v in ipairs(split_args(brace or d)) do
+                    local s = string_of(v, f.resources, f.csharp)
+                    if s ~= nil then table.insert(f.props[a].__items, s) end
+                end
+            end
+            return
+        end
+        a, b, c = kit.match([[Me\.(\w+)\.(\w+)\s*\+=\s*New\s+[\w.]+\(Me\.(\w+)\)]], st)      -- C#: an event wired in the designer
+        if a then
+            f.events[#f.events + 1] = { a, b, c }
+            return
+        end
+        a, b = kit.match([[Me\.(\w+)\s*\+=\s*New\s+[\w.]+\(Me\.(\w+)\)]], st)
+        if a then
+            f.events[#f.events + 1] = { "", a, b }
+            return
+        end
+        a, b, c = kit.match([[Me\.(\w+)\.(\w+)\s*=\s*(.+)$]], st)
+        if a and f.types[a] ~= nil then
+            f.props[a][b] = c
+            return
+        end
+        a, b = kit.match([[Me\.(\w+)\s*=\s*(.+)$]], st)
+        if a then f.form[a] = b end
+    end
+
+    -- the declarations name every control's type too, in case the way one was created is not recognised
+    local declared = {}
+    for _, d in ipairs(kit.findall([[(?:Friend|Private|Public|Protected)\s+WithEvents\s+(\w+)\s+As\s+(?:New\s+)?([\w.]+)]], text)) do
+        declared[#declared + 1] = { d[1], d[2] }
+    end
+    if f.csharp then
+        for _, d in ipairs(kit.findall([[(?:private|internal|public|protected)\s+([\w.]+)\s+(\w+)\s*;]], text)) do
+            declared[#declared + 1] = { d[2], d[1] }
+        end
+    end
+    for _, st in ipairs(statements(text, f.csharp)) do read(st) end
+    for _, d in ipairs(declared) do
+        local name, kind = d[1], d[2]
+        if f.types[name] == nil and (f.props[name] ~= nil or f.parent[name] ~= nil) and kind:sub(1, 21) ~= "System.ComponentModel" then
+            new_type(name, kind)
+        end
+    end
+    return f
+end
+
+-- ---------------------------------------------------------------- the code beside the form
+
+-- The event handlers in the code file, in order: {control, event, func, lines, used}; and every other line of the file.
+local function read_handlers(code_path, csharp, wired)
+    if not kit.exists(code_path) then return {}, {} end
+    local lines = kit.lines(kit.read(code_path))
+    local found, by_key, used = {}, {}, {}
+    local function add(control, event, func, first, last, replace)
+        local key = control .. "\0" .. event
+        local body = {}
+        for k = first, last do body[#body + 1] = lines[k] end
+        if by_key[key] then
+            if replace then by_key[key].func, by_key[key].lines = func, body end
+            return
+        end
+        by_key[key] = { control = control, event = event, func = func, lines = body }
+        found[#found + 1] = by_key[key]
+    end
+    if csharp then
+        local by_name = {}
+        for _, w in ipairs(wired) do by_name[w[3]] = { w[1], w[2] } end
+        local i = 1
+        while i <= #lines do
+            local name = kit.match([[\s*(?:private|protected|public|internal)?\s*(?:async\s+)?void\s+(\w+)\s*\(]], lines[i])
+            if name and by_name[name] then
+                local depth, j, seen = 0, i, false
+                while j <= #lines do
+                    local _, opened = lines[j]:gsub("{", "")
+                    local _, closed = lines[j]:gsub("}", "")
+                    depth = depth + opened - closed
+                    seen = seen or opened > 0
+                    if seen and depth <= 0 then break end
+                    j = j + 1
+                end
+                j = math.min(j, #lines)
+                add(by_name[name][1], by_name[name][2], name, i, j, true)
+                for k = i, j do used[k] = true end
+                i = j
+            end
+            i = i + 1
+        end
+    else
+        local i = 1
+        while i <= #lines do
+            local line, j = lines[i], i
+            while line:gsub("%s+$", ""):sub(-2) == " _" and j + 1 <= #lines do     -- a declaration can run over lines
+                j = j + 1
+                line = line:gsub("%s+$", ""):sub(1, -2) .. kit.trim(lines[j])
+            end
+            local name, targets = kit.match([[\s*(?:\w+\s+)*Sub\s+(\w+)\s*\(.*\)\s*Handles\s+(.+)$]], line, "i")
+            if name then
+                local last = j
+                while last <= #lines and not kit.match([[\s*End\s+Sub\b]], lines[last], "i") do last = last + 1 end
+                last = math.min(last, #lines)
+                for target in targets:gmatch("[^,]+") do
+                    target = kit.trim(target)
+                    local control, event = target:match("^(.*)%.([^.]*)$")
+                    if control then
+                        local low = control:lower()
+                        if low == "me" or low == "mybase" or low == "myclass" then control = "" end
+                        add(control, event, name, i, last, false)
+                    end
+                end
+                for k = i, last do used[k] = true end
+                i = last
+            end
+            i = i + 1
+        end
+    end
+    local rest = {}
+    for n, line in ipairs(lines) do if not used[n] then rest[#rest + 1] = line end end
+    return found, rest
+end
+
+-- ---------------------------------------------------------------- writing the Visualised form
+
+-- Turn a Windows Forms designer file into a Visualised canvas form. assets: a folder to write the form's pictures
+-- into ("" keeps them inside the form). Returns a table: vml, notes, name, controls, menu_items, scripts, pictures,
+-- other_code (the lines of the code file that are not event handlers), code_file, language.
+function WF.convert(designer, assets, forms)
+    local f = read_form(designer)
+    local out = kit.form()
+    local notes, unknown, approx, loose, saved_pictures = {}, {}, {}, {}, 0
+    local unknown_order, approx_order = {}, {}
+    local code_stem = kit.stem(designer):gsub("%.[Dd][Ee][Ss][Ii][Gg][Nn][Ee][Rr]$", "")
+    local code_path = kit.join(kit.dirname(designer), code_stem .. "." .. kit.ending(designer))
+    local code_file = kit.basename(code_path)
+    local handlers, other_code = read_handlers(code_path, f.csharp, f.events)
+    local language = f.csharp and "C#" or "Visual Basic"
+    local kept, names, live, live_scripts = {}, {}, 0, 0
+    local form_font = font(f.form.Font)
+    local base_font = form_font and form_font[2] or 11
+
+    local function note_approx(why, name)
+        if not approx[why] then approx[why] = {}; approx_order[#approx_order + 1] = why end
+        table.insert(approx[why], name)
+    end
+    local function has(props, key)
+        for _, p in ipairs(props) do if p[1] == key then return true end end
+        return false
+    end
+    local function text_of(name, key)
+        local value = (f.props[name] or {})[key or "Text"]
+        if value == nil then return nil end
+        return string_of(value, f.resources, f.csharp)
+    end
+
+    local function anchor(p)
+        local dock = (p.Dock or ""):match("DockStyle%.(%w+)")
+        if dock then
+            return ({ Fill = "Top,Bottom,Left,Right", Top = "Top,Left,Right", Bottom = "Bottom,Left,Right",
+                      Left = "Top,Bottom,Left", Right = "Top,Bottom,Right" })[dock] or ""
+        end
+        if not p.Anchor then return "" end
+        local sides = {}
+        for _, s in ipairs { "Top", "Bottom", "Left", "Right" } do
+            if p.Anchor:find("AnchorStyles%." .. s .. "%f[%W]") then sides[#sides + 1] = s end
+        end
+        return table.concat(sides, ",")
+    end
+
+    -- Colours, font, enabled, visible: the properties every control shares.
+    local function look(name, into, kind)
+        local p = f.props[name] or {}
+        if p.BackColor and colour(p.BackColor) then into[#into + 1] = { "Background", colour(p.BackColor) } end
+        if p.ForeColor and colour(p.ForeColor) then into[#into + 1] = { "Foreground", colour(p.ForeColor) } end
+        local fnt = p.Font and font(p.Font) or nil
+        if fnt then
+            into[#into + 1] = { "FontFamily", fnt[1] }
+            into[#into + 1] = { "FontSize", fnt[2] }
+            if fnt[3] then into[#into + 1] = { "FontWeight", "Bold" } end
+        elseif kind ~= "MenuItem" then
+            -- Windows Forms' standard text is 8.25 point (11 pixels), smaller than the default here: without this,
+            -- captions would be cut off by boxes that were sized for the smaller text.
+            into[#into + 1] = { "FontSize", base_font }
+        end
+        if kind == "TextBlock" then
+            local align = kit.search([[ContentAlignment\.\w*?(Left|Center|Right)]], p.TextAlign or "")
+            if align and align ~= "Left" then into[#into + 1] = { "TextAlignment", align } end
+        end
+        if is_false(p.Enabled) then into[#into + 1] = { "IsEnabled", "false" } end
+        if is_false(p.Visible) then into[#into + 1] = { "IsVisible", "false" } end
+        local a = anchor(p)
+        if a ~= "" and a ~= "Top,Left" then into[#into + 1] = { "Anchor", a } end
+    end
+
+    -- Carry one event handler across as a script: the original code, kept as comments.
+    local function script(name, event, handler)
+        local body = {}
+        kept[#kept + 1] = { body = body, lines = handler.lines, event = handler.event }      -- written when every name is known
+        return out:script((name ~= "" and name or f.name) .. "_" .. event, body)
+    end
+
+    -- Attach the handlers this control had, where Visualised has the matching event.
+    local function wire(name, kind, into)
+        for _, h in ipairs(handlers) do
+            if h.control == name and not h.used then
+                local ours = EVENTS[h.event]
+                if kind == "TextBlock" and h.event == "Click" then ours = "OnPointerPressed" end
+                if ours and (SUPPORTS[kind] or {})[ours] and not has(into, ours) then
+                    into[#into + 1] = { ours, script(name, ours, h) }
+                else
+                    loose[#loose + 1] = (name ~= "" and name or "the form") .. "." .. h.event
+                    script(name, h.event, h)
+                end
+                h.used = true
+            end
+        end
+    end
+
+    -- -- geometry
+    local function box(name)
+        local p = f.props[name] or {}
+        return (p.Location and pair(p.Location)) or { 0, 0 }, p.Size and pair(p.Size) or nil
+    end
+
+    local function index_of(list, value)
+        for i, v in ipairs(list or {}) do if v == value then return i - 1 end end
+        return 0
+    end
+
+    -- Where a control sits inside a table layout: the table is split into equal cells.
+    local function table_cell(holder, child, size)
+        local p = f.props[holder] or {}
+        local cols = math.max(1, math.floor(numbers(p.ColumnCount or "1")[1] or 1))
+        local rows = math.max(1, math.floor(numbers(p.RowCount or "1")[1] or 1))
+        local _, tsize = box(holder)
+        local tw, th = (tsize or { cols * 100, rows * 30 })[1], (tsize or { cols * 100, rows * 30 })[2]
+        local n = index_of(f.children[holder], child)
+        local cell = f.cells[child] or { n % cols, n // cols }
+        local cw, ch = tw / cols, th / rows
+        local w, h = (size or { math.floor(cw) - 6, math.floor(ch) - 6 })[1], (size or { math.floor(cw) - 6, math.floor(ch) - 6 })[2]
+        return { math.floor(cell[1] * cw + math.max(3, (cw - w) / 2)), math.floor(cell[2] * ch + math.max(3, (ch - h) / 2)) },
+               { math.min(w, math.floor(cw) - 6), math.min(h, math.floor(ch) - 6) }
+    end
+
+    -- A picture box's image, out of the form's resources: a file in the assets folder, or inside the form.
+    local function picture(name, p, props)
+        local value = (p.Image or "") .. " " .. (p.BackgroundImage or "")
+        local ref = value:match('GetObject%("([^"]+)"%)')
+        local found = ref and f.pictures[ref] or nil
+        local shared = kit.trim(value):match("%f[%w_]Resources%.([%w_]+)%s*$")              -- My.Resources.Logo
+        if not found and shared then
+            local file = project_pictures(designer)[shared]
+            if file then
+                local b64 = kit.read_b64(file)
+                if b64 ~= "" then found = { (kit.ending(file):gsub("jpeg", "jpg")), b64 } end
+            end
+        end
+        local mode = (p.SizeMode or ""):match("PictureBoxSizeMode%.(%w+)")
+        props[#props + 1] = { "Stretch", ({ StretchImage = "Fill", Zoom = "Uniform", CenterImage = "None", AutoSize = "None" })[mode or ""] or "None" }
+        if not found then
+            if p.Image or p.BackgroundImage then
+                note_approx("its picture wasn't in the form's resources: set Source to a picture file", name)
+            end
+            return
+        end
+        local kind, b64 = found[1], found[2]
+        if assets ~= "" then
+            local file = f.name .. "_" .. name .. "." .. kind
+            kit.write_b64(kit.join(assets, file), b64)
+            saved_pictures = saved_pictures + 1
+            props[#props + 1] = { "Source", "images/" .. file }
+        elseif #b64 <= 400000 then                                  -- a picture bigger than this isn't put inside the form
+            props[#props + 1] = { "Source", "data:image/" .. (kind == "jpg" and "jpeg" or kind) .. ";base64," .. b64 }
+        else
+            note_approx("its picture is too large to keep inside the form: save it beside the form and set Source", name)
+        end
+    end
+
+    local inside, split
+
+    -- -- controls
+    local function control(name, parent_vml, origin, holder)
+        local kind_wf = f.types[name] or ""
+        if STRIPS[kind_wf] then return end
+        local loc, size = box(name)
+        local holder_kind = f.types[(holder:match("^[^.]*"))] or ""
+        if holder_kind == "TableLayoutPanel" then
+            loc, size = table_cell(holder, name, size)
+        elseif holder_kind == "TabControl" then                    -- a page fills its tab control, below the tabs
+            local _, tsize = box(holder)
+            loc, size = { 0, 22 }, tsize and { tsize[1], tsize[2] - 22 } or size
+        end
+        local x, y = loc[1] + origin[1], loc[2] + origin[2]
+        local known = CONTROLS[kind_wf]
+        local vml, text_prop, why = "Frame", "Text", nil
+        if known then vml, text_prop, why = known[1], known[2], known[3] end
+        local p = f.props[name] or {}
+        local props = { { "Canvas.Left", x }, { "Canvas.Top", y } }
+        local auto = is_true(p.AutoSize)
+        if size and not (auto and (vml == "TextBlock" or vml == "CheckBox" or vml == "RadioButton")) then
+            props[#props + 1] = { "Width", size[1] }
+            props[#props + 1] = { "Height", size[2] }
+        end
+        if why and why ~= "" then note_approx(why, name) end
+
+        if not known then                                          -- nothing like it yet: a labelled frame, same size
+            local key = kind_wf ~= "" and kind_wf or "unknown"
+            if not unknown[key] then unknown[key] = {}; unknown_order[#unknown_order + 1] = key end
+            table.insert(unknown[key], name)
+            props[#props + 1] = { "Text", kind_wf .. ": " .. name }
+            props[#props + 1] = { "Background", "#fafafa" }
+            props[#props + 1] = { "BorderBrush", "#9ca3af" }
+            props[#props + 1] = { "BorderThickness", 1 }
+        elseif text_prop ~= "" then
+            local text = text_of(name)
+            if text ~= nil then props[#props + 1] = { text_prop, TEXT_KINDS[vml] and kit.caption(text) or text } end
+        end
+        if vml == "TextBox" then
+            if is_true(p.Multiline) or kind_wf == "RichTextBox" then props[#props + 1] = { "AcceptsReturn", "true" } end
+            if is_true(p.ReadOnly) then props[#props + 1] = { "IsReadOnly", "true" } end
+            if (p.PasswordChar and not p.PasswordChar:find("Nothing", 1, true) and not p.PasswordChar:find("'\\0'", 1, true))
+                    or is_true(p.UseSystemPasswordChar) then
+                props[#props + 1] = { "IsPassword", "true" }
+            end
+        end
+        if (vml == "ComboBox" or vml == "ListBox") and p.__items and #p.__items > 0 then
+            local items = {}
+            for _, item in ipairs(p.__items) do items[#items + 1] = (item:gsub(",", " ")) end
+            props[#props + 1] = { "Items", table.concat(items, ",") }
+        end
+        if (vml == "CheckBox" or vml == "RadioButton") and is_true(p.Checked) then props[#props + 1] = { "IsChecked", "true" } end
+        if vml == "Image" then picture(name, p, props) end
+        if vml == "DataGrid" then
+            local heads, any = {}, false
+            for i, col in ipairs(f.columns[name] or {}) do
+                local head = kit.caption(text_of(col, "HeaderText") or text_of(col) or "")
+                any = any or head ~= ""
+                head = head:gsub(",", " ")
+                heads[#heads + 1] = head ~= "" and head or ("Column" .. i)
+            end
+            if any then props[#props + 1] = { "Columns", table.concat(heads, ",") } end
+        end
+        if vml == "TextBlock" and size and not auto then props[#props + 1] = { "TextWrapping", "Wrap" } end
+        if kind_wf == "Panel" and p.BorderStyle and not p.BorderStyle:find("None", 1, true) then
+            props[#props + 1] = { "BorderBrush", "#9ca3af" }
+            props[#props + 1] = { "BorderThickness", 1 }
+        end
+        if kind_wf == "TabPage" and ((f.children[holder] or { name })[1] ~= name) then
+            props[#props + 1] = { "IsVisible", "false" }           -- only the first page of a tab control shows
+        end
+        look(name, props, vml)
+        wire(name, vml, props)
+        names[name:lower()] = { name = name, kind = vml, text = known and text_prop ~= "" and text_prop or nil }
+        out:emit(vml, name, parent_vml, props)
+
+        if kind_wf == "TabControl" then
+            local pages = f.children[name] or {}
+            if #pages > 1 then
+                notes[#notes + 1] = name .. " has " .. #pages .. " tabs: each became a frame, and only the first (" .. pages[1]
+                    .. ") is showing. The others are there, hidden: set IsVisible on them to see them."
+            end
+        end
+        if kind_wf == "SplitContainer" then split(name, size) else inside(name, name, { 0, 0 }) end
+    end
+
+    -- A container's controls. Windows Forms lists the front-most first; a canvas draws the last on top.
+    inside = function(holder, parent_vml, origin)
+        local kids = f.children[holder] or {}
+        for i = #kids, 1, -1 do control(kids[i], parent_vml, origin, holder) end
+    end
+
+    split = function(name, size)
+        local p = f.props[name] or {}
+        local w = (size or { 400, 300 })[1]
+        local dist = math.floor(numbers(p.SplitterDistance or "")[1] or (w // 2))
+        local across = (p.Orientation or ""):find("Horizontal", 1, true) ~= nil
+        inside(name .. ".Panel1", name, { 0, 0 })
+        inside(name .. ".Panel2", name, across and { 0, dist + 4 } or { dist + 4, 0 })
+    end
+
+    -- -- menus
+    local function menu(strip, parent_vml)
+        local function walk(item, parent)
+            local props = {}
+            if f.types[item] == "ToolStripSeparator" then
+                props[#props + 1] = { "IsSeparator", "true" }
+            else
+                props[#props + 1] = { "Text", kit.caption(text_of(item) or item) }
+                local keys = shortcut((f.props[item] or {}).ShortcutKeys)
+                if keys ~= "" then props[#props + 1] = { "Shortcut", keys } end
+                if is_false((f.props[item] or {}).Enabled) then props[#props + 1] = { "IsEnabled", "false" } end
+                wire(item, "MenuItem", props)
+            end
+            out:emit("MenuItem", item, parent, props)
+            for _, sub in ipairs(f.items[item] or {}) do walk(sub, item) end
+        end
+        for _, item in ipairs(f.items[strip] or {}) do walk(item, parent_vml) end
+    end
+
+    -- -- the whole form
+    if #f.order == 0 and next(f.form) == nil then
+        error("no form was found in that file (it has no InitializeComponent)", 0)
+    end
+    local client = pair(f.form.ClientSize) or pair(f.form.Size) or { 640, 480 }
+    -- the form's menu bar: normally straight on the form, sometimes tucked inside a panel at the top
+    local menus, status, tools = {}, {}, {}
+    for _, n in ipairs(f.order) do if f.types[n] == "MenuStrip" and f.parent[n] == "" then menus[#menus + 1] = n end end
+    local on_form = #menus
+    for _, n in ipairs(f.order) do
+        if f.types[n] == "MenuStrip" and not kit.contains(menus, n) then menus[#menus + 1] = n end
+        if f.types[n] == "StatusStrip" then status[#status + 1] = n end
+        if f.types[n] == "ToolStrip" then tools[#tools + 1] = n end
+    end
+    local top = on_form > 0 and MENU_BAR or 0
+    local title = f.form.Text and string_of(f.form.Text, f.resources, f.csharp) or nil
+    local win = { { "Title", title ~= nil and title or f.name }, { "Width", client[1] },
+                  { "Height", client[2] - top + (#menus > 0 and 19 or 0) } }
+    if kit.search([[FormBorderStyle\.(Fixed|None)]], f.form.FormBorderStyle or "") then win[#win + 1] = { "Resizable", "false" } end
+    wire("", "Window", win)
+    out:comment(f.name .. ": imported from " .. kit.basename(designer) .. " (Windows Forms, " .. language .. ")")
+    out:emit("Window", f.name, "", win)
+    local canvas = f.name .. "Canvas"
+    local background = colour(f.form.BackColor) or "#f0f0f0"
+    if #menus > 0 then
+        local root = f.name .. "Root"
+        out:emit("DockPanel", root, f.name, {})
+        out:emit("TinyMenu", f.name .. "Menu", root, { { "DockPanel.Dock", "Top" } })
+        out:emit("Canvas", canvas, root, { { "Background", background } })
+        menu(menus[1], "MenuBar")
+    else
+        out:emit("Canvas", canvas, f.name, { { "Background", background } })
+    end
+    inside("", canvas, { 0, -top })
+    for _, strip in ipairs(status) do                              -- a status bar: a strip along the bottom with its text
+        local _, size = box(strip)
+        local h = (size or { 0, 22 })[2]
+        out:emit("Frame", strip, canvas, { { "Canvas.Left", 0 }, { "Canvas.Top", client[2] - top - h }, { "Width", client[1] },
+                                           { "Height", h }, { "Background", "#f0f0f0" }, { "Anchor", "Bottom,Left,Right" } })
+        local x = 6
+        for _, item in ipairs(f.items[strip] or {}) do
+            local text = kit.caption(text_of(item) or "")
+            if text ~= "" then
+                out:emit("TextBlock", item, strip, { { "Canvas.Left", x }, { "Canvas.Top", 3 }, { "Text", text }, { "FontSize", base_font } })
+                x = x + math.max(60, 7 * #text + 16)
+            end
+        end
+    end
+    for _, name in ipairs(f.order) do                              -- right-click menus
+        if f.types[name] == "ContextMenuStrip" then
+            out:emit("ContextMenu", name, "", {})
+            menu(name, name)
+        end
+    end
+
+    -- -- the scripts: the plain steps of Visual Basic (open a form, close this one, a message, a simple setting) as
+    -- Lua that runs, and every other line as the comment it was. C# is kept whole, as comments.
+    local CLOSING = { FormClosing = true, FormClosed = true, Closing = true, Closed = true, Disposed = true }
+    for _, k in ipairs(kept) do
+        local lines, n = kit.commented(k.lines), 0
+        if not f.csharp then
+            lines, n = kit.basic_steps(k.lines, { form = f.name, forms = forms, controls = names, net = true, closing = CLOSING[k.event] == true })
+        end
+        if n > 0 then
+            live, live_scripts = live + n, live_scripts + 1
+            k.body[1] = "-- Imported from " .. code_file .. ". The lines that are Lua were translated from the " .. language .. " beside them, and run."
+            k.body[2] = "-- The lines that are comments are the original " .. language .. ": they do not run, and are there to rewrite."
+        else
+            k.body[1] = "-- Imported from " .. code_file .. ": the original " .. language .. ", kept here for reference."
+            k.body[2] = "-- It does not run. Write what this should do below, in Lua (or change the script's language)."
+        end
+        k.body[3] = "--"
+        for _, line in ipairs(lines) do k.body[#k.body + 1] = line end
+    end
+
+    -- -- what was and was not brought across
+    local made, items = 0, 0
+    for _, n in ipairs(f.order) do
+        local t = f.types[n]
+        if f.parent[n] ~= nil and not STRIP_ITEMS[t] and not STRIPS[t] then made = made + 1 end
+        if t == "ToolStripMenuItem" then items = items + 1 end
+    end
+    local summary = f.name .. ": " .. kit.plural(made, "control") .. " brought across"
+    if items > 0 then summary = summary .. ", and " .. kit.plural(items, "menu item") end
+    local head = { summary .. "." }
+    table.sort(unknown_order)
+    for _, kind in ipairs(unknown_order) do
+        local names = unknown[kind]
+        head[#head + 1] = "No equal yet for " .. kind .. ": " .. table.concat(names, ", ") .. " "
+            .. (#names == 1 and "is" or "are") .. " shown as a labelled frame of the same size."
+    end
+    table.sort(approx_order)
+    for _, why in ipairs(approx_order) do head[#head + 1] = table.concat(approx[why], ", ") .. ": " .. why .. "." end
+    if #menus > 1 then head[#head + 1] = "The form has " .. #menus .. " menu bars; the first (" .. menus[1] .. ") was used." end
+    if #tools > 0 then head[#head + 1] = "Toolbars are not brought across yet: " .. table.concat(tools, ", ") .. "." end
+    local column_parts = {}
+    for _, names in pairs(f.columns) do for _, c in ipairs(names) do column_parts[c] = true end end
+    local behind = {}
+    for _, n in ipairs(f.order) do
+        local t = f.types[n]
+        if f.parent[n] == nil and not STRIPS[t] and not STRIP_ITEMS[t] and not column_parts[n]
+                and not t:match("Column$") and not t:match("ColumnHeader$") then
+            behind[#behind + 1] = n .. " (" .. t .. ")"
+        end
+    end
+    if #behind > 0 then
+        head[#head + 1] = "Not on the form itself, so not brought across (timers, dialogs and the like): " .. table.concat(behind, ", ") .. "."
+    end
+    if #out.scripts > 0 then
+        head[#head + 1] = kit.plural(#out.scripts, "event handler") .. " from " .. code_file .. " came across as scripts. The "
+            .. language .. " is kept as comments for reference; it does not run."
+        if live > 0 then
+            head[#head + 1] = "Except the plain steps, which were translated and do run: " .. kit.plural(live, "line") .. " in "
+                .. kit.plural(live_scripts, "script") .. " (opening and closing forms, messages, simple settings). Check them."
+        end
+    elseif not kit.exists(code_path) then
+        head[#head + 1] = "The code file (" .. code_file .. ") wasn't beside the designer file, so no event code was brought across."
+    end
+    if #loose > 0 then
+        head[#head + 1] = "Kept as scripts but not attached, because there is no matching event here yet: " .. table.concat(loose, ", ") .. "."
+    end
+    local left = {}
+    for _, h in ipairs(handlers) do
+        if not h.used then left[#left + 1] = (h.control ~= "" and h.control or "the form") .. "." .. h.event end
+    end
+    table.sort(left)
+    if #left > 0 then
+        head[#head + 1] = "Handlers for things that were not brought across were left behind: " .. table.concat(left, ", ") .. "."
+    end
+    local other = 0
+    for _, line in ipairs(other_code) do if line:match("%S") then other = other + 1 end end
+    if other > 0 then
+        head[#head + 1] = other .. " other lines of code in " .. code_file .. " (helpers, variables) are not in the form; "
+            .. "the original file is untouched."
+    end
+    for _, n in ipairs(notes) do head[#head + 1] = n end
+
+    return { vml = out:text(), notes = head, name = f.name, controls = made, menu_items = items, scripts = #out.scripts,
+             pictures = saved_pictures, other_code = other_code, other_lines = other, code_file = code_file,
+             code_path = code_path, language = language, live = live }
+end
+
+-- Given any of a form's files (frmX.vb, frmX.Designer.vb, frmX.resx), the designer file to read.
+function WF.designer_file_for(path)
+    if kit.basename(path):lower():match("%.designer%.[vc][bs]$") then return path end
+    local folder, stem = kit.dirname(path), kit.stem(path)
+    for _, ending in ipairs { "vb", "cs" } do
+        local found = kit.find_file(kit.join(folder, stem .. ".Designer." .. ending))
+        if found then return found end
+    end
+    return path
+end
+WINFORMS_LIBRARY
+
+@Script ImportForm
+Interpreter=lua
+<<WINFORMS_IMPORT_FORM
+-- args[1]: any of the form's files; args[2]: a folder for its pictures, or "" to keep them inside the form
+local kit = require("importkit")
+local ok, result = pcall(WF.convert, WF.designer_file_for(args[1]), args[2] or "")
+if not ok then return kit.json.encode({ error = tostring(result) }) end
+return kit.json.encode({ vml = result.vml, notes = result.notes, name = result.name, controls = result.controls,
+                         menu_items = result.menu_items, scripts = result.scripts, pictures = result.pictures })
+WINFORMS_IMPORT_FORM
+
+@Script ImportProject
+Interpreter=lua
+<<WINFORMS_IMPORT_PROJECT
+-- args[1]: the .vbproj or .csproj; args[2]: the new folder to fill. The original project is only read.
+--
+-- What it makes: one .vml form for each Windows Forms form; for each form, a module <Form>_code.lua holding the rest
+-- of that form's code as comments; a module for each other code file, again as comments; images/ with the forms'
+-- pictures; a copy of any SQLite database files in the project's folder; the project file, with the start-up form
+-- taken from the Visual Studio project; and IMPORT-NOTES.txt.
+local kit = require("importkit")
+local project_file, target = args[1], args[2]
+local folder = kit.dirname(project_file)
+local SKIP_DIRS = { bin = true, obj = true, ["my project"] = true, properties = true, [".vs"] = true, [".git"] = true,
+                    packages = true, node_modules = true }
+local SKIP_FILES = { ["assemblyinfo.vb"] = true, ["assemblyinfo.cs"] = true, ["program.cs"] = true, ["applicationevents.vb"] = true }
+local function is_designer(path) return kit.basename(path):lower():match("%.designer%.[vc][bs]$") ~= nil end
+
+-- the project's name, its start-up form, and the files it lists
+local text = kit.read(project_file)
+local name = kit.search([[<AssemblyName>\s*([^<]+?)\s*</AssemblyName>]], text) or kit.stem(project_file)
+local startup = (kit.search([[<StartupObject>\s*([^<]+?)\s*</StartupObject>]], text) or ""):match("([^.]*)$")
+if startup == "" or startup == "MyApplication" or startup == "Main" or startup == "Program" then
+    startup = nil
+    for _, myapp in ipairs(kit.list(folder, "Application.myapp", true)) do
+        startup = kit.search([[<MainForm>\s*(\w+)\s*</MainForm>]], kit.read(myapp))
+        if startup then break end
+    end
+end
+if not startup then                                                -- C#: Application.Run(new Form1())
+    local program = kit.find_file(kit.join(folder, "Program.cs"))
+    if program then startup = kit.search([[Application\.Run\(\s*new\s+(\w+)]], kit.read(program)) end
+end
+
+-- every .vb / .cs file of the project: those it lists, and (newer projects list nothing) those in its folder
+local sources, seen = {}, {}
+local function add(path)
+    if not seen[path:lower()] then seen[path:lower()] = true; sources[#sources + 1] = path end
+end
+for _, listed in ipairs(kit.findall([[<Compile\s+Include="([^"]+)"]], text)) do
+    local found = kit.find_file(kit.join(folder, kit.slashes(listed)))
+    if found then add(found) end
+end
+for _, path in ipairs(kit.list(folder, "*.vb;*.cs", true)) do
+    local skip, rel = false, path:sub(#folder + 2)
+    for part in kit.dirname(rel):gmatch("[^/]+") do
+        if SKIP_DIRS[part:lower()] then skip = true end
+    end
+    if not skip then add(path) end
+end
+table.sort(sources)
+
+local p = kit.project(target, name)
+local used, forms = {}, {}
+for _, designer in ipairs(sources) do                              -- the forms' names, so code that opens one can be made to
+    if is_designer(designer) then
+        local form = kit.stem(kit.stem(designer))
+        forms[form:lower()] = form
+    end
+end
+for _, designer in ipairs(sources) do
+    if is_designer(designer) then
+        local ok, form = pcall(WF.convert, designer, kit.join(target, "images"), forms)
+        if ok and p:form(form.name, form.vml, form.notes,
+                         { controls = form.controls, menu_items = form.menu_items, scripts = form.scripts, pictures = form.pictures, live = form.live },
+                         kit.basename(designer)) then
+            used[designer:lower()], used[form.code_path:lower()] = true, true
+            if form.other_lines > 4 then                           -- more than the empty class around the handlers
+                p:module(form.name .. "_code", {
+                    form.name .. ": the rest of " .. form.code_file .. " (" .. form.language .. "), kept for reference.",
+                    "The event handlers are on the form's controls (Edit Script). What is here is everything else:",
+                    "the form's own routines and variables. It does not run: rewrite what you need below, in Lua,",
+                    "and every form in the project can call it." }, form.other_code)
+            end
+        end                                                        -- (a designer file that isn't a form: a dataset, settings...)
+    end
+end
+if #p.forms == 0 then return kit.json.encode({ error = "no Windows Forms forms were found in that project" }) end
+
+for _, source in ipairs(sources) do
+    if not used[source:lower()] and not SKIP_FILES[kit.basename(source):lower()] and not is_designer(source) then
+        local lines, any = kit.lines(kit.read(source)), false
+        for _, line in ipairs(lines) do if line:match("%S") then any = true break end end
+        if any then
+            local language = kit.ending(source) == "cs" and "C#" or "Visual Basic"
+            p:module(kit.stem(source), {
+                kit.stem(source) .. ": imported from " .. kit.basename(source) .. " (" .. language .. "), kept for reference.",
+                "It does not run: rewrite what you need below, in Lua, and every form in the project can call it." }, lines)
+        end
+    end
+end
+p:databases(folder)
+local mentions = { text }                                          -- everything that might name a database
+for _, source in ipairs(sources) do mentions[#mentions + 1] = kit.read(source) end
+for _, extra in ipairs(kit.list(folder, "*.config;*.settings", true)) do mentions[#mentions + 1] = kit.read(extra) end
+p:access_databases(folder, table.concat(mentions, "\n"))
+return p:finish(startup, kit.basename(project_file))
+WINFORMS_IMPORT_PROJECT

@@ -28,7 +28,7 @@ def steps():
     view, ov = surf.widget, surf.widget.overlay
     origin = view.form.pos()
     add_items = [a.text() for a in eng.find("CtxAdd").menu.actions() if not a.isSeparator()]
-    check("Add menu generated from the registry", add_items[:4], ["Button", "CheckBox", "ComboBox", "ListBox"])
+    check("Add menu generated from the registry", add_items[:4], ["Button", "CheckBox", "ComboBox", "DataGrid"])
     check("containers listed too", "StackPanel" in add_items and "Border" in add_items, True)
     check("grid starts on the form itself", eng.find("Props").widget.target, "Surface")
 

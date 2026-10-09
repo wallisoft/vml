@@ -1,0 +1,813 @@
+# ============================================================================
+# Databases: the databases a project uses, and what this computer can connect
+# to (its ODBC drivers and data sources). Settings > Databases, or double-click
+# a database in the project tree. An address is a line of text in the project
+# file, so a password need not be in it: PWD=? asks when the app connects, and
+# ${NAME} reads an environment variable.
+# ============================================================================
+
+@Window Databases
+Title=Databases
+Width=900
+Height=640
+Resizable=false
+BorderBrush=#1E3A8A
+OnOpened=DbScreenLoad
+
+@DockPanel DbRoot
+Parent=Databases
+
+@Border DbHeader
+Parent=DbRoot
+DockPanel.Dock=Top
+Background=#1E3A8A
+Padding=12,8
+
+@TextBlock lblDbTitle
+Parent=DbHeader
+Text=Databases
+FontSize=14
+FontWeight=Bold
+Foreground=White
+
+@Canvas DbBody
+Parent=DbRoot
+Background=#F9FAFB
+
+# ---------------------------------------------------------------- the project's databases
+@TextBlock lblList
+Parent=DbBody
+Canvas.Left=16
+Canvas.Top=12
+Text=This project's databases
+FontWeight=Bold
+
+@ListBox lstDb
+Parent=DbBody
+Canvas.Left=16
+Canvas.Top=36
+Width=200
+Height=250
+ItemsSource=DbNames
+SelectionChanged=DbPick
+
+@Button btnDbNew
+Parent=DbBody
+Canvas.Left=16
+Canvas.Top=294
+Width=96
+Height=28
+Content=New
+OnClick=DbNew
+
+@Button btnDbRemove
+Parent=DbBody
+Canvas.Left=120
+Canvas.Top=294
+Width=96
+Height=28
+Content=Remove
+OnClick=DbRemove
+
+# ---------------------------------------------------------------- one database
+@TextBlock lblName
+Parent=DbBody
+Canvas.Left=236
+Canvas.Top=40
+Text=Name
+
+@TextBox txtDbName
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=36
+Width=180
+Height=26
+Watermark=main
+
+@TextBlock lblNameHint
+Parent=DbBody
+Canvas.Left=520
+Canvas.Top=40
+Text=What scripts and ItemsSource call it. The first is the main one.
+Foreground=#6B7280
+FontSize=11
+
+@RadioButton rdoSqlite
+Parent=DbBody
+Canvas.Left=236
+Canvas.Top=74
+Width=300
+Content=A SQLite file (travels with the app, to the web too)
+GroupName=dbkind
+IsChecked=true
+OnClick=DbCompose
+
+@TextBlock lblFile
+Parent=DbBody
+Canvas.Left=256
+Canvas.Top=104
+Text=File
+
+@TextBox txtDbFile
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=100
+Width=440
+Height=26
+Watermark=data.db
+TextChanged=DbCompose
+
+@Button btnDbBrowse
+Parent=DbBody
+Canvas.Left=778
+Canvas.Top=100
+Width=96
+Height=26
+Content=Browse...
+OnClick=DbBrowse
+
+@RadioButton rdoOdbc
+Parent=DbBody
+Canvas.Left=236
+Canvas.Top=138
+Width=420
+Content=ODBC: a database on a server, or one with a driver of its own
+GroupName=dbkind
+OnClick=DbCompose
+
+@ComboBox cboPreset
+Parent=DbBody
+Canvas.Left=664
+Canvas.Top=134
+Width=210
+Height=26
+ItemsSource=DbPresetChoices
+SelectionChanged=DbPreset
+
+@TextBlock lblDriver
+Parent=DbBody
+Canvas.Left=256
+Canvas.Top=168
+Text=Driver
+
+@ComboBox cboDriver
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=164
+Width=226
+Height=26
+ItemsSource=DbDriverChoices
+SelectionChanged=DbCompose
+
+@Button btnDriverBrowse
+Parent=DbBody
+Canvas.Left=562
+Canvas.Top=164
+Width=72
+Height=26
+Content=Browse...
+OnClick=DbDriverBrowse
+
+@TextBlock lblDsn
+Parent=DbBody
+Canvas.Left=644
+Canvas.Top=168
+Text=or DSN
+
+@ComboBox cboDsn
+Parent=DbBody
+Canvas.Left=694
+Canvas.Top=164
+Width=180
+Height=26
+ItemsSource=DbDsnChoices
+SelectionChanged=DbCompose
+
+@TextBlock lblServer
+Parent=DbBody
+Canvas.Left=256
+Canvas.Top=200
+Text=Server
+
+@TextBox txtDbServer
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=196
+Width=220
+Height=26
+Watermark=name or name,port
+TextChanged=DbCompose
+
+@TextBlock lblDatabase
+Parent=DbBody
+Canvas.Left=564
+Canvas.Top=200
+Text=Database
+
+@TextBox txtDbDatabase
+Parent=DbBody
+Canvas.Left=634
+Canvas.Top=196
+Width=240
+Height=26
+Watermark=its name, or the file for Access
+TextChanged=DbCompose
+
+@TextBlock lblUser
+Parent=DbBody
+Canvas.Left=256
+Canvas.Top=232
+Text=User
+
+@TextBox txtDbUser
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=228
+Width=220
+Height=26
+TextChanged=DbCompose
+
+@TextBlock lblPassword
+Parent=DbBody
+Canvas.Left=564
+Canvas.Top=232
+Text=Password
+
+@TextBox txtDbPassword
+Parent=DbBody
+Canvas.Left=634
+Canvas.Top=228
+Width=240
+Height=26
+IsPassword=true
+TextChanged=DbCompose
+
+@CheckBox chkDbAsk
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=260
+Width=330
+Content=Don't save the password: ask when the app connects
+IsChecked=true
+OnClick=DbCompose
+
+@CheckBox chkDbWindows
+Parent=DbBody
+Canvas.Left=668
+Canvas.Top=260
+Width=210
+Content=Windows sign-in (no password)
+OnClick=DbCompose
+
+@TextBlock lblExtra
+Parent=DbBody
+Canvas.Left=256
+Canvas.Top=294
+Text=More
+
+@TextBox txtDbExtra
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=290
+Width=544
+Height=26
+Watermark=anything else the driver wants: Encrypt=yes;TrustServerCertificate=no;Port=5432
+TextChanged=DbCompose
+
+@TextBlock lblAddress
+Parent=DbBody
+Canvas.Left=236
+Canvas.Top=332
+Text=Address
+FontWeight=Bold
+
+@TextBox txtDbAddress
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=328
+Width=544
+Height=26
+FontFamily=monospace
+FontSize=12
+
+@TextBlock lblAddressHint
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=358
+Width=544
+Text=This line is what the project keeps. You can type it yourself: PWD=? asks for the password, ${NAME} reads an environment variable.
+Foreground=#6B7280
+FontSize=11
+TextWrapping=Wrap
+
+@Button btnDbTest
+Parent=DbBody
+Canvas.Left=330
+Canvas.Top=396
+Width=96
+Height=28
+Content=Test
+OnClick=DbTestNow
+
+@Button btnDbCopy
+Parent=DbBody
+Canvas.Left=434
+Canvas.Top=396
+Width=200
+Height=28
+Content=Copy its data into SQLite...
+OnClick=DbCopyAll
+
+@Button btnDbSave
+Parent=DbBody
+Canvas.Left=778
+Canvas.Top=396
+Width=96
+Height=28
+Content=Save
+Background=#2563EB
+Foreground=White
+OnClick=DbSave
+
+@TextBlock lblDbResult
+Parent=DbBody
+Canvas.Left=236
+Canvas.Top=432
+Width=638
+Height=34
+Text=
+TextWrapping=Wrap
+Foreground=#374151
+
+# ---------------------------------------------------------------- what this computer has
+@TextBlock lblDrivers
+Parent=DbBody
+Canvas.Left=16
+Canvas.Top=474
+Text=ODBC drivers on this computer
+FontWeight=Bold
+
+@ListBox lstDrivers
+Parent=DbBody
+Canvas.Left=16
+Canvas.Top=496
+Width=420
+Height=92
+ItemsSource=DbDriverRows
+
+@TextBlock lblSources
+Parent=DbBody
+Canvas.Left=452
+Canvas.Top=474
+Text=Data sources (DSNs)
+FontWeight=Bold
+
+@ListBox lstSources
+Parent=DbBody
+Canvas.Left=452
+Canvas.Top=496
+Width=300
+Height=92
+ItemsSource=DbSourceRows
+
+@Button btnDbHelp
+Parent=DbBody
+Canvas.Left=768
+Canvas.Top=496
+Width=106
+Height=28
+Content=Get a driver...
+OnClick=DbDriverHelp
+
+@Button btnDbClose
+Parent=DbBody
+Canvas.Left=768
+Canvas.Top=560
+Width=106
+Height=28
+Content=Close
+OnClick=CloseSelf
+
+# ============================================================================ scripts
+
+@Script DbScreenLoad
+Interpreter=lua
+<<LUA
+-- Everything the other scripts share lives in DB (one Lua state for the form).
+local json = require("dkjson")
+DB = { json = json, filling = false }
+
+function DB.project() local raw = Vml("ProjectInfo") return raw ~= "" and json.decode(raw) or nil end
+function DB.get(name) return Vml("GetProperty", name, "Text") end
+function DB.set(name, value) Vml("SetProperty", name, "Text", value or "") end
+function DB.on(name) return Vml("GetProperty", name, "IsChecked") == "true" end
+function DB.say(text, bad) Vml("SetProperty", "lblDbResult", "Foreground", bad and "#B91C1C" or "#047857"); DB.set("lblDbResult", text) end
+function DB.index(name) return tonumber(Vml("GetProperty", name, "SelectedIndex")) or -1 end
+function DB.trim(s) return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+function DB.braced(v) if v:find("[;{}]") then return "{" .. v:gsub("}", "}}") .. "}" end return v end
+function DB.file_driver(driver) local d = driver:lower() return d:find("access", 1, true) or d:find("mdb", 1, true) or d:find("excel", 1, true) or d:find("dbase", 1, true) end
+
+-- The address the boxes describe.
+function DB.compose()
+    if DB.on("rdoSqlite") then
+        local file = DB.trim(DB.get("txtDbFile"))
+        return file ~= "" and ("sqlite:" .. file) or ""
+    end
+    local parts = {}
+    local driver, dsn = Vml("GetProperty", "cboDriver", "SelectedItem"), Vml("GetProperty", "cboDsn", "SelectedItem")
+    if DB.index("cboDriver") <= 0 then driver = "" end      -- the first row of each is "nothing chosen"
+    if DB.index("cboDsn") <= 0 then dsn = "" end
+    if DB.absent then driver = DB.absent end                  -- named in the address, but not on this computer
+    if dsn ~= "" then parts[#parts + 1] = "DSN=" .. dsn
+    elseif driver ~= "" then parts[#parts + 1] = "Driver={" .. driver .. "}" end
+    local server, database = DB.trim(DB.get("txtDbServer")), DB.trim(DB.get("txtDbDatabase"))
+    if server ~= "" then parts[#parts + 1] = "Server=" .. server end
+    if database ~= "" then parts[#parts + 1] = (DB.file_driver(driver) and "DBQ=" or "Database=") .. database end
+    if DB.on("chkDbWindows") then
+        parts[#parts + 1] = "Trusted_Connection=Yes"
+    else
+        local user, word = DB.trim(DB.get("txtDbUser")), DB.get("txtDbPassword")
+        if user ~= "" then parts[#parts + 1] = "UID=" .. DB.braced(user) end
+        if DB.on("chkDbAsk") then
+            if user ~= "" then parts[#parts + 1] = "PWD=?" end
+        elseif word ~= "" then
+            parts[#parts + 1] = "PWD=" .. DB.braced(word)
+        end
+    end
+    local extra = DB.trim(DB.get("txtDbExtra")):gsub("^;+", ""):gsub(";+$", "")
+    if extra ~= "" then parts[#parts + 1] = extra end
+    return #parts > 0 and ("odbc:" .. table.concat(parts, ";")) or ""
+end
+
+-- key=value;key={va;lue} -> a list of { key, value }
+function DB.pairs_of(text)
+    local out, i = {}, 1
+    while i <= #text do
+        local key, at = text:match("^%s*([^=;]+)=()", i)
+        if not key then break end
+        local value
+        if text:sub(at, at) == "{" then
+            local close = text:find("}", at, true)
+            while close and text:sub(close + 1, close + 1) == "}" do close = text:find("}", close + 2, true) end
+            value = text:sub(at + 1, (close or #text + 1) - 1):gsub("}}", "}")
+            i = (close or #text) + 1
+        else
+            local stop = text:find(";", at, true) or (#text + 1)
+            value = text:sub(at, stop - 1)
+            i = stop
+        end
+        out[#out + 1] = { DB.trim(key), value }
+        i = (text:find("[^;%s]", i) or (#text + 1))
+    end
+    return out
+end
+
+-- Put an address into the boxes.
+function DB.show(name, address)
+    DB.filling = true
+    DB.absent, DB.file = nil, false
+    DB.set("txtDbName", name)
+    for _, box in ipairs({ "txtDbFile", "txtDbServer", "txtDbDatabase", "txtDbUser", "txtDbPassword", "txtDbExtra" }) do DB.set(box, "") end
+    Vml("SetProperty", "cboDriver", "SelectedIndex", "0"); Vml("SetProperty", "cboDsn", "SelectedIndex", "0")
+    Vml("SetProperty", "chkDbWindows", "IsChecked", "false"); Vml("SetProperty", "chkDbAsk", "IsChecked", "true")
+    local kind, rest = address:match("^%s*(%a+)%s*:(.*)$")
+    kind = (kind or ""):lower()
+    if kind ~= "sqlite" and kind ~= "odbc" then
+        rest = address
+        kind = address:find("=", 1, true) and "odbc" or "sqlite"
+    end
+    Vml("SetProperty", "rdoSqlite", "IsChecked", kind == "sqlite" and "true" or "false")
+    Vml("SetProperty", "rdoOdbc", "IsChecked", kind == "odbc" and "true" or "false")
+    if kind == "sqlite" then
+        DB.set("txtDbFile", DB.trim(rest))
+    else
+        local extra = {}
+        for _, pair in ipairs(DB.pairs_of(rest)) do
+            local key, value = pair[1]:lower(), pair[2]
+            if key == "driver" then
+                local here = false
+                for _, d in ipairs(json.decode(Vml("DbDrivers")) or {}) do if d:lower() == value:lower() then here = true; value = d end end
+                if here then Vml("SetProperty", "cboDriver", "SelectedItem", value) else DB.absent = value end
+                DB.file = not here and value:find("[/\\]") ~= nil and Vml("FileExists", value) == "true"   -- the driver's own file, browsed for
+            elseif key == "dsn" then Vml("SetProperty", "cboDsn", "SelectedItem", value)
+            elseif key == "server" then DB.set("txtDbServer", value)
+            elseif key == "database" or key == "dbq" then DB.set("txtDbDatabase", value)
+            elseif key == "uid" or key == "user" or key == "user id" then DB.set("txtDbUser", value)
+            elseif key == "pwd" or key == "password" then
+                Vml("SetProperty", "chkDbAsk", "IsChecked", value == "?" and "true" or "false")
+                if value ~= "?" then DB.set("txtDbPassword", value) end
+            elseif key == "trusted_connection" and value:lower() ~= "no" then Vml("SetProperty", "chkDbWindows", "IsChecked", "true")
+            else extra[#extra + 1] = pair[1] .. "=" .. DB.braced(value) end
+        end
+        DB.set("txtDbExtra", table.concat(extra, ";"))
+    end
+    DB.filling = false
+    DB.set("txtDbAddress", address)          -- exactly as it was kept, whatever the boxes made of it
+    DB.shown = DB.compose()                  -- the address changes only when a box really does
+    DB.enable()
+    if DB.absent and not DB.file then DB.say("This address names the driver '" .. DB.absent .. "', which isn't on this computer. It is kept as it is.", true) end
+end
+
+function DB.enable()
+    local odbc = DB.on("rdoOdbc")
+    local windows = DB.on("chkDbWindows")
+    for _, c in ipairs({ "txtDbFile", "btnDbBrowse" }) do Vml("SetProperty", c, "IsEnabled", odbc and "false" or "true") end
+    for _, c in ipairs({ "cboDriver", "btnDriverBrowse", "cboDsn", "txtDbServer", "txtDbDatabase", "chkDbWindows", "txtDbExtra", "btnDbCopy" }) do Vml("SetProperty", c, "IsEnabled", odbc and "true" or "false") end
+    for _, c in ipairs({ "txtDbUser", "chkDbAsk" }) do Vml("SetProperty", c, "IsEnabled", (odbc and not windows) and "true" or "false") end
+    Vml("SetProperty", "txtDbPassword", "IsEnabled", (odbc and not windows and not DB.on("chkDbAsk")) and "true" or "false")
+end
+
+local project = DB.project()
+Vml("SetProperty", "lblDbTitle", "Text", project and ("Databases - " .. project.name) or "Databases (no project is open: open one to keep a database with it)")
+for _, c in ipairs({ "btnDbNew", "btnDbRemove", "btnDbSave" }) do Vml("SetProperty", c, "IsEnabled", project and "true" or "false") end
+local wanted = Vml("GetSetting", "db_edit")
+Vml("SetSetting", "db_edit", "")
+local first
+for name in pairs(project and project.databases or {}) do first = first or name end
+local start = (project and project.databases[wanted]) and wanted or nil
+if start then
+    DB.show(start, project.databases[start])
+elseif wanted ~= "" then
+    DB.show(wanted, "sqlite:" .. wanted .. ".db")
+else
+    DB.show(project and not first and "main" or "", project and not first and "sqlite:data.db" or "")
+end
+LUA
+
+@Script DbNames
+Interpreter=lua
+<<LUA
+local raw = Vml("ProjectInfo")
+local names = {}
+if raw ~= "" then
+    for line in (Vml("FileRead", require("dkjson").decode(raw).file) .. "\n"):gmatch("(.-)\r?\n") do    -- in the project's own order
+        local name = line:match("^%s*[Dd]atabase%s*=%s*([%a_][%w_]*)%s*=")
+        if name then names[#names + 1] = name end
+    end
+    local known = require("dkjson").decode(raw).databases
+    local listed = {}
+    for _, n in ipairs(names) do listed[n] = true end
+    for n in pairs(known) do if not listed[n] then names[#names + 1] = n end end
+    for i = #names, 1, -1 do if not known[names[i]] then table.remove(names, i) end end
+end
+return require("dkjson").encode(names)
+LUA
+
+@Script DbDriverChoices
+Interpreter=lua
+<<LUA
+local list = require("dkjson").decode(Vml("DbDrivers")) or {}
+table.insert(list, 1, "(choose)")
+return require("dkjson").encode(list)
+LUA
+
+@Script DbPresetChoices
+Interpreter=lua
+<<LUA
+return '["Start from...", "SQL Server", "MySQL or MariaDB", "PostgreSQL", "Oracle", "Access file (.mdb, .accdb)", "SQLite through ODBC"]'
+LUA
+
+# Start from...: the usual driver for a kind of database (the one on this computer if there is one), and what it
+# usually wants besides. Nothing here connects to anything: it only fills the boxes.
+@Script DbPreset
+Interpreter=lua
+<<LUA
+if not DB or DB.filling then return end
+local PRESETS = {
+    { find = { "odbc driver 18 for sql server", "odbc driver 17 for sql server", "sql server" }, usual = "ODBC Driver 18 for SQL Server",
+      extra = "Encrypt=yes;TrustServerCertificate=no", hint = "Server: its name (or name,port). Database: its name." },
+    { find = { "mysql odbc", "mysql", "mariadb" }, usual = "MySQL ODBC 8.0 Unicode Driver", extra = "Port=3306", hint = "Server: its name. Database: its name." },
+    { find = { "postgresql unicode", "postgresql", "psqlodbc" }, usual = "PostgreSQL Unicode", extra = "Port=5432", hint = "Server: its name. Database: its name." },
+    { find = { "oracle" }, usual = "Oracle ODBC Driver", extra = "DBQ=server:1521/service", hint = "Put the server, port and service in More (DBQ=...), and leave Server and Database empty." },
+    { find = { "microsoft access driver (*.mdb, *.accdb)", "access", "mdbtools" }, usual = "Microsoft Access Driver (*.mdb, *.accdb)", extra = "", hint = "Database: the .mdb or .accdb file, with its whole path." },
+    { find = { "sqlite3", "sqlite" }, usual = "SQLite3", extra = "", hint = "Database: the file, with its whole path. (A SQLite file needs no ODBC: the choice above opens it directly.)" },
+}
+local preset = PRESETS[DB.index("cboPreset")]
+if not preset then return end
+local here
+local drivers = DB.json.decode(Vml("DbDrivers")) or {}
+for _, want in ipairs(preset.find) do
+    for _, d in ipairs(drivers) do
+        if not here and d:lower():find(want, 1, true) then here = d end
+    end
+end
+DB.filling = true
+Vml("SetProperty", "rdoSqlite", "IsChecked", "false"); Vml("SetProperty", "rdoOdbc", "IsChecked", "true")
+Vml("SetProperty", "cboDsn", "SelectedIndex", "0")
+DB.absent, DB.file = nil, false
+if here then Vml("SetProperty", "cboDriver", "SelectedItem", here) else Vml("SetProperty", "cboDriver", "SelectedIndex", "0"); DB.absent = preset.usual end
+DB.set("txtDbExtra", preset.extra)
+Vml("SetProperty", "cboPreset", "SelectedIndex", "0")
+DB.filling = false
+DB.enable()
+DB.shown = DB.compose()
+DB.set("txtDbAddress", DB.shown)
+if here then
+    DB.say(preset.hint)
+else
+    DB.say("The usual driver for this is '" .. preset.usual .. "', which isn't on this computer yet (see Get a driver). " .. preset.hint, true)
+end
+LUA
+
+# A driver that isn't in the list: its own file (.so, .dylib). ODBC on Linux and macOS takes a driver by its file;
+# Windows only knows the drivers that have been installed.
+@Script DbDriverBrowse
+Interpreter=lua
+<<LUA
+if package.config:sub(1, 1) == "\\" then
+    return Vml("InfoDialog", "On Windows a driver has to be installed before it can be used: run its installer, and it appears in the list here (close this window and open it again).\n\nA driver's .dll can't be picked by hand: Windows only offers the drivers it has been told about.", "Drivers")
+end
+local path = Vml("FileOpenDialog", "Choose the driver's file (usually in /usr/lib or /opt)", "so,dylib")
+if path == "" then return end
+DB.filling = true
+Vml("SetProperty", "rdoSqlite", "IsChecked", "false"); Vml("SetProperty", "rdoOdbc", "IsChecked", "true")
+Vml("SetProperty", "cboDriver", "SelectedIndex", "0"); Vml("SetProperty", "cboDsn", "SelectedIndex", "0")
+DB.absent, DB.file = path, true
+DB.filling = false
+DB.enable()
+DB.shown = DB.compose()
+DB.set("txtDbAddress", DB.shown)
+DB.say("Using the driver in " .. path .. ". Test will say whether it loads.")
+LUA
+
+@Script DbDsnChoices
+Interpreter=lua
+<<LUA
+local list = { "(none)" }
+for _, s in ipairs(require("dkjson").decode(Vml("DbSources")) or {}) do list[#list + 1] = s.name end
+return require("dkjson").encode(list)
+LUA
+
+@Script DbDriverRows
+Interpreter=lua
+<<LUA
+local list = require("dkjson").decode(Vml("DbDrivers")) or {}
+if #list == 0 then list = { "(none found: ODBC isn't set up on this computer. See Get a driver.)" } end
+return require("dkjson").encode(list)
+LUA
+
+@Script DbSourceRows
+Interpreter=lua
+<<LUA
+local list = {}
+for _, s in ipairs(require("dkjson").decode(Vml("DbSources")) or {}) do list[#list + 1] = s.name .. "   (" .. s.driver .. ")" end
+if #list == 0 then list = { "(none set up)" } end
+return require("dkjson").encode(list)
+LUA
+
+@Script DbPick
+Interpreter=lua
+<<LUA
+if not DB then return end
+local name = Vml("GetProperty", "lstDb", "SelectedItem")
+local project = DB.project()
+if name ~= "" and project and project.databases[name] then
+    DB.set("lblDbResult", "")
+    DB.show(name, project.databases[name])
+end
+LUA
+
+@Script DbCompose
+Interpreter=lua
+<<LUA
+-- a box changed: write the address it now describes
+if not DB or DB.filling then return end
+DB.enable()
+if DB.index("cboDriver") > 0 then DB.absent = nil end
+local now = DB.compose()
+if now ~= DB.shown then
+    DB.shown = now
+    DB.set("txtDbAddress", now)
+end
+LUA
+
+@Script DbNew
+Interpreter=lua
+<<LUA
+local project = DB.project()
+local name, n = "main", 1
+while project and project.databases[name] do n = n + 1; name = "data" .. n end
+Vml("SetProperty", "lstDb", "SelectedIndex", "-1")
+DB.show(name, "sqlite:" .. (name == "main" and "data" or name) .. ".db")
+DB.say("A new database: choose what it is, then Save.")
+LUA
+
+@Script DbBrowse
+Interpreter=lua
+<<LUA
+local path = Vml("FileOpenDialog", "Choose a SQLite file", "db,sqlite,sqlite3,db3,s3db")
+if path == "" then return end
+local project = DB.project()
+if project then                                                   -- inside the project's folder: keep it relative, so it travels
+    local folder = project.folder:gsub("\\", "/"):gsub("/+$", "") .. "/"
+    local clean = path:gsub("\\", "/")
+    if clean:sub(1, #folder):lower() == folder:lower() then path = clean:sub(#folder + 1) end
+end
+Vml("SetProperty", "rdoSqlite", "IsChecked", "true")
+DB.set("txtDbFile", path)
+Vml("RunScript", "DbCompose")
+LUA
+
+@Script DbTestNow
+Interpreter=lua
+<<LUA
+local address = DB.trim(DB.get("txtDbAddress"))
+if address == "" then return DB.say("There's no address to test yet.", true) end
+DB.say("Connecting...")
+local r = DB.json.decode(Vml("DbTest", address))
+if r.ok then
+    DB.say("Connected (" .. (r.kind == "odbc" and "ODBC" or "SQLite") .. "): " .. r.tables .. (r.tables == 1 and " table or view." or " tables and views."))
+else
+    DB.say("Not connected: " .. r.error, true)
+end
+LUA
+
+@Script DbSave
+Interpreter=lua
+<<LUA
+local name, address = DB.trim(DB.get("txtDbName")), DB.trim(DB.get("txtDbAddress"))
+if not DB.project() then return DB.say("Open a project first: a database is kept in its project file.", true) end
+if address == "" then return DB.say("There's no address to save yet.", true) end
+if Vml("ProjectDatabase", name, address) ~= "true" then
+    return DB.say("'" .. name .. "' can't be used as a name: use letters, digits and _ (starting with a letter).", true)
+end
+Vml("SetDialogResult", "saved")
+Vml("Requery", "lstDb")
+Vml("SetProperty", "lstDb", "SelectedItem", name)
+DB.say("Saved in the project as " .. name .. "." .. ((address:lower():find("pwd=[^?;]") and not address:find("PWD=${", 1, true)) and "  Its password is in the project file, readable by anyone who has it." or ""))
+LUA
+
+@Script DbRemove
+Interpreter=lua
+<<LUA
+local name = Vml("GetProperty", "lstDb", "SelectedItem")
+if name == "" then return DB.say("Click a database in the list first.", true) end
+if Vml("ConfirmDialog", "Remove the database '" .. name .. "' from the project?\n\nThe database itself isn't touched.", "Databases") ~= "true" then return end
+Vml("ProjectDatabase", name, "")
+Vml("SetDialogResult", "saved")
+Vml("Requery", "lstDb")
+DB.show("", "")
+DB.say("Removed from the project.")
+LUA
+
+@Script DbCopyAll
+Interpreter=lua
+<<LUA
+-- Bring an ODBC database's tables and rows into a SQLite file in the project, which the app then carries with it.
+local project = DB.project()
+local name, address = DB.trim(DB.get("txtDbName")), DB.trim(DB.get("txtDbAddress"))
+if not project then return DB.say("Open a project first: the copy is kept in the project's folder.", true) end
+if not address:lower():match("^odbc:") then return DB.say("Copying is for an ODBC database: a SQLite file already travels with the app.", true) end
+if not name:match("^[%a_][%w_]*$") then return DB.say("Give the database a name first (letters, digits and _).", true) end
+local file = Vml("PromptDialog", "Copy into SQLite", "Every table and its rows are copied into a new SQLite file in the project's folder.\nThe database you copy from is only read.\n\nName for the new file:", name .. ".db")
+if file == "" then return end
+if not file:lower():match("%.db$") then file = file .. ".db" end
+local target = project.folder:gsub("\\", "/"):gsub("/+$", "") .. "/" .. file
+if Vml("FileExists", target) == "true" then return DB.say(file .. " is already in the project's folder: choose another name.", true) end
+local src, dst = "vml_copy_from", "vml_copy_into"
+Vml("DbClose", src); Vml("DbClose", dst)
+DB.say("Connecting...")
+if Vml("DbOpen", src, address) ~= "true" then return DB.say("Not connected: " .. Vml("DbError"), true) end
+local wanted = {}
+for _, t in ipairs(DB.json.decode(Vml("DbTables", src, "tables")) or {}) do
+    if not t:match("^MSys") and not t:match("^~") and not t:lower():match("^sys") then wanted[#wanted + 1] = t end
+end
+if #wanted == 0 then Vml("DbClose", src) return DB.say("There are no tables to copy in that database.", true) end
+Vml("DbOpen", dst, "sqlite:" .. target)
+local tables, rows, left = 0, 0, {}
+for i, t in ipairs(wanted) do
+    DB.say("Copying " .. t .. " (" .. i .. " of " .. #wanted .. ")...")
+    local n = tonumber(Vml("DbCopyTable", src, t, dst))
+    if n then tables = tables + 1; rows = rows + n else left[#left + 1] = t end
+end
+Vml("DbClose", src); Vml("DbClose", dst)
+if tables == 0 then return DB.say("Nothing could be copied: " .. Vml("DbError"), true) end
+local swap = Vml("ConfirmDialog", tables .. (tables == 1 and " table" or " tables") .. " and " .. rows .. (rows == 1 and " row" or " rows") .. " copied into " .. file .. "."
+    .. (#left > 0 and ("\n\nNot copied: " .. table.concat(left, ", ") .. ".") or "")
+    .. "\n\nUse the copy as '" .. name .. "' from now on, in place of the ODBC connection?\n\nYes: the app carries its data with it (to the web too), and no longer sees changes made in the original.\nNo: both are kept, the copy as '" .. name .. "_copy'.", "Copy into SQLite") == "true"
+local as = swap and name or (name .. "_copy")
+Vml("ProjectDatabase", as, "sqlite:" .. file)
+Vml("SetDialogResult", "saved")
+Vml("Requery", "lstDb")
+Vml("SetProperty", "lstDb", "SelectedItem", as)
+DB.show(as, "sqlite:" .. file)
+DB.say("Copied: " .. file .. " is in the project as " .. as .. ".")
+LUA
+
+@Script DbDriverHelp
+Interpreter=lua
+<<LUA
+local windows = package.config:sub(1, 1) == "\\"
+local text
+if windows then
+    text = "A database is reached through its ODBC driver, which comes from whoever makes the database. Once installed it appears in the list here.\n\n"
+        .. "SQL Server: Microsoft ODBC Driver for SQL Server\nAccess (.mdb, .accdb): Microsoft Access Database Engine (the 64-bit one)\nMySQL: MySQL Connector/ODBC\nPostgreSQL: psqlODBC\nOracle: Oracle Instant Client ODBC\n\n"
+        .. "Visualised is a 64-bit program, so it needs 64-bit drivers. Data sources (DSNs) are set up in Windows: search the Start menu for ODBC Data Sources (64-bit).\n\nOpen Microsoft's page of ODBC drivers?"
+    if Vml("ConfirmDialog", text, "Get a driver") == "true" then Vml("OpenUrl", "https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server") end
+else
+    text = "A database is reached through its ODBC driver. On Linux, ODBC itself is unixODBC, and each database has a package for its driver. In a terminal:\n\n"
+        .. "ODBC itself:     sudo apt install unixodbc\nAccess files:    sudo apt install odbc-mdbtools\nPostgreSQL:      sudo apt install odbc-postgresql\nMySQL, MariaDB:  sudo apt install odbc-mariadb\nSQLite:          sudo apt install libsqliteodbc\nSQL Server:      Microsoft's msodbcsql18 package (see Microsoft's instructions)\n\n"
+        .. "Then close this window and open it again: the driver appears in the list. Data sources (DSNs) are kept in ~/.odbc.ini."
+    Vml("InfoDialog", text, "Get a driver")
+end
+LUA

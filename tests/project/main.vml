@@ -1,0 +1,67 @@
+@Window Main
+Title=Demo
+Width=420
+Height=300
+OnOpened=MainOpened
+
+@Canvas MainCanvas
+Parent=Main
+Background=#ffffff
+
+@TextBlock lblHello
+Parent=MainCanvas
+Canvas.Left=16
+Canvas.Top=16
+Text=
+
+@ListBox lstItems
+Parent=MainCanvas
+Canvas.Left=16
+Canvas.Top=48
+Width=180
+Height=120
+ItemsSource=SELECT item FROM stock ORDER BY item
+
+@TextBlock lblQty
+Parent=MainCanvas
+Canvas.Left=210
+Canvas.Top=48
+Text=
+
+@Button btnPick
+Parent=MainCanvas
+Canvas.Left=16
+Canvas.Top=190
+Content=Pick...
+OnClick=Pick
+
+@Button btnQty
+Parent=MainCanvas
+Canvas.Left=120
+Canvas.Top=190
+Content=How many?
+OnClick=HowMany
+
+@Script MainOpened
+Interpreter=lua
+<<LUA
+-- Shout comes from the module, with no require
+Vml("SetProperty", "lblHello", "Text", Shout("hello") .. " from " .. Vml("ProjectName"))
+Project.user = "steve"
+Project.visits = (Project.visits or 0) + 1
+LUA
+
+@Script Pick
+Interpreter=lua
+<<LUA
+-- another form in the project, by its name
+local chosen = Vml("FormOpenModal", "pick")
+Vml("SetProperty", "lblHello", "Text", "picked: " .. chosen .. " / shared: " .. tostring(Project.picked))
+LUA
+
+@Script HowMany
+Interpreter=lua
+<<LUA
+local item = Vml("GetProperty", "lstItems", "SelectedItem")
+Vml("SetProperty", "lblQty", "Text", item .. ": " .. Stock(item))
+LUA

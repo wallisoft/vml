@@ -29,6 +29,12 @@ namespace Shop
             this.btnSave = new System.Windows.Forms.Button();
             this.btnCancel = new System.Windows.Forms.Button();
             this.grid = new System.Windows.Forms.DataGridView();
+            this.colItem = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.colQty = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.progress = new System.Windows.Forms.ProgressBar();
+            this.txtPin = new System.Windows.Forms.TextBox();
+            this.optStandard = new System.Windows.Forms.RadioButton();
+            this.tree = new System.Windows.Forms.TreeView();
             this.timer1 = new System.Windows.Forms.Timer(this.components);
             this.menuStrip1.SuspendLayout();
             this.SuspendLayout();
@@ -208,14 +214,60 @@ namespace Shop
             // 
             // grid
             // 
+            this.grid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this.colItem,
+            this.colQty});
             this.grid.Location = new System.Drawing.Point(12, 266);
             this.grid.Name = "grid";
-            this.grid.Size = new System.Drawing.Size(496, 104);
+            this.grid.Size = new System.Drawing.Size(300, 104);
+            this.grid.CellDoubleClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.grid_CellDoubleClick);
+            // 
+            // colItem
+            // 
+            this.colItem.HeaderText = "Item";
+            this.colItem.Name = "colItem";
+            // 
+            // colQty
+            // 
+            this.colQty.HeaderText = "Quantity";
+            this.colQty.Name = "colQty";
+            // 
+            // progress
+            // 
+            this.progress.Location = new System.Drawing.Point(12, 380);
+            this.progress.Name = "progress";
+            this.progress.Size = new System.Drawing.Size(200, 16);
+            // 
+            // txtPin
+            // 
+            this.txtPin.Location = new System.Drawing.Point(230, 378);
+            this.txtPin.Name = "txtPin";
+            this.txtPin.PasswordChar = '*';
+            this.txtPin.Size = new System.Drawing.Size(80, 20);
+            // 
+            // optStandard
+            // 
+            this.optStandard.AutoSize = true;
+            this.optStandard.Checked = true;
+            this.optStandard.Location = new System.Drawing.Point(330, 380);
+            this.optStandard.Name = "optStandard";
+            this.optStandard.Size = new System.Drawing.Size(68, 17);
+            this.optStandard.Text = "S&tandard";
+            // 
+            // tree
+            // 
+            this.tree.Location = new System.Drawing.Point(320, 266);
+            this.tree.Name = "tree";
+            this.tree.Size = new System.Drawing.Size(188, 104);
             // 
             // OrderForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.ClientSize = new System.Drawing.Size(520, 422);
+            this.Controls.Add(this.tree);
+            this.Controls.Add(this.optStandard);
+            this.Controls.Add(this.txtPin);
+            this.Controls.Add(this.progress);
             this.Controls.Add(this.grid);
             this.Controls.Add(this.table);
             this.Controls.Add(this.tabs);

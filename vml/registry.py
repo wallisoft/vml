@@ -10,9 +10,10 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt
-from PySide6.QtGui import QColor as _QColor, QKeySequence, QPainter as _QPainter, QPen as _QPen
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
-                               QListWidget, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtGui import QColor as _QColor, QKeySequence, QPainter as _QPainter, QPen as _QPen, QPixmap as _QPixmap
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout,
+                               QLineEdit, QListWidget, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
+                               QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 # ------------------------------------------------------------------ value helpers
 
@@ -55,6 +56,16 @@ def colour(v):
         a, r, g, b = (int(v[i:i + 2], 16) for i in (1, 3, 5, 7))
         return f"rgba({r},{g},{b},{a / 255:.3f})"
     return v
+
+
+def qcolour(v, default="#000000"):
+    """A colour as Qt wants it: names, #rgb, #rrggbb and Avalonia's #aarrggbb."""
+    v = str(v or "").strip()
+    if v.startswith("#") and len(v) == 9:
+        a, r, g, b = (int(v[i:i + 2], 16) for i in (1, 3, 5, 7))
+        return _QColor(r, g, b, a)
+    c = _QColor(v)
+    return c if c.isValid() else _QColor(default)
 
 
 WEIGHTS = {"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600,
@@ -254,6 +265,13 @@ def on_signal(signal_name):
     def hook(node, fire):
         getattr(node.widget, signal_name).connect(lambda *a: fire({}))
     return hook
+
+
+def on_context_menu(node, fire):
+    """Right-click (or the menu key). Item views take the press first, so the item under the pointer is selected."""
+    w = node.widget
+    w.setContextMenuPolicy(Qt.CustomContextMenu)
+    w.customContextMenuRequested.connect(lambda pt: fire({"event_x": pt.x(), "event_y": pt.y(), "mouse_button": "Right"}))
 
 
 KEY_NAMES = {Qt.Key_Return: "Enter", Qt.Key_Enter: "Enter", Qt.Key_Escape: "Escape", Qt.Key_Space: "Space",
@@ -515,12 +533,64 @@ SCROLL_POLICY = {"Auto": Qt.ScrollBarAsNeeded, "Visible": Qt.ScrollBarAlwaysOn, 
 
 # ------------------------------------------------------------------ makers
 
+class _Edge(QWidget):
+    """The thin line round a window, drawn on top of its outermost pixels (so nothing inside moves or shrinks)."""
+
+    def __init__(self, window):
+        super().__init__(window)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.colour, self.width_px = None, 0
+        self.hide()
+
+    def paintEvent(self, e):
+        if self.colour is None:
+            return
+        p = _QPainter(self)
+        w, h, m = self.width(), self.height(), self.width_px
+        for r in ((0, 0, w, m), (0, h - m, w, m), (0, 0, m, h), (w - m, 0, m, h)):
+            p.fillRect(*r, self.colour)
+        p.end()
+
+
+class WindowWidget(QWidget):
+    """A form's window. It can draw a thin edge round itself (BorderBrush, BorderThickness): a white form on a
+    white desktop otherwise has no visible edge on desktops that draw no frame of their own."""
+
+    def __init__(self, node):
+        super().__init__()
+        self.node = node
+        self.edge = _Edge(self)
+
+    def set_edge(self, value, width=1):
+        on = bool(value) and int(width) > 0
+        self.edge.colour, self.edge.width_px = (qcolour(value), max(1, int(width))) if on else (None, 0)
+        self.edge.setGeometry(self.rect())
+        self.edge.setVisible(on)
+        self.edge.raise_()
+        self.edge.update()
+
+    def edge_name(self):
+        return self.edge.colour.name() if self.edge.colour is not None else ""
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.edge.setGeometry(self.rect())
+        self.edge.raise_()
+
+
 def make_window(node):
-    w = QWidget()
+    w = WindowWidget(node)
     lay = QVBoxLayout(w)
     lay.setContentsMargins(0, 0, 0, 0)
     w.resize(800, 600)
     return w
+
+
+def window_edge(node, _value=None):
+    p = node.props
+    width = thickness(p["BorderThickness"])[0] if p.get("BorderThickness") not in (None, "") else 1
+    node.widget.set_edge(p.get("BorderBrush") or "", width)
 
 
 def make_box(node):
@@ -603,6 +673,36 @@ def set_items(node, value):
         w.setCurrentText(keep)
 
 
+def set_item_list(node, items):
+    """Fill a list or combo from a real list of strings (commas in an item are kept), keeping the selection if it can."""
+    w = node.widget
+    keep = read_selected_item(node)
+    w.blockSignals(True)
+    w.clear()
+    w.addItems([str(i) for i in items])
+    if isinstance(w, QComboBox):
+        w.setCurrentIndex(w.findText(keep) if keep and w.findText(keep) >= 0 else (0 if w.count() else -1))
+    else:
+        found = w.findItems(keep, Qt.MatchExactly) if keep else []
+        w.setCurrentItem(found[0] if found else None)
+    w.blockSignals(False)
+    now = read_selected_item(node)
+    if now != keep:                                       # tell whoever depends on this that its choice changed
+        (w.currentIndexChanged if isinstance(w, QComboBox) else w.currentRowChanged).emit(
+            w.currentIndex() if isinstance(w, QComboBox) else w.currentRow())
+
+
+def set_text_wrap(node, value):
+    """A multi-line box: wrap long lines (the default) or scroll sideways (NoWrap), as code wants."""
+    if isinstance(node.widget, QPlainTextEdit):
+        node.widget.setLineWrapMode(QPlainTextEdit.NoWrap if value == "NoWrap" else QPlainTextEdit.WidgetWidth)
+
+
+def set_password(node, value):
+    if isinstance(node.widget, QLineEdit):
+        node.widget.setEchoMode(QLineEdit.Password if truthy(value) else QLineEdit.Normal)
+
+
 def set_selected_index(node, value):
     i = int(num(value, -1))
     (node.widget.setCurrentIndex if isinstance(node.widget, QComboBox) else node.widget.setCurrentRow)(i)
@@ -635,6 +735,8 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                      remove_child=layout_remove, category="Containers",
                      events={"OnOpened": None, "OnClosing": None, **KEY_EVENTS}),   # OnOpened/OnClosing fired by the engine
          COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or ""))),
+                  Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window
+                  Prop("BorderThickness", "thickness", "Appearance", apply=window_edge),
                   Prop("Resizable", "bool", "Behaviour", default="true"),        # applied by the engine when shown
                   Prop("Modal", "bool", "Behaviour", default="false"),
                   Prop("MaxWidth", "number", "Layout", apply=lambda n, v: n.widget.setMaximumWidth(int(num(v, 16777215)) or 16777215)),
@@ -688,6 +790,8 @@ register(ControlType("TextBox", make_textbox,
          [Prop("Text", "text", "Common", apply=lambda n, v: set_text(n.widget, v), read=lambda n: text_of(n.widget)),
           Prop("Watermark", "text", "Common", apply=lambda n, v: n.widget.setPlaceholderText(str(v or ""))),
           Prop("IsReadOnly", "bool", "Behaviour", apply=lambda n, v: n.widget.setReadOnly(truthy(v))),
+          Prop("IsPassword", "bool", "Behaviour", apply=set_password),      # dots instead of what is typed
+          Prop("TextWrapping", "choice", "Text", options=("Wrap", "NoWrap"), apply=set_text_wrap),
           Prop("AcceptsReturn", "bool", "Behaviour")])
 
 register(ControlType("Button", make_button, events={"OnClick": on_signal("clicked"), **KEY_EVENTS, **POINTER_EVENTS}),
@@ -701,17 +805,112 @@ register(ControlType("CheckBox", lambda n: QCheckBox(),
           Prop("IsChecked", "bool", "Common", apply=lambda n, v: n.widget.setChecked(truthy(v)),
                read=lambda n: "true" if n.widget.isChecked() else "false")])
 
+def _source(node, _value):
+    node.engine.source_changed(node)
+
+
+DATA = [Prop("ItemsSource", "text", "Data", apply=_source),   # a query (or a script) that fills the control: see vml/data.py
+        Prop("Database", "text", "Data", apply=_source)]      # which opened database it asks; empty = the main one
+
 register(ControlType("ComboBox", lambda n: QComboBox(), events={"SelectionChanged": on_signal("currentIndexChanged"), **KEY_EVENTS}),
-         COMMON, ATTACHED,
+         COMMON, ATTACHED, DATA,
          [Prop("Items", "list", "Common", apply=set_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentIndex()),
           Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item)])
 
-register(ControlType("ListBox", lambda n: QListWidget(), events={"SelectionChanged": on_signal("currentRowChanged"), **KEY_EVENTS}),
-         COMMON, ATTACHED,
+register(ControlType("ListBox", lambda n: QListWidget(),
+                     events={"SelectionChanged": on_signal("currentRowChanged"), "OnDoubleClick": on_signal("itemDoubleClicked"),
+                             "OnContextMenu": on_context_menu, **KEY_EVENTS}),
+         COMMON, ATTACHED, DATA,
          [Prop("Items", "list", "Common", apply=set_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentRow()),
           Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item)])
+
+class SplitterBar(QFrame):
+    """A bar between two docked panes that is dragged to resize the one before it (or the one named in Target).
+    Docked Top or Bottom it changes that pane's Height; docked Left or Right, its Width."""
+
+    def __init__(self, node):
+        super().__init__()
+        self.node, self.start, self.fire = node, None, None
+        self.setMouseTracking(True)
+        thick = int(num(node.props.get("Thickness"), 5))        # 5 pixels unless Thickness says otherwise
+        if self.upright():
+            self.setFixedWidth(thick)
+        else:
+            self.setFixedHeight(thick)
+        if not node.props.get("Background"):
+            self.setStyleSheet("background-color: #CBD5E1;")
+
+    def side(self):
+        return str(self.node.props.get("DockPanel.Dock") or "Top")
+
+    def upright(self):
+        return self.side() in ("Left", "Right")
+
+    def target(self):
+        named = str(self.node.props.get("Target") or "").strip()
+        parent = self.node.parent
+        if parent is None:
+            return None
+        if named:
+            return next((c for c in parent.children if c.name == named), None)
+        at = parent.children.index(self.node) if self.node in parent.children else 0
+        return parent.children[at - 1] if at > 0 else None
+
+    def enterEvent(self, e):
+        self.setCursor(Qt.SplitHCursor if self.upright() else Qt.SplitVCursor)
+
+    def mousePressEvent(self, e):
+        t = self.target()
+        if e.button() == Qt.LeftButton and t is not None and t.widget is not None:
+            pos = e.globalPosition().toPoint()
+            self.start = (pos.x() if self.upright() else pos.y(), t.widget.width() if self.upright() else t.widget.height())
+
+    def mouseMoveEvent(self, e):
+        t = self.target()
+        if self.start is None or t is None:
+            return
+        pos = e.globalPosition().toPoint()
+        moved = (pos.x() if self.upright() else pos.y()) - self.start[0]
+        if self.side() in ("Bottom", "Right"):
+            moved = -moved
+        room = (self.node.parent.widget.width() if self.upright() else self.node.parent.widget.height())
+        least = int(num(self.node.props.get("MinSize"), 60))
+        size = max(least, min(max(least, room - least), self.start[1] + moved))
+        self.resize_target(t, size)
+
+    def resize_target(self, t, size):
+        key = "Width" if self.upright() else "Height"
+        t.props[key] = str(int(size))
+        set_size("w" if self.upright() else "h")(t, int(size))
+        if self.node.parent.widget.layout() is not None:
+            self.node.parent.widget.layout().invalidate()
+
+    def mouseReleaseEvent(self, e):
+        if self.start is not None and self.fire is not None:
+            self.fire({})
+        self.start = None
+
+
+def splitter_moved(node, fire):
+    node.widget.fire = fire
+
+
+def splitter_size(node, _value=None):
+    thick = int(num(node.props.get("Thickness"), 5))
+    if node.widget.upright():
+        node.widget.setFixedWidth(thick)
+    else:
+        node.widget.setFixedHeight(thick)
+
+
+# For docked layouts (a DockPanel), so it is not offered on the design surface, where controls sit on a canvas.
+register(ControlType("Splitter", lambda n: SplitterBar(n), events={"OnMoved": splitter_moved}),
+         COMMON, ATTACHED,
+         [Prop("Target", "text", "Behaviour"),                  # the pane it resizes; empty = the one docked just before it
+          Prop("MinSize", "number", "Behaviour"),               # the smallest either side may become (60)
+          Prop("Thickness", "number", "Appearance", apply=splitter_size)])
 
 register(ControlType("Rectangle", lambda n: QFrame(), events=dict(POINTER_EVENTS)),
          COMMON, ATTACHED,
@@ -927,3 +1126,257 @@ register(ControlType("Frame", lambda n: FrameWidget(n), container=True, add_chil
          [Prop("Text", "text", "Common", apply=lambda n, v: n.widget.update()),
           Prop("BorderBrush", "colour", "Appearance", apply=lambda n, v: n.widget.update()),
           Prop("BorderThickness", "thickness", "Appearance")])
+
+
+# ------------------------------------------------------------------ RadioButton (VB's OptionButton)
+
+class Radio(QRadioButton):
+    """One of a set: choosing it clears the others in the same container with the same GroupName. (Each control
+    here sits in a host of its own, so Qt's own grouping, which goes by a shared parent widget, can't be used.)"""
+
+    def __init__(self, node):
+        super().__init__()
+        self.node = node
+        self.setAutoExclusive(False)
+        self.toggled.connect(self.chosen)
+
+    def nextCheckState(self):                             # clicking the chosen one leaves it chosen
+        if not self.isChecked():
+            self.setChecked(True)
+
+    def chosen(self, on):
+        parent = self.node.parent
+        if not on or parent is None:
+            return
+        group = str(self.node.props.get("GroupName") or "")
+        for other in parent.children:
+            if other is not self.node and other.type.name == "RadioButton" and \
+                    str(other.props.get("GroupName") or "") == group and other.widget.isChecked():
+                other.widget.setChecked(False)
+
+
+register(ControlType("RadioButton", lambda n: Radio(n),
+                     events={"OnClick": on_signal("clicked"), "OnChecked": on_signal("toggled"), **KEY_EVENTS, **POINTER_EVENTS}),
+         COMMON, ATTACHED,
+         [Prop("Content", "text", "Common", apply=lambda n, v: n.widget.setText(str(v or ""))),
+          Prop("IsChecked", "bool", "Common", apply=lambda n, v: n.widget.setChecked(truthy(v)),
+               read=lambda n: "true" if n.widget.isChecked() else "false"),
+          Prop("GroupName", "text", "Common")])
+
+
+# ------------------------------------------------------------------ Image (VB's PictureBox / Image)
+
+class ImageWidget(QFrame):
+    """A picture: a file beside the form (Source=logo.png), or carried inside the form as a data: address."""
+
+    def __init__(self, node):
+        super().__init__()
+        self.node, self.pix = node, None
+
+    def load(self):
+        src = str(self.node.props.get("Source") or "").strip()
+        pix = _QPixmap()
+        if src.startswith("data:") and "," in src:
+            import base64
+            try:
+                pix.loadFromData(base64.b64decode(src.split(",", 1)[1]))
+            except ValueError:
+                pass
+        elif src:
+            import os
+            path = os.path.expanduser(src)
+            if not os.path.isabs(path):
+                path = os.path.join(self.node.engine.asset_dir(self.node.scope), path)
+            pix.load(path)
+        self.pix = None if pix.isNull() else pix
+        self.updateGeometry()
+        self.update()
+
+    def sizeHint(self):
+        return self.pix.size() if self.pix is not None else QSize(120, 90)
+
+    def minimumSizeHint(self):
+        return QSize(4, 4)
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        p = _QPainter(self)
+        if self.pix is None:
+            if str(self.node.scope).startswith("design:"):   # on the design surface, show where it will go
+                p.setPen(_QPen(_QColor("#9ca3af"), 1, Qt.DashLine))
+                p.drawRect(0, 0, self.width() - 1, self.height() - 1)
+                p.drawText(self.rect(), Qt.AlignCenter, "Image")
+            p.end()
+            return
+        mode = str(self.node.props.get("Stretch") or "Uniform")
+        if mode == "None":
+            p.drawPixmap(0, 0, self.pix)
+        elif mode == "Fill":
+            p.setRenderHint(_QPainter.SmoothPixmapTransform)
+            p.drawPixmap(self.rect(), self.pix)
+        else:
+            aspect = Qt.KeepAspectRatioByExpanding if mode == "UniformToFill" else Qt.KeepAspectRatio
+            scaled = self.pix.scaled(self.size(), aspect, Qt.SmoothTransformation)
+            p.drawPixmap((self.width() - scaled.width()) // 2, (self.height() - scaled.height()) // 2, scaled)
+        p.end()
+
+
+register(ControlType("Image", lambda n: ImageWidget(n), events=dict(POINTER_EVENTS)),
+         COMMON, ATTACHED,
+         [Prop("Source", "text", "Common", apply=lambda n, v: n.widget.load()),
+          Prop("Stretch", "choice", "Appearance", options=("Uniform", "Fill", "UniformToFill", "None"),
+               apply=lambda n, v: n.widget.update())])
+
+
+# ------------------------------------------------------------------ DataGrid (rows and columns, read-only)
+
+class GridWidget(QTableWidget):
+    def __init__(self, node):
+        super().__init__()
+        self.node, self.cols, self.data = node, [], []
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setAlternatingRowColors(True)
+        self.verticalHeader().hide()
+        self.verticalHeader().setDefaultSectionSize(24)
+        self.horizontalHeader().setStretchLastSection(True)
+        self.horizontalHeader().setHighlightSections(False)
+
+    def set_data(self, cols, rows):
+        """cols: the headings; rows: a list of lists, one value per column."""
+        keep = self.selected_value()
+        self.cols, self.data = [str(c) for c in cols], [["" if v is None else str(v) for v in r] for r in rows]
+        self.blockSignals(True)
+        self.clear()
+        self.setColumnCount(len(self.cols))
+        self.setRowCount(len(self.data))
+        self.setHorizontalHeaderLabels(self.cols)
+        for r, row in enumerate(self.data):
+            for c in range(len(self.cols)):
+                self.setItem(r, c, QTableWidgetItem(row[c] if c < len(row) else ""))
+        back = next((r for r, row in enumerate(self.data) if keep and row and row[0] == keep), -1)
+        self.setCurrentCell(back, 0) if back >= 0 else self.setCurrentItem(None)
+        self.blockSignals(False)
+        if len(self.data) <= 500:
+            self.resizeColumnsToContents()
+        if self.selected_value() != keep:
+            self.itemSelectionChanged.emit()
+
+    def set_headings(self, cols):
+        self.set_data(cols, self.data)
+
+    def selected_row(self):
+        r = self.currentRow()
+        return r if 0 <= r < len(self.data) and self.selectionModel().hasSelection() else -1
+
+    def selected_value(self):
+        r = self.selected_row()
+        return self.data[r][0] if r >= 0 and self.data[r] else ""
+
+    def selected_json(self):
+        import json
+        r = self.selected_row()
+        return json.dumps(dict(zip(self.cols, self.data[r]))) if r >= 0 else ""
+
+
+def grid_static(node, _value=None):
+    """Columns=Name,Age and Items=Ann|34;Bob|27: a few rows written into the form itself."""
+    p = node.props
+    cols = [c.strip() for c in str(p.get("Columns") or "").split(",") if c.strip()]
+    rows = [[cell.strip() for cell in row.split("|")] for row in str(p.get("Items") or "").split(";") if row.strip()]
+    if not cols and rows:
+        cols = [f"Column{i + 1}" for i in range(max(len(r) for r in rows))]
+    node.widget.set_data(cols, rows)
+
+
+def grid_select(node, value):
+    i = int(num(value, -1))
+    node.widget.setCurrentCell(i, 0) if 0 <= i < node.widget.rowCount() else node.widget.setCurrentItem(None)
+
+
+register(ControlType("DataGrid", lambda n: GridWidget(n),
+                     events={"SelectionChanged": on_signal("itemSelectionChanged"), "OnDoubleClick": on_signal("cellDoubleClicked"),
+                             "OnContextMenu": on_context_menu, **KEY_EVENTS}),
+         COMMON, ATTACHED, DATA,
+         [Prop("Columns", "list", "Common", apply=grid_static),
+          Prop("Items", "list", "Common", apply=grid_static),
+          Prop("SelectedIndex", "number", "Common", apply=grid_select, read=lambda n: n.widget.selected_row()),
+          Prop("SelectedValue", "text", "Common", read=lambda n: n.widget.selected_value()),
+          Prop("SelectedItem", "text", "Common", read=lambda n: n.widget.selected_json()),
+          Prop("RowCount", "number", "Common", read=lambda n: len(n.widget.data))])
+
+
+# ------------------------------------------------------------------ TreeView (Items are paths: Forms/Main,Forms/Login)
+
+class TreeWidget(QTreeWidget):
+    def __init__(self, node):
+        super().__init__()
+        self.node = node
+        self.setHeaderHidden(True)
+        self.setIndentation(16)
+
+    @staticmethod
+    def path_of(item):
+        parts = []
+        while item is not None:
+            parts.insert(0, item.text(0))
+            item = item.parent()
+        return "/".join(parts)
+
+    def set_paths(self, paths):
+        keep = self.selected()
+        self.blockSignals(True)
+        self.clear()
+        made = {}
+        for path in paths:
+            parts = [x.strip() for x in str(path).split("/") if x.strip()]
+            for depth in range(1, len(parts) + 1):
+                key = "/".join(parts[:depth])
+                if key not in made:
+                    owner = made.get("/".join(parts[:depth - 1]))
+                    made[key] = QTreeWidgetItem(owner if owner is not None else self, [parts[depth - 1]])
+        if str(self.node.props.get("IsExpanded", "true")).lower() != "false":
+            self.expandAll()
+        self.setCurrentItem(made.get(keep))
+        self.blockSignals(False)
+        if self.selected() != keep:
+            self.currentItemChanged.emit(self.currentItem(), None)
+
+    def selected(self):
+        return self.path_of(self.currentItem())
+
+    def select(self, path):
+        want = "/".join(x.strip() for x in str(path or "").split("/") if x.strip())
+        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        while stack:
+            it = stack.pop()
+            if self.path_of(it) == want:
+                return self.setCurrentItem(it)
+            stack += [it.child(i) for i in range(it.childCount())]
+        self.setCurrentItem(None)
+
+
+def tree_items(node, value):
+    node.widget.set_paths([s for s in re_split_items(value)])
+
+
+def re_split_items(value):
+    import re
+    return [s.strip() for s in re.split(r"[,\n]", str(value or "")) if s.strip()]
+
+
+register(ControlType("TreeView", lambda n: TreeWidget(n),
+                     events={"SelectionChanged": on_signal("currentItemChanged"), "OnDoubleClick": on_signal("itemDoubleClicked"),
+                             "OnContextMenu": on_context_menu, **KEY_EVENTS}),
+         COMMON, ATTACHED, DATA,
+         [Prop("Items", "list", "Common", apply=tree_items),
+          Prop("SelectedItem", "text", "Common", apply=lambda n, v: n.widget.select(v), read=lambda n: n.widget.selected()),
+          Prop("IsExpanded", "bool", "Behaviour", default="true",
+               apply=lambda n, v: n.widget.expandAll() if truthy(v) or v in (None, "") else n.widget.collapseAll())])
+
+
+for _name in ("Frame", "RadioButton", "Image", "DataGrid", "TreeView"):
+    REGISTRY[_name].props.setdefault("IsHitTestVisible", Prop("IsHitTestVisible", "bool", "Behaviour", apply=hit_test, default="true"))
+    REGISTRY[_name].props.setdefault("Focusable", Prop("Focusable", "bool", "Behaviour",
+                                                       apply=lambda n, v: n.widget.setFocusPolicy(Qt.StrongFocus if truthy(v) else Qt.NoFocus)))

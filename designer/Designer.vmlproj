@@ -1,0 +1,17 @@
+# Visualised project
+# The designer itself: its forms, and the modules that hold what its menus and controls do.
+Name=Visualised Designer
+Startup=designer.vml
+Form=designer.vml
+Form=script-editor.vml
+Form=menu-editor.vml
+Form=module-editor.vml
+Form=databases.vml
+Module=modules/app.lua
+Module=modules/surface.lua
+Module=modules/menus.lua
+Module=modules/files.lua
+Module=modules/importing.lua
+Module=modules/settings.lua
+Module=modules/licence.lua
+Module=modules/project.lua

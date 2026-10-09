@@ -1,0 +1,9 @@
+Type=Exe
+Reference=*\G{00020430-0000-0000-C000-000000000046}#2.0#0#..\..\WINDOWS\SYSTEM32\stdole2.tlb#OLE Automation
+Object={00028C01-0000-0000-0000-000000000046}#1.0#0; DBGRID32.OCX
+Object={FAEEE763-117E-101B-8933-08002B2F4F5A}#1.1#0; DBLIST32.OCX
+Form=frmStock.frm
+Form=frmAbout.frm
+Startup="frmStock"
+Name="Stock"
+ExeName32="Stock.exe"

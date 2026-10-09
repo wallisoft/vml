@@ -1,0 +1,7 @@
+# Visualised project
+Name=Demo
+Startup=main.vml
+Form=main.vml
+Form=pick.vml
+Module=helpers.lua
+Database=stock=sqlite:stock.db

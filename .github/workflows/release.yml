@@ -50,6 +50,7 @@ jobs:
             --windows-console-mode=attach --windows-icon-from-ico=packaging/art/vml.ico `
             --include-package=vml --include-package=lupa `
             --include-data-dir=designer=designer --include-data-dir=vml/lua=lua --include-data-dir=vml/web=web `
+            --include-data-dir=csharp=csharp `
             --company-name=Wallisoft --product-name=Visualised `
             --file-version=${{ needs.check.outputs.version }} --product-version=${{ needs.check.outputs.version }} `
             --output-filename=vml.exe --output-dir=build vml.py
@@ -71,6 +72,17 @@ jobs:
           Start-Process app\SmokeApp.exe -ArgumentList "--shot", "app.png" -Wait -NoNewWindow -RedirectStandardError app.log
           if (-not (Select-String -Path app.log -Pattern "SmokeApp.vml: Parsed" -Quiet)) { Get-Content app.log; throw "an exported app didn't run its own form" }
           "an exported app runs its own form"
+          # a project: several forms and a module, run from the project file
+          Start-Process build\vml.dist\vml.exe -ArgumentList "tests\project\Demo.vmlproj", "--shot", "proj.png" -Wait -NoNewWindow -RedirectStandardError proj.log
+          if (-not (Test-Path proj.png)) { Get-Content proj.log; throw "the compiled program didn't run a project" }
+          if (Select-String -Path proj.log -Pattern "module helpers.lua" -Quiet) { Get-Content proj.log; throw "the project's module didn't load" }
+          "the compiled program runs a project"
+          # the C# host's source must be in the build, for Settings > C# Scripting to build it
+          if (-not (Test-Path build\vml.dist\csharp\VmlCSharpHost\VmlCSharpHost.csproj)) { throw "the C# host's source is missing from the build" }
+          # the importers are VML files beside the designer, with their shared toolkit
+          foreach ($f in "winforms.vml", "vb6.vml", "lib\importkit.lua") { if (-not (Test-Path "build\vml.dist\designer\importers\$f")) { throw "an importer is missing from the build: $f" } }
+          # the designer is a project: its project file, forms and modules have to be in the build
+          foreach ($f in "Designer.vmlproj", "designer.vml", "databases.vml", "modules\files.lua", "modules\project.lua", "modules\app.lua") { if (-not (Test-Path "build\vml.dist\designer\$f")) { throw "part of the designer is missing from the build: $f" } }
       - name: Build Visualised-Setup.exe
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ needs.check.outputs.version }}" packaging\vml.iss
@@ -121,7 +133,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq patchelf libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0
+          sudo apt-get install -y -qq patchelf libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0 unixodbc
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pillow nuitka ordered-set zstandard
       - name: Compile with Nuitka
@@ -129,6 +141,7 @@ jobs:
           python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 \
             --include-package=vml --include-package=lupa \
             --include-data-dir=designer=designer --include-data-dir=vml/lua=lua --include-data-dir=vml/web=web \
+            --include-data-dir=csharp=csharp \
             --output-filename=vml --output-dir=build vml.py
       - name: Package
         run: |
@@ -146,6 +159,15 @@ jobs:
           cp -r dist-vml app && mv app/vml app/SmokeApp && cp tests/step1.vml app/SmokeApp.vml
           VML_DEBUG=1 QT_QPA_PLATFORM=offscreen timeout 60 ./app/SmokeApp --shot app.png 2> app.log || true
           grep -q "SmokeApp.vml: Parsed" app.log && echo "an exported app runs its own form" || { cat app.log; exit 1; }
+          # a project: several forms and a module, run from the project file
+          QT_QPA_PLATFORM=offscreen timeout 60 ./dist-vml/vml tests/project/Demo.vmlproj --shot proj.png 2> proj.log || true
+          test -s proj.png && ! grep -q "module helpers.lua" proj.log && echo "the compiled binary runs a project" || { cat proj.log; exit 1; }
+          # the C# host's source must be in the build, for Settings > C# Scripting to build it
+          test -f dist-vml/csharp/VmlCSharpHost/VmlCSharpHost.csproj
+          # the importers are VML files beside the designer, with their shared toolkit
+          for f in winforms.vml vb6.vml lib/importkit.lua; do test -f "dist-vml/designer/importers/$f"; done
+          # the designer is a project: its project file, forms and modules have to be in the build
+          for f in Designer.vmlproj designer.vml databases.vml modules/files.lua modules/project.lua modules/app.lua; do test -f "dist-vml/designer/$f"; done
       - uses: actions/upload-artifact@v4
         with:
           name: linux

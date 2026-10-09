@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFrame, QHBox
 from .registry import (COMMON, REGISTRY, ControlType, Prop, anchor_set, anchored_rect, colour, num, register, theme_sheets,
                        truthy)
 
-GROUP_ORDER = ["Form", "Control", "Common", "Placement", "Layout", "Text", "Appearance", "Behaviour", "Events"]
+GROUP_ORDER = ["Form", "Control", "Common", "Data", "Placement", "Layout", "Text", "Appearance", "Behaviour", "Events"]
 # On a canvas form these only matter inside layout panels, so the grid leaves them out; and it uses VB's names.
 CANVAS_HIDDEN = {"DockPanel.Dock", "Grid.Row", "Grid.Column", "Grid.RowSpan", "Grid.ColumnSpan",
                  "HorizontalAlignment", "VerticalAlignment", "Margin"}
@@ -452,8 +452,11 @@ class SurfaceView(QScrollArea):
         self.overlay.update()
 
     def set_form_bg(self, value):
-        self.form_bg = colour(value or "#ffffff")
-        self.form.setStyleSheet(f"#DesignForm {{ background: {self.form_bg}; border: 1px solid #9ca3af; }}")
+        """The form's background (None: leave it as it is), and its edge, in its own colour if it has one."""
+        if value is not None or not hasattr(self, "form_bg"):
+            self.form_bg = colour(value or "#ffffff")
+        edge = colour(self.node.props.get("FormBorder") or "#9ca3af")
+        self.form.setStyleSheet(f"#DesignForm {{ background: {self.form_bg}; border: 1px solid {edge}; }}")
 
     def commit(self, node, g, resized=False):
         e = self.engine
@@ -561,6 +564,7 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
                apply=lambda n, v: n.widget.set_form_size(n.widget.form.width(), num(v, 480)),
                read=lambda n: n.widget.form.height()),
           Prop("FormBackground", "colour", "Form", default="#ffffff", apply=lambda n, v: n.widget.set_form_bg(v)),
+          Prop("FormBorder", "colour", "Form", apply=lambda n, v: n.widget.set_form_bg(None)),    # an edge round the window
           Prop("FormResizable", "bool", "Form", default="true", apply=lambda n, v: n.widget.overlay.update()),
           Prop("FormModal", "bool", "Form", default="false"),
           Prop("FormMinWidth", "number", "Form"), Prop("FormMinHeight", "number", "Form"),
@@ -818,6 +822,10 @@ DESIGN_DEFAULTS = {
     "TextBox": {"Width": "160", "Height": "26", "Watermark": ""},
     "TextBlock": {"Text": "Label"},
     "CheckBox": {"Content": "CheckBox"},
+    "RadioButton": {"Content": "RadioButton"},
+    "Image": {"Width": "120", "Height": "90"},
+    "DataGrid": {"Columns": "Name,Value", "Width": "300", "Height": "160"},
+    "TreeView": {"Items": "Parent/Child One,Parent/Child Two,Other", "Width": "180", "Height": "160"},
     "ComboBox": {"Items": "One,Two,Three", "SelectedIndex": "0", "Width": "140"},
     "ListBox": {"Items": "One,Two,Three", "Width": "140", "Height": "100"},
     "Border": {"Width": "200", "Height": "120", "Background": "#F3F4F6", "BorderBrush": "#9CA3AF",

@@ -41,6 +41,7 @@ cat > "$HOME/.local/share/mime/packages/vml.xml" << MIME
   <mime-type type="application/x-vml">
     <comment>VML form</comment>
     <glob pattern="*.vml"/>
+    <glob pattern="*.vmlproj"/>
   </mime-type>
 </mime-info>
 MIME

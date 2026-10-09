@@ -37,6 +37,11 @@ namespace Shop
             txtCustomer.Clear();
         }
 
+        private void grid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        {
+            MessageBox.Show(grid.Rows[e.RowIndex].Cells[0].Value.ToString());
+        }
+
         private decimal Price(string size)
         {
             return size == "Large" ? 12.5m : 9m;

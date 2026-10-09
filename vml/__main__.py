@@ -1,4 +1,4 @@
-"""vml [form.vml] [--db path/to/vml.db] [--shot out.png]   (no form: open the VML designer)
+"""vml [form.vml | app.vmlproj] [--db path/to/vml.db] [--shot out.png]   (no form: open the VML designer)
    vml setup-csharp                                         (optional: build the C# script host)
    vml html form.vml [out.html] [--open] [--cdn]            (a web page, Lua engine inside it; --cdn: load it online instead)"""
 import argparse
@@ -45,7 +45,13 @@ def main():
         raise SystemExit(0 if ok else 1)
     if not a.vml:
         a.vml = str(Path(__file__).resolve().parent.parent / "designer" / "designer.vml")
-    eng = Engine(a.db).load(a.vml)
+    eng = Engine(a.db)
+    if a.vml.lower().endswith(".vmlproj"):                  # a project: its modules and databases, then its start-up form
+        start = eng.open_project(a.vml)
+        if not start:
+            raise SystemExit(f"{a.vml} has no forms yet")
+        a.vml = start
+    eng.load(a.vml)
     if a.shot:
         def snap():
             eng.windows[0].widget.grab().save(a.shot)

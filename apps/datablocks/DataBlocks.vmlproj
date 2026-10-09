@@ -1,0 +1,9 @@
+# Visualised project
+# Data blocks: reusable pieces of content kept in one table and looked up by tag, with lists that narrow each
+# other and a form to maintain them. Nothing here is built into Visualised: it is two forms and one module.
+Name=DataBlocks
+Startup=report.vml
+Form=report.vml
+Form=maintain.vml
+Module=blocks.lua
+Database=blocks=sqlite:blocks.db

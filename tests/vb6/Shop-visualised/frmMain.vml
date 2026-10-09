@@ -1,0 +1,561 @@
+# frmMain: imported from frmMain.frm (Visual Basic 5/6)
+
+@Window frmMain
+Title=Corner Shop - Orders
+Width=600
+Height=439
+OnOpened=frmMain_OnOpened
+OnClosing=frmMain_OnClosing
+
+@DockPanel frmMainRoot
+Parent=frmMain
+
+@TinyMenu frmMainMenu
+Parent=frmMainRoot
+DockPanel.Dock=Top
+
+@Canvas frmMainCanvas
+Parent=frmMainRoot
+Background=#ffe0c0
+
+@MenuItem mnuFile
+Parent=MenuBar
+Text=File
+
+@MenuItem mnuFileNew
+Parent=mnuFile
+Text=New Order
+Shortcut=Ctrl+N
+OnClick=mnuFileNew_OnClick
+
+@MenuItem mnuFileRecent
+Parent=mnuFile
+Text=Recent
+
+@MenuItem mnuRecent_0
+Parent=mnuFileRecent
+Text=Smith & Sons
+OnClick=mnuRecent_OnClick
+
+@MenuItem mnuRecent_1
+Parent=mnuFileRecent
+Text=Patel's
+OnClick=mnuRecent_OnClick
+
+@MenuItem mnuFileSep
+Parent=mnuFile
+IsSeparator=true
+
+@MenuItem mnuFileExit
+Parent=mnuFile
+Text=Exit
+Shortcut=Ctrl+F4
+OnClick=mnuFileExit_OnClick
+
+@MenuItem mnuEdit
+Parent=MenuBar
+Text=Edit
+
+@MenuItem mnuEditDelete
+Parent=mnuEdit
+Text=Delete Line
+Shortcut=Del
+IsEnabled=false
+
+@MenuItem mnuHelp
+Parent=MenuBar
+Text=Help
+
+@MenuItem mnuHelpContents
+Parent=mnuHelp
+Text=Contents
+Shortcut=F1
+
+@MenuItem mnuHelpTips
+Parent=mnuHelp
+Text=Show Tips
+Shortcut=Shift+F1
+
+@MenuItem mnuHelpAbout
+Parent=mnuHelp
+Text=About "Corner Shop"...
+OnClick=mnuHelpAbout_OnClick
+
+@TextBlock lblCustomer
+Parent=frmMainCanvas
+Canvas.Left=56
+Canvas.Top=42
+Width=45
+Height=17
+Text=Customer:
+TextWrapping=Wrap
+FontSize=11
+
+@TextBlock lblTotal
+Parent=frmMainCanvas
+Canvas.Left=200
+Canvas.Top=186
+Width=81
+Height=17
+Text=Total (£):
+TextWrapping=Wrap
+Background=#ffffe1
+Foreground=#000080
+FontFamily=Arial
+FontSize=16
+FontWeight=Bold
+TextAlignment=Right
+
+@TextBlock lblStatus
+Parent=frmMainCanvas
+Canvas.Left=16
+Canvas.Top=380
+Width=200
+Height=17
+Text=Saved
+TextWrapping=Wrap
+FontSize=11
+TextAlignment=Center
+IsVisible=false
+
+@Image imgLogo
+Parent=frmMainCanvas
+Canvas.Left=16
+Canvas.Top=40
+Width=32
+Height=32
+Stretch=Fill
+OnPointerPressed=imgLogo_OnPointerPressed
+
+@Rectangle linRule
+Parent=frmMainCanvas
+Canvas.Left=16
+Canvas.Top=248
+Width=568
+Height=1
+Fill=#808080
+
+@Frame fraDelivery
+Parent=frmMainCanvas
+Canvas.Left=104
+Canvas.Top=68
+Width=273
+Height=41
+Text=Delivery
+FontSize=11
+
+@RadioButton optStandard
+Parent=fraDelivery
+Canvas.Left=8
+Canvas.Top=16
+Width=81
+Height=17
+Content=Standard
+IsChecked=true
+FontSize=11
+
+@RadioButton optExpress
+Parent=fraDelivery
+Canvas.Left=96
+Canvas.Top=16
+Width=81
+Height=17
+Content=Express
+FontSize=11
+
+@CheckBox chkGift
+Parent=fraDelivery
+Canvas.Left=184
+Canvas.Top=16
+Width=81
+Height=17
+Content=Gift wrap
+IsChecked=true
+FontSize=11
+OnClick=chkGift_OnClick
+
+@TextBox txtCustomer
+Parent=frmMainCanvas
+Canvas.Left=104
+Canvas.Top=40
+Width=273
+Height=21
+FontSize=11
+ToolTip=Who the order is for ('Mr' or "Mrs" too)
+TextChanged=txtCustomer_TextChanged
+OnKeyDown=txtCustomer_OnKeyDown
+
+@TextBox txtNotes
+Parent=frmMainCanvas
+Canvas.Left=104
+Canvas.Top=112
+Width=273
+Height=65
+AcceptsReturn=true
+FontSize=11
+
+@TextBox txtTotal
+Parent=frmMainCanvas
+Canvas.Left=288
+Canvas.Top=184
+Width=89
+Height=21
+Text=0.00
+IsReadOnly=true
+FontSize=11
+
+@TextBox txtPin
+Parent=frmMainCanvas
+Canvas.Left=104
+Canvas.Top=184
+Width=80
+Height=21
+IsPassword=true
+FontSize=11
+OnKeyDown=txtPin_OnKeyDown
+
+@ComboBox cboCategory
+Parent=frmMainCanvas
+Canvas.Left=400
+Canvas.Top=40
+Width=184
+Height=21
+FontSize=11
+SelectionChanged=cboCategory_SelectionChanged
+
+@ListBox lstProducts
+Parent=frmMainCanvas
+Canvas.Left=400
+Canvas.Top=64
+Width=184
+Height=134
+FontSize=11
+SelectionChanged=lstProducts_SelectionChanged
+OnDoubleClick=lstProducts_OnDoubleClick
+
+@Button cmdDelete
+Parent=frmMainCanvas
+Canvas.Left=504
+Canvas.Top=216
+Width=80
+Height=25
+Content=Delete
+Background=#ff8080
+FontSize=11
+IsEnabled=false
+
+@Button cmdQty_0
+Parent=frmMainCanvas
+Canvas.Left=16
+Canvas.Top=216
+Width=65
+Height=25
+Content=+1
+FontSize=11
+OnClick=cmdQty_OnClick
+
+@Button cmdQty_1
+Parent=frmMainCanvas
+Canvas.Left=88
+Canvas.Top=216
+Width=65
+Height=25
+Content=+5
+FontSize=11
+OnClick=cmdQty_OnClick
+
+@Button cmdQty_2
+Parent=frmMainCanvas
+Canvas.Left=160
+Canvas.Top=216
+Width=65
+Height=25
+Content=+10
+FontSize=11
+OnClick=cmdQty_OnClick
+
+@Frame picToolbar
+Parent=frmMainCanvas
+Canvas.Left=0
+Canvas.Top=0
+Width=600
+Height=32
+FontSize=11
+
+@Button cmdRefresh
+Parent=picToolbar
+Canvas.Left=8
+Canvas.Top=4
+Width=80
+Height=24
+Content=Refresh
+FontSize=11
+OnClick=cmdRefresh_OnClick
+
+@DataGrid grdOrders
+Parent=frmMainCanvas
+Canvas.Left=16
+Canvas.Top=256
+Width=568
+Height=108
+Columns=Product,Qty,Price
+FontSize=11
+OnDoubleClick=grdOrders_OnDoubleClick
+
+@Frame sldDiscount
+Parent=frmMainCanvas
+Canvas.Left=400
+Canvas.Top=376
+Width=184
+Height=26
+Text=Slider: sldDiscount
+Background=#fafafa
+BorderBrush=#9ca3af
+BorderThickness=1
+FontSize=11
+
+@Script frmMain_OnOpened
+Interpreter=lua
+<<END_FRMMAIN_ONOPENED
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub Form_Load()
+--       Set mOrder = New clsOrder
+--       grdOrders.Rows = 1
+--       RefreshTotals
+--   End Sub
+END_FRMMAIN_ONOPENED
+
+@Script frmMain_OnClosing
+Interpreter=lua
+<<END_FRMMAIN_ONCLOSING
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub Form_Unload(Cancel As Integer)
+--       If mDirty Then
+--           Cancel = (MsgBox("Leave without saving?", vbYesNo) = vbNo)
+--       End If
+--   End Sub
+END_FRMMAIN_ONCLOSING
+
+@Script frmMain_Activate
+Interpreter=lua
+<<END_FRMMAIN_ACTIVATE
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub Form_Activate()
+--       txtCustomer.SetFocus
+--   End Sub
+END_FRMMAIN_ACTIVATE
+
+@Script frmMain_Resize
+Interpreter=lua
+<<END_FRMMAIN_RESIZE
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub Form_Resize()
+--       If WindowState <> vbMinimized Then
+--           grdOrders.Width = ScaleWidth - 480
+--       End If
+--   End Sub
+END_FRMMAIN_RESIZE
+
+@Script mnuFileNew_OnClick
+Interpreter=lua
+<<END_MNUFILENEW_ONCLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub mnuFileNew_Click()
+--       Set mOrder = New clsOrder
+--       txtCustomer.Text = ""
+--       RefreshTotals
+--   End Sub
+END_MNUFILENEW_ONCLICK
+
+@Script mnuRecent_OnClick
+Interpreter=lua
+<<END_MNURECENT_ONCLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub mnuRecent_Click(Index As Integer)
+--       txtCustomer.Text = mnuRecent(Index).Caption
+--   End Sub
+END_MNURECENT_ONCLICK
+
+@Script mnuFileExit_OnClick
+Interpreter=lua
+<<END_MNUFILEEXIT_ONCLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub mnuFileExit_Click()
+--       Unload Me
+--   End Sub
+END_MNUFILEEXIT_ONCLICK
+
+@Script mnuHelpAbout_OnClick
+Interpreter=lua
+<<END_MNUHELPABOUT_ONCLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub mnuHelpAbout_Click()
+--       frmAbout.Show vbModal, Me
+--   End Sub
+END_MNUHELPABOUT_ONCLICK
+
+@Script imgLogo_OnPointerPressed
+Interpreter=lua
+<<END_IMGLOGO_ONPOINTERPRESSED
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub imgLogo_Click()
+--       frmAbout.Show vbModal, Me
+--   End Sub
+END_IMGLOGO_ONPOINTERPRESSED
+
+@Script chkGift_OnClick
+Interpreter=lua
+<<END_CHKGIFT_ONCLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub chkGift_Click()
+--       mDirty = True
+--   End Sub
+END_CHKGIFT_ONCLICK
+
+@Script txtCustomer_TextChanged
+Interpreter=lua
+<<END_TXTCUSTOMER_TEXTCHANGED
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub txtCustomer_Change()
+--       mOrder.Customer = txtCustomer.Text
+--       mDirty = True
+--   End Sub
+END_TXTCUSTOMER_TEXTCHANGED
+
+@Script txtCustomer_OnKeyDown
+Interpreter=lua
+<<END_TXTCUSTOMER_ONKEYDOWN
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub txtCustomer_KeyPress(KeyAscii As Integer)
+--       If KeyAscii = vbKeyReturn Then KeyAscii = 0
+--   End Sub
+END_TXTCUSTOMER_ONKEYDOWN
+
+@Script txtPin_OnKeyDown
+Interpreter=lua
+<<END_TXTPIN_ONKEYDOWN
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub txtPin_KeyDown(KeyCode As Integer, Shift As Integer)
+--       If KeyCode = vbKeyEscape Then txtPin.Text = ""
+--   End Sub
+END_TXTPIN_ONKEYDOWN
+
+@Script txtPin_KeyPress
+Interpreter=lua
+<<END_TXTPIN_KEYPRESS
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub txtPin_KeyPress(KeyAscii As Integer)
+--       If KeyAscii < vbKey0 Or KeyAscii > vbKey9 Then KeyAscii = 0
+--   End Sub
+END_TXTPIN_KEYPRESS
+
+@Script cboCategory_SelectionChanged
+Interpreter=lua
+<<END_CBOCATEGORY_SELECTIONCHANGED
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub cboCategory_Click()
+--       lstProducts.ListIndex = -1
+--   End Sub
+END_CBOCATEGORY_SELECTIONCHANGED
+
+@Script lstProducts_SelectionChanged
+Interpreter=lua
+<<END_LSTPRODUCTS_SELECTIONCHANGED
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub lstProducts_Click()
+--       lblStatus.Visible = False
+--   End Sub
+END_LSTPRODUCTS_SELECTIONCHANGED
+
+@Script lstProducts_OnDoubleClick
+Interpreter=lua
+<<END_LSTPRODUCTS_ONDOUBLECLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub lstProducts_DblClick()
+--       cmdQty_Click 0
+--   End Sub
+END_LSTPRODUCTS_ONDOUBLECLICK
+
+@Script cmdQty_OnClick
+Interpreter=lua
+<<END_CMDQTY_ONCLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub cmdQty_Click(Index As Integer)
+--       Dim n As Integer
+--       n = Choose(Index + 1, 1, 5, 10)
+--       If lstProducts.ListIndex < 0 Then Exit Sub
+--       mOrder.AddLine lstProducts.Text, n
+--       mDirty = True
+--       RefreshTotals
+--   End Sub
+END_CMDQTY_ONCLICK
+
+@Script cmdRefresh_OnClick
+Interpreter=lua
+<<END_CMDREFRESH_ONCLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub cmdRefresh_Click()
+--       RefreshTotals
+--   End Sub
+END_CMDREFRESH_ONCLICK
+
+@Script grdOrders_OnDoubleClick
+Interpreter=lua
+<<END_GRDORDERS_ONDOUBLECLICK
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub grdOrders_DblClick()
+--       If grdOrders.Row > 0 Then cmdDelete.Enabled = True
+--   End Sub
+END_GRDORDERS_ONDOUBLECLICK
+
+@Script sldDiscount_Change
+Interpreter=lua
+<<END_SLDDISCOUNT_CHANGE
+-- Imported from frmMain.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub sldDiscount_Change()
+--       RefreshTotals
+--   End Sub
+END_SLDDISCOUNT_CHANGE
+

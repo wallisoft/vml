@@ -1,0 +1,29 @@
+-- frmMain: the rest of frmMain.frm (Visual Basic), kept for reference.
+-- The event handlers are on the form's controls (Edit Script). What is here is everything else:
+-- the form's own routines and variables. It does not run: rewrite what you need below, in Lua,
+-- and every form in the project can call it.
+--
+--   Option Explicit
+--
+--   Private Declare Function GetTickCount Lib "kernel32" () As Long
+--
+--   Dim mOrder As clsOrder
+--   Private mDirty As Boolean
+--
+--   ' One handler for all three quantity buttons.
+--
+--   Private Sub tmrClock_Timer()
+--       Caption = "Corner Shop - Orders  " & Format$(Now, "hh:nn")
+--   End Sub
+--
+--   Private Function LineTotal(ByVal UnitPrice As Currency, ByVal Quantity As Integer) As Currency
+--       LineTotal = PriceWithVat(UnitPrice, Quantity) * (100 - sldDiscount.Value) / 100
+--   End Function
+--
+--   Private Sub RefreshTotals()
+--       Dim i As Long, total As Currency
+--       For i = 1 To grdOrders.Rows - 1
+--           total = total + LineTotal(Val(grdOrders.TextMatrix(i, 2)), Val(grdOrders.TextMatrix(i, 1)))
+--       Next i
+--       txtTotal.Text = Format$(total, "0.00")
+--   End Sub

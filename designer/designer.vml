@@ -34,10 +34,50 @@ Foreground=#DBEAFE
 FontSize=11
 VerticalAlignment=Center
 
-@Border PropsPane
+@DockPanel RightPane
 Parent=Root
 DockPanel.Dock=Right
 Width=320
+
+# The project: its forms, modules and databases (hidden until a project is open). Double-click to open one.
+@DockPanel ProjectPane
+Parent=RightPane
+DockPanel.Dock=Top
+Height=200
+IsVisible=false
+
+@Border ProjHeader
+Parent=ProjectPane
+DockPanel.Dock=Top
+Background=#1E3A8A
+Padding=10,5
+
+@TextBlock ProjTitle
+Parent=ProjHeader
+Text=Project
+Foreground=White
+FontSize=12
+FontWeight=Bold
+
+@TreeView ProjTree
+Parent=ProjectPane
+BorderBrush=#E5E7EB
+BorderThickness=1,0,0,1
+FontSize=12
+OnDoubleClick=ProjOpenItem
+OnContextMenu=ProjShowMenu
+
+# Drag the bar between the project tree and the properties to share the height between them.
+@Splitter ProjSplit
+Parent=RightPane
+DockPanel.Dock=Top
+Thickness=5
+Background=#CBD5E1
+MinSize=80
+IsVisible=false
+
+@Border PropsPane
+Parent=RightPane
 Background=#F9FAFB
 BorderBrush=#E5E7EB
 BorderThickness=1,0,0,0
@@ -97,44 +137,7 @@ OnClick=FileSaveAs
 Parent=File
 Text=Import
 
-@MenuItem FileImportWinForms
-Parent=FileImport
-Text=Windows Forms (Visual Studio, VB or C#)...
-OnClick=ImportWinForms
-
-@MenuItem FileImportSep
-Parent=FileImport
-IsSeparator=true
-
-@MenuItem FileImportSoon
-Parent=FileImport
-Text=Coming soon:
-IsEnabled=false
-
-@MenuItem FileImportVB
-Parent=FileImport
-Text=Visual Basic 5/6 form (.frm)...
-IsEnabled=false
-
-@MenuItem FileImportDelphi
-Parent=FileImport
-Text=Delphi form (.dfm)...
-IsEnabled=false
-
-@MenuItem FileImportQt
-Parent=FileImport
-Text=Qt Designer (.ui)...
-IsEnabled=false
-
-@MenuItem FileImportXaml
-Parent=FileImport
-Text=XAML (WPF, Avalonia)...
-IsEnabled=false
-
-@MenuItem FileImportHtml
-Parent=FileImport
-Text=Web page (HTML form)...
-IsEnabled=false
+# (its items are added when the designer opens: one for each importer in the library. See BuildImportMenu.)
 
 @MenuItem FileExport
 Parent=File
@@ -217,6 +220,12 @@ Text=Preview
 Shortcut=F5
 OnClick=Preview
 
+@MenuItem ViewPreviewForm
+Parent=View
+Text=Preview This Form Only
+Shortcut=Shift+F5
+OnClick=PreviewForm
+
 @MenuItem ViewBrowser
 Parent=View
 Text=Preview in Browser
@@ -227,6 +236,68 @@ OnClick=PreviewBrowser
 Parent=View
 Text=Show Grid
 OnClick=ToggleGrid
+
+@MenuItem Project
+Parent=MenuBar
+Text=Project
+
+@MenuItem ProjNew
+Parent=Project
+Text=New Project...
+OnClick=ProjectNew
+
+@MenuItem ProjOpen
+Parent=Project
+Text=Open Project...
+OnClick=ProjectOpen
+
+@MenuItem ProjClose
+Parent=Project
+Text=Close Project
+OnClick=ProjectClose
+
+@MenuItem ProjSep1
+Parent=Project
+IsSeparator=true
+
+@MenuItem ProjAddNew
+Parent=Project
+Text=Add New Form
+OnClick=ProjectAddNewForm
+
+@MenuItem ProjAddForm
+Parent=Project
+Text=Add Existing Form...
+OnClick=ProjectAddForm
+
+@MenuItem ProjAddModule
+Parent=Project
+Text=Add Module...
+OnClick=ProjectAddModule
+
+@MenuItem ProjAddDatabase
+Parent=Project
+Text=Add Database...
+OnClick=ProjectAddDatabase
+
+@MenuItem ProjSep2
+Parent=Project
+IsSeparator=true
+
+@MenuItem ProjStartup
+Parent=Project
+Text=Set as Start-up Form
+OnClick=ProjectSetStartup
+
+@MenuItem ProjRemove
+Parent=Project
+Text=Remove from Project
+OnClick=ProjectRemove
+
+@MenuItem ProjRename
+Parent=Project
+Text=Rename Project...
+OnClick=ProjectRename
 
 @MenuItem Settings
 Parent=MenuBar
@@ -285,6 +356,34 @@ Parent=Settings
 Text=Upgrade Licence...
 OnClick=LicenceUpgrade
 
+@MenuItem SetSep3
+Parent=Settings
+IsSeparator=true
+
+@MenuItem SetCSharp
+Parent=Settings
+Text=C# Scripting...
+OnClick=CSharpSetup
+
+@MenuItem SetTheme
+Parent=Settings
+Text=Theme
+
+@MenuItem SetThemeClassic
+Parent=SetTheme
+Text=Classic   (in use)
+IsEnabled=false
+
+@MenuItem SetThemeSoon
+Parent=SetTheme
+Text=More themes, and your own, are on their way
+IsEnabled=false
+
+@MenuItem SetDatabases
+Parent=Settings
+Text=Databases (ODBC)...
+OnClick=DatabasesShow
+
 @MenuItem SetSep2
 Parent=Settings
 IsSeparator=true
@@ -297,6 +396,15 @@ OnClick=CheckUpdates
 @MenuItem Help
 Parent=MenuBar
 Text=Help
+
+@MenuItem HelpVersion
+Parent=Help
+Text=Visualised
+IsEnabled=false
+
+@MenuItem HelpSep
+Parent=Help
+IsSeparator=true
 
 @MenuItem HelpAbout
 Parent=Help
@@ -413,478 +521,32 @@ Parent=MenuBarMenu
 Text=Remove Menu Bar
 OnClick=MenuBarRemove
 
-# ============================================================================ scripts
+# ---------------------------------------------------------------- right-click in the project tree
 
-@Script DesignerInit
-Interpreter=lua
-<<LUA
-local json = require("dkjson")
-local category = ""
-for _, t in ipairs(json.decode(Vml("GetControlTypes"))) do
-    if t.category ~= category and category ~= "" then
-        local sep = "AddSep_" .. t.category
-        Vml("CreateControl", "MenuItem", sep, "CtxAdd")
-        Vml("SetProperty", sep, "IsSeparator", "true")
-    end
-    category = t.category
-    local item = "Add_" .. t.name
-    Vml("CreateControl", "MenuItem", item, "CtxAdd")
-    Vml("SetProperty", item, "Text", t.name)
-    Vml("SetEvent", item, "OnClick", "AddControl(" .. t.name .. ")")
-end
-Vml("SetSetting", "current_file", "")
-Vml("SetSetting", "dirty", "false")
-Vml("SetProperty", "Props", "Target", "Surface")
-Vml("RunScript", "ApplySettings")
-Vml("RunScript", "ApplyLicence")
-Vml("SetStatusText", "Right-click the form to add a control")
-LUA
+@ContextMenu ProjMenu
 
-@Script AddControl
-Interpreter=lua
-<<LUA
-local name = Vml("AddDesignControl", args[1], Vml("GetSetting", "click_x"), Vml("GetSetting", "click_y"))
-if name ~= "" then Vml("SetStatusText", "Added " .. name) end
-LUA
+@MenuItem PmOpen
+Parent=ProjMenu
+Text=Open
+OnClick=ProjOpenItem
 
-@Script ShowSurfaceMenu
-Interpreter=lua
-<<LUA
-local selected = Vml("GetProperty", "Surface", "Selected") ~= ""
-for _, item in ipairs({"CtxEditScript", "CtxDuplicate", "CtxFront", "CtxBack", "CtxDelete"}) do
-    Vml("SetMenuItemEnabled", item, selected)
-end
-Vml("SetMenuItemEnabled", "CtxAddMenu", Vml("GetDesignMenu", "Surface") == "[]")
-Vml("ShowContextMenu", "SurfaceMenu")
-LUA
+@MenuItem PmStartup
+Parent=ProjMenu
+Text=Set as Start-up Form
+OnClick=ProjectSetStartup
 
-@Script SelectionChanged
-Interpreter=lua
-<<LUA
-local sel = Vml("GetProperty", "Surface", "Selected")
-Vml("SetProperty", "Props", "Target", sel ~= "" and sel or "Surface")
-Vml("RunScript", "ShowGeometry")
-LUA
+@MenuItem PmSep
+Parent=ProjMenu
+IsSeparator=true
 
-@Script DesignChanged
-Interpreter=lua
-<<LUA
-Vml("SetSetting", "dirty", "true")
-Vml("RunScript", "UpdateTitle")
-Vml("RunScript", "ShowGeometry")
-LUA
+@MenuItem PmRemove
+Parent=ProjMenu
+Text=Remove from Project
+OnClick=ProjectRemove
 
-@Script UpdateTitle
-Interpreter=lua
-<<LUA
-local file = Vml("GetSetting", "current_file")
-local name = file ~= "" and file:match("([^/\\]+)$") or "Untitled"
-local star = Vml("GetSetting", "dirty") == "true" and " *" or ""
-Vml("SetProperty", "Designer", "Title", "Visualised - " .. name .. star)
-LUA
-
-@Script EditScript
-Interpreter=lua
-<<LUA
--- open the script editor (itself a VML form) for the selected control
-local sel = Vml("GetProperty", "Surface", "Selected")
-if sel == "menubar" then return end
-local event = args[1] or ""
-if sel == "" then sel, event = "Surface", "OnOpened" end    -- the form itself: its OnOpened (VB's Form_Load)
-Vml("SetSetting", "editor_control", sel)
-Vml("SetSetting", "editor_event", event)
-Vml("FormOpenModal", "script-editor.vml")
-Vml("RunScript", "SelectionChanged")
-LUA
-
-@Script ShowMenuItemMenu
-Interpreter=lua
-<<LUA
--- the bar's empty space has its own menu; items have theirs
-if Vml("GetProperty", "Surface", "Selected") == "menubar" then
-    Vml("ShowContextMenu", "MenuBarMenu")
-else
-    Vml("ShowContextMenu", "MenuItemMenu")
-end
-LUA
-
-@Script MenuBarAdd
-Interpreter=lua
-<<LUA
-Vml("MenuAddItem", "menubar", "end")
-LUA
-
-@Script MenuBarRemove
-Interpreter=lua
-<<LUA
-if Vml("ConfirmDialog", "Remove the whole menu bar and its scripts?", "Menu") == "true" then
-    Vml("SetDesignMenu", "Surface", "[]")
-    Vml("SetProperty", "Surface", "Selected", "")
-    Vml("RunScript", "SelectionChanged")
-end
-LUA
-
-@Script AddMenu
-Interpreter=lua
-<<LUA
-Vml("MenuAddItem", "", "first")
-LUA
-
-@Script MenuAddBefore
-Interpreter=lua
-<<LUA
-Vml("MenuAddItem", Vml("GetProperty", "Surface", "Selected"), "before")
-LUA
-
-@Script MenuAddAfter
-Interpreter=lua
-<<LUA
-Vml("MenuAddItem", Vml("GetProperty", "Surface", "Selected"), "after")
-LUA
-
-@Script MenuAddChild
-Interpreter=lua
-<<LUA
-Vml("MenuAddItem", Vml("GetProperty", "Surface", "Selected"), "child")
-LUA
-
-@Script OpenMenuEditor
-Interpreter=lua
-<<LUA
--- the Menu Editor is a VML form too
-Vml("FormOpenModal", "menu-editor.vml")
-Vml("RunScript", "SelectionChanged")
-LUA
-
-@Script EditScriptOnClick
-Interpreter=lua
-<<LUA
--- double-click: straight to the control's click script, as in VB
-Vml("RunScript", "EditScript", "OnClick")
-LUA
-
-@Script ShowGeometry
-Interpreter=lua
-<<LUA
--- live position and size on the status bar (runs while dragging, resizing and nudging)
-local sel = Vml("GetProperty", "Surface", "Selected")
-if sel == "menubar" then
-    Vml("SetStatusText", "Menu bar    right-click for Add Menu / Remove Menu Bar")
-elseif sel:sub(1, 5) == "menu:" then
-    Vml("SetStatusText", "Menu item " .. sel:sub(6) .. "    right-click for Add / Delete / Edit Script")
-elseif sel == "" then
-    Vml("SetStatusText", string.format("Form    %s x %s", Vml("GetProperty", "Surface", "FormWidth"),
-        Vml("GetProperty", "Surface", "FormHeight")))
-else
-    Vml("SetStatusText", string.format("%s  (%s)    X %s   Y %s    W %s   H %s", sel, Vml("GetControlType", sel),
-        Vml("GetControlX", sel), Vml("GetControlY", sel), Vml("GetControlWidth", sel), Vml("GetControlHeight", sel)))
-end
-LUA
-
-@Script DeleteSelected
-Interpreter=lua
-<<LUA
-local sel = Vml("GetProperty", "Surface", "Selected")
-if sel == "" then return end
-if sel == "menubar" then return Vml("RunScript", "MenuBarRemove") end
-if sel:sub(1, 5) == "menu:" then
-    Vml("MenuDeleteItem", sel)
-    Vml("SetStatusText", "Deleted " .. sel:sub(6))
-    return
-end
-Vml("DeleteControl", sel)
-Vml("SetProperty", "Surface", "Selected", "")
-Vml("RunScript", "SelectionChanged")
-Vml("RunScript", "DesignChanged")
-Vml("SetStatusText", "Deleted " .. sel)
-LUA
-
-@Script DuplicateSelected
-Interpreter=lua
-<<LUA
-local sel = Vml("GetProperty", "Surface", "Selected")
-if sel ~= "" then Vml("DuplicateControl", sel) end
-LUA
-
-@Script BringSelectedToFront
-Interpreter=lua
-<<LUA
-local sel = Vml("GetProperty", "Surface", "Selected")
-if sel ~= "" then Vml("BringToFront", sel) end
-LUA
-
-@Script SendSelectedToBack
-Interpreter=lua
-<<LUA
-local sel = Vml("GetProperty", "Surface", "Selected")
-if sel ~= "" then Vml("SendToBack", sel) end
-LUA
-
-@Script FileNew
-Interpreter=lua
-<<LUA
-if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the current form?") ~= "true" then return end
-Vml("ClearDesign", "Surface")
-Vml("SetSetting", "current_file", "")
-Vml("SetSetting", "dirty", "false")
-Vml("RunScript", "ApplySettings")
-Vml("RunScript", "SelectionChanged")
-Vml("RunScript", "UpdateTitle")
-LUA
-
-@Script FileOpen
-Interpreter=lua
-<<LUA
-local path = Vml("FileOpenDialog", "Open a VML form", "vml")
-if path == "" then return end
-if Vml("ImportVml", path, "Surface") == "true" then
-    local converted = Vml("GetSetting", "import_converted") == "true"
-    -- a converted layout form is a new, unsaved canvas form: Save asks for a name, so the original is never overwritten
-    Vml("SetSetting", "current_file", converted and "" or path)
-    Vml("SetSetting", "dirty", converted and "true" or "false")
-    Vml("RunScript", "ApplySettings")
-    Vml("RunScript", "SelectionChanged")
-    Vml("RunScript", "UpdateTitle")
-    if converted then
-        Vml("SetStatusText", "Converted " .. path .. " to a canvas form (the original is untouched)")
-        Vml("InfoDialog", Vml("GetSetting", "import_notes") .. "\n\nThis is a new canvas form: Save will ask for a name, and the original file is untouched.")
-    else
-        Vml("SetStatusText", "Opened " .. path)
-    end
-else
-    Vml("InfoDialog", "That file couldn't be opened as a form.")
-end
-LUA
-
-@Script ImportWinForms
-Interpreter=lua
-<<LUA
-if Vml("GetSetting", "dirty") == "true" and Vml("ConfirmDialog", "Discard the current form?") ~= "true" then return end
-local path = Vml("FileOpenDialog", "Import a Windows Forms form: choose its .Designer.vb or .Designer.cs file", "vb,cs")
-if path == "" then return end
-if Vml("ImportForm", "winforms", path, "Surface") == "true" then
-    Vml("SetSetting", "current_file", "")
-    Vml("SetSetting", "dirty", "true")
-    Vml("RunScript", "ApplySettings")
-    Vml("RunScript", "SelectionChanged")
-    Vml("RunScript", "UpdateTitle")
-    Vml("SetStatusText", "Imported " .. path .. " (the original is untouched)")
-    Vml("InfoDialog", Vml("GetSetting", "import_notes") .. "\n\nThis is a new form: Save will ask for a name, and the original files are untouched.", "Imported from Windows Forms")
-else
-    local why = Vml("GetSetting", "import_notes")
-    if why ~= "" then Vml("InfoDialog", "That file couldn't be imported: " .. why, "Import") end
-end
-LUA
-
-@Script FileSave
-Interpreter=lua
-<<LUA
-local path = Vml("GetSetting", "current_file")
-if path == "" then return Vml("RunScript", "FileSaveAs") end
-Vml("ExportVml", "Surface", path)
-Vml("SetSetting", "dirty", "false")
-Vml("RunScript", "UpdateTitle")
-Vml("SetStatusText", "Saved " .. path)
-LUA
-
-@Script FileSaveAs
-Interpreter=lua
-<<LUA
-local path = Vml("FileSaveDialog", "Save the form as", Vml("GetProperty", "Surface", "FormName"), "vml")
-if path == "" then return end
-Vml("SetSetting", "current_file", path)
-Vml("RunScript", "FileSave")
-LUA
-
-@Script Preview
-Interpreter=lua
-<<LUA
-Vml("PreviewDesign", "Surface")
-Vml("SetStatusText", "Previewing " .. Vml("GetProperty", "Surface", "FormName"))
-LUA
-
-@Script PreviewBrowser
-Interpreter=lua
-<<LUA
--- the same form, as a web page, in your browser
-local path = Vml("PreviewInBrowser", "Surface")
-Vml("SetStatusText", "Opened in your browser: " .. path)
-LUA
-
-@Script ExportHtml
-Interpreter=lua
-<<LUA
-local path = Vml("FileSaveDialog", "Export as a web page", Vml("GetProperty", "Surface", "FormName"), "html")
-if path == "" then return end
-Vml("ExportHtml", "Surface", path)
-Vml("SetStatusText", "Web page written: " .. path)
-LUA
-
-@Script ExportWindows
-Interpreter=lua
-<<LUA
-local name = Vml("GetProperty", "Surface", "FormName")
-local path = Vml("FileSaveDialog", "Export as a Windows app", name .. "-windows", "zip")
-if path == "" then return end
-local out = Vml("ExportApp", "windows", path)
-if out ~= "" then Vml("InfoDialog", "Exported " .. name .. " for Windows:\n" .. out .. "\n\nUnzip it anywhere and double-click " .. name .. ".exe.", "Export") end
-LUA
-
-@Script ExportLinux
-Interpreter=lua
-<<LUA
-local name = Vml("GetProperty", "Surface", "FormName")
-local path = Vml("FileSaveDialog", "Export as a Linux app", name .. "-linux", "tar.gz")
-if path == "" then return end
-local out = Vml("ExportApp", "linux", path)
-if out ~= "" then Vml("InfoDialog", "Exported " .. name .. " for Linux:\n" .. out .. "\n\nUnpack it anywhere and run ./" .. name .. ".", "Export") end
-LUA
-
-@Script ToggleGrid
-Interpreter=lua
-<<LUA
-local on = Vml("GetProperty", "Surface", "ShowGrid") ~= "false"
-Vml("SetPreference", "show_grid", on and "false" or "true")
-Vml("RunScript", "ApplySettings")
-LUA
-
-# The designer's own settings are this user's preferences: they are kept between runs and apply to every form.
-@Script ApplySettings
-Interpreter=lua
-<<LUA
-local function pref(key, default)
-    local v = Vml("GetPreference", key, default)
-    return v == "" and default or v
-end
-local snap, grid, show = pref("snap_to_grid", "true"), pref("grid_size", "8"), pref("show_grid", "true")
-Vml("SetProperty", "Surface", "SnapToGrid", snap)
-Vml("SetProperty", "Surface", "GridSize", grid)
-Vml("SetProperty", "Surface", "ShowGrid", show)
-local function tick(on) return on and "\226\156\147  " or "     " end
-Vml("SetMenuItemText", "SetSnap", tick(snap == "true") .. "Snap to Grid")
-Vml("SetMenuItemText", "ViewGrid", tick(show == "true") .. "Show Grid")
-for _, n in ipairs({"4", "8", "16", "24"}) do
-    Vml("SetMenuItemText", "SetGrid" .. n, tick(n == grid) .. n .. " pixels")
-end
-LUA
-
-@Script ToggleSnap
-Interpreter=lua
-<<LUA
-local on = Vml("GetProperty", "Surface", "SnapToGrid") ~= "false"
-Vml("SetPreference", "snap_to_grid", on and "false" or "true")
-Vml("RunScript", "ApplySettings")
-Vml("SetStatusText", on and "Snap to grid is off: controls move freely" or "Snap to grid is on")
-LUA
-
-@Script SetGridSize
-Interpreter=lua
-<<LUA
-Vml("SetPreference", "grid_size", args[1])
-Vml("RunScript", "ApplySettings")
-Vml("SetStatusText", "Grid: " .. args[1] .. " pixels")
-LUA
-
-# Community designs, runs, saves and shares forms. Pro and Enterprise add the exports, and the imports as they arrive.
-@Script ApplyLicence
-Interpreter=lua
-<<LUA
-local raw = Vml("GetLicence")
-if raw == "" then return end
-local lic = require("dkjson").decode(raw)
-local paid = lic.tier ~= "community"
-local exports = {FileExportWeb = "Web page...", FileExportWin = "Windows app...", FileExportLinux = "Linux app..."}
-for item, text in pairs(exports) do
-    Vml("SetMenuItemEnabled", item, paid and "true" or "false")
-    Vml("SetMenuItemText", item, text .. (paid and "" or "   (Pro)"))
-end
-Vml("SetMenuItemEnabled", "FileImportWinForms", paid and "true" or "false")
-Vml("SetMenuItemText", "FileImportWinForms", "Windows Forms (Visual Studio, VB or C#)..." .. (paid and "" or "   (Pro)"))
-Vml("SetMenuItemText", "SetLicenceInfo", "Licence: " .. lic.label)
-Vml("SetMenuItemText", "SetLicenceEnter", lic.key ~= "" and "Change Licence Key..." or "Enter Licence Key...")
-Vml("SetMenuItemEnabled", "SetLicenceRemove", lic.key ~= "" and "true" or "false")
-local upgrade = {community = "Upgrade to Pro...", pro = "Upgrade to Enterprise...", enterprise = "Upgrade Licence..."}
-Vml("SetMenuItemText", "SetLicenceUpgrade", upgrade[lic.tier])
-Vml("SetMenuItemEnabled", "SetLicenceUpgrade", lic.tier ~= "enterprise" and "true" or "false")
-LUA
-
-@Script LicenceShow
-Interpreter=lua
-<<LUA
-local lic = require("dkjson").decode(Vml("GetLicence"))
-local function day(d) return #d == 8 and (d:sub(7, 8) .. "/" .. d:sub(5, 6) .. "/" .. d:sub(1, 4)) or d end
-local text
-if lic.expired then
-    text = "Your Visualised " .. (lic.was == "enterprise" and "Enterprise" or "Pro") .. " licence ran out on " .. day(lic.expires)
-        .. ", so Visualised is running as Community.\n\nYour forms are untouched. Renew to get the exports back."
-elseif lic.tier == "community" then
-    text = "Visualised Community\n\nDesign, run, save and share forms, free.\n\nVisualised Pro adds exporting a form as a web page "
-        .. "or as a Windows or Linux app, and importing forms from other tools as those arrive."
-else
-    text = "Visualised " .. lic.label .. (lic.name ~= "" and ("\nLicensed to " .. lic.name) or "") .. "\nLicence " .. lic.id
-        .. ", issued " .. day(lic.issued) .. (lic.expires ~= "" and ("\nValid until " .. day(lic.expires)) or "")
-end
-Vml("InfoDialog", text, "Visualised licence")
-LUA
-
-@Script LicenceEnter
-Interpreter=lua
-<<LUA
-local key = Vml("PromptDialog", "Visualised licence", "Paste the licence key from your email:", "")
-if key == "" then return end
-local problem = Vml("SetLicenceKey", key)
-if problem ~= "" then
-    Vml("InfoDialog", problem, "Visualised licence")
-    return
-end
-Vml("RunScript", "ApplyLicence")
-local lic = require("dkjson").decode(Vml("GetLicence"))
-Vml("SetStatusText", "Visualised " .. lic.label .. " is active")
-Vml("InfoDialog", "Visualised " .. lic.label .. " is active on this computer.", "Visualised licence")
-LUA
-
-@Script LicenceRemove
-Interpreter=lua
-<<LUA
-if Vml("ConfirmDialog", "Remove the licence key from this computer and go back to Visualised Community?\n\nKeep a copy of the key: you can enter it again at any time.") ~= "true" then return end
-Vml("RemoveLicenceKey")
-Vml("RunScript", "ApplyLicence")
-Vml("SetStatusText", "Licence key removed: Visualised Community")
-LUA
-
-@Script LicenceUpgrade
-Interpreter=lua
-<<LUA
-local lic = require("dkjson").decode(Vml("GetLicence"))
-if lic.tier == "community" then
-    Vml("OpenUrl", lic.buy_url)
-else
-    Vml("OpenUrl", "mailto:hello@tiny-web.uk?subject=Visualised%20Enterprise")
-end
-LUA
-
-@Script CheckUpdates
-Interpreter=lua
-<<LUA
-Vml("SetStatusText", "Checking for a newer Visualised...")
-local u = require("dkjson").decode(Vml("CheckForUpdate"))
-if u.error ~= "" or u.latest == "" then
-    Vml("SetStatusText", "Couldn't check for updates")
-    Vml("InfoDialog", "Couldn't check for updates just now. You have Visualised " .. u.current .. ".", "Updates")
-elseif u.newer then
-    Vml("SetStatusText", "Visualised " .. u.latest .. " is available")
-    if Vml("ConfirmDialog", "Visualised " .. u.latest .. " is available (you have " .. u.current .. ").\n\nOpen the download page?", "Updates") == "true" then
-        Vml("OpenUrl", u.url)
-    end
-else
-    Vml("SetStatusText", "Visualised " .. u.current .. " is the latest")
-    Vml("InfoDialog", "You have the latest Visualised (" .. u.current .. ").", "Updates")
-end
-LUA
-
-@Script About
-Interpreter=lua
-<<LUA
-local lic = require("dkjson").decode(Vml("GetLicence"))
-Vml("InfoDialog", "Visualised " .. Vml("VmlVersion") .. " (" .. lic.label .. ")\n\nDesign desktop and web apps.\nThe designer is itself a VML form: designer.vml.\n\nhttps://visualised.io\nMade by Wallisoft.", "About Visualised")
-LUA
+# ============================================================================
+# The designer's code is not in this file. The designer is a Visualised project,
+# designer/Designer.vmlproj, and what its menus and controls do is in the
+# project's modules (designer/modules/*.lua): OnClick=FileSave runs the function
+# FileSave in modules/files.lua. Open the project in the designer to see it whole.
+# ============================================================================
