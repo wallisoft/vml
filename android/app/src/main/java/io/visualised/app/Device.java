@@ -135,6 +135,26 @@ final class Device {
         activity.log(text == null ? "" : text);
     }
 
+    /** What a QR code in a picture says, or "" if there is none to be read. The picture is its brightness alone:
+     *  one byte for each dot, row by row, as base64. (The web view has no reader of its own that can be counted on.) */
+    @JavascriptInterface
+    public String readCode(String grey, int width, int height) {
+        try {
+            byte[] dots = android.util.Base64.decode(grey == null ? "" : grey, android.util.Base64.DEFAULT);
+            if (width < 21 || height < 21 || dots.length < width * height) {
+                return "";
+            }
+            com.google.zxing.LuminanceSource picture =
+                    new com.google.zxing.PlanarYUVLuminanceSource(dots, width, height, 0, 0, width, height, false);
+            java.util.Map<com.google.zxing.DecodeHintType, Object> hints = new java.util.EnumMap<>(com.google.zxing.DecodeHintType.class);
+            hints.put(com.google.zxing.DecodeHintType.TRY_HARDER, Boolean.TRUE);
+            return new com.google.zxing.qrcode.QRCodeReader()
+                    .decode(new com.google.zxing.BinaryBitmap(new com.google.zxing.common.HybridBinarizer(picture)), hints).getText();
+        } catch (com.google.zxing.ReaderException | RuntimeException e) {
+            return "";                              // no code in this picture: the next one may have it
+        }
+    }
+
     /** A few words at the foot of the screen that go away by themselves. */
     @JavascriptInterface
     public void toast(String text) {

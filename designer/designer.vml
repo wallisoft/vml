@@ -454,13 +454,33 @@ Text=Theme
 
 @MenuItem SetThemeClassic
 Parent=SetTheme
-Text=Classic   (in use)
-IsEnabled=false
+Text=Classic
+OnClick=SetTheme(Classic)
 
-@MenuItem SetThemeSoon
+@MenuItem SetThemeSlate
 Parent=SetTheme
-Text=More themes, and your own, are on their way
-IsEnabled=false
+Text=Slate
+OnClick=SetTheme(Slate)
+
+@MenuItem SetThemeForest
+Parent=SetTheme
+Text=Forest
+OnClick=SetTheme(Forest)
+
+@MenuItem SetThemePlum
+Parent=SetTheme
+Text=Plum
+OnClick=SetTheme(Plum)
+
+@MenuItem SetThemeCharcoal
+Parent=SetTheme
+Text=Charcoal
+OnClick=SetTheme(Charcoal)
+
+@MenuItem SetThemePaper
+Parent=SetTheme
+Text=Paper
+OnClick=SetTheme(Paper)
 
 @MenuItem SetDatabases
 Parent=Settings

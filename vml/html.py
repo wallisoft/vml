@@ -938,6 +938,109 @@ const commands = {
   // The air pressure in hectopascals: about 0.12 less for every metre climbed, so it tells one floor from the
   // next. "" where there is no barometer, and for the first moment after asking.
   Pressure() { return DEV && DEV.pressure ? DEV.pressure() : ""; },
+  // A QR code for some text (an address, or a link's code), as a picture: a data: address to give an Image as
+  // its Source. Up to 213 characters. "" if it is too long.
+  QrCode(text = "", scale = "6") {
+    const m = qrMatrix(String(text));
+    if (!m) { console.warn("QrCode: that is too long for a QR code made here (213 characters at most)"); return ""; }
+    const n = m.length, k = Math.max(1, Math.round(Number(scale) || 6)), c = document.createElement("canvas");
+    c.width = c.height = (n + 8) * k;
+    const g = c.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);          // with the quiet margin a scanner needs
+    g.fillStyle = "#000";
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (m[y][x]) g.fillRect((x + 4) * k, (y + 4) * k, k, k);
+    return c.toDataURL("image/png");
+  },
+  // Read a QR code with the camera and hand the handler what it says; or a blank and what went wrong. Where
+  // there is no camera that can (a computer, some browsers) the user is asked to paste what the code says.
+  ScanCode(handler, prompt_ = "") {
+    const done = (text, problem = "") => setTimeout(() => run(handler, [text, problem]), 0);
+    const ask = () => { const t = prompt(prompt_ || "Paste the code here:", ""); done((t || "").trim(), t ? "" : "Nothing was given."); };
+    const own = DEV && DEV.readCode;          // the Visualised app reads codes itself: a phone's web view can't be counted on to
+    if (!(own || "BarcodeDetector" in window) || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.isSecureContext) { ask(); return ""; }
+    const box = document.createElement("div");
+    box.id = "vml_scan";
+    box.style.cssText = "position:fixed;inset:0;z-index:99997;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font:15px system-ui,sans-serif;color:#fff";
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.setAttribute("playsinline", "");
+    v.style.cssText = "width:min(86vw,60vh);height:min(86vw,60vh);object-fit:cover;border-radius:14px;background:#111";
+    const say = document.createElement("div"); say.textContent = prompt_ || "Point the camera at the code";
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:10px";
+    const btn = (label, go) => { const b = document.createElement("button"); b.textContent = label; b.style.cssText = "font:inherit;padding:9px 18px;border-radius:9px;border:0;background:#fff;color:#111"; b.onclick = go; row.appendChild(b); };
+    let stream = null, over = false, timer = 0;
+    const finish = (text, problem) => { if (over) return; over = true; clearInterval(timer); if (stream) stream.getTracks().forEach(t => t.stop()); box.remove(); if (text !== null) done(text, problem); };
+    btn("Paste it instead", () => { finish(null); ask(); });
+    btn("Cancel", () => finish("", "Nothing was scanned."));
+    box.append(say, v, row); document.body.appendChild(box);
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false }).then(s => {
+      if (over) { s.getTracks().forEach(t => t.stop()); return; }
+      stream = s; v.srcObject = s; v.play().catch(() => {});
+      let reader = null, told = false;
+      try { if ("BarcodeDetector" in window) reader = new BarcodeDetector({ formats: ["qr_code"] }); } catch (err) { reader = null; }
+      const shot = document.createElement("canvas");
+      const look = () => {                    // the picture as brightness alone, small enough to hand over quickly
+        const k = Math.min(1, 720 / Math.max(v.videoWidth, v.videoHeight)), w = Math.round(v.videoWidth * k), h = Math.round(v.videoHeight * k);
+        shot.width = w; shot.height = h;
+        const g = shot.getContext("2d", { willReadFrequently: true });
+        g.drawImage(v, 0, 0, w, h);
+        const d = g.getImageData(0, 0, w, h).data;
+        let s = "";
+        for (let i = 0; i < d.length; i += 4) s += String.fromCharCode((d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8);
+        const text = DEV.readCode(btoa(s), w, h);
+        if (text) finish(String(text), "");
+      };
+      timer = setInterval(() => {
+        if (!v.videoWidth || over) return;
+        if (own) { try { look(); } catch (err) { if (!told) { told = true; commands.Log("ScanCode: " + err); } } return; }
+        reader.detect(v).then(found => { if (found.length && found[0].rawValue) finish(String(found[0].rawValue), ""); })
+          .catch(err => { if (!told) { told = true; commands.Log("ScanCode: " + err); } });
+      }, own ? 350 : 250);
+    }).catch(err => { finish(null); if (err && err.name === "NotAllowedError") done("", "The camera wasn't allowed."); else ask(); });
+    return "";
+  },
+  // Link: this app talking to another, anywhere, with nobody between able to read it. With no code a new link is
+  // started and its code returned, to show the other app; with a code, that link is joined. The handler is run
+  // with "joined" when the other side arrives, "message" and the text when it sends, "left" when it closes, and
+  // "error" and what went wrong. start: "start" to be given the messages of the last day too.
+  Link(handler, code = "", start = "") {
+    commands.LinkClose();
+    const tell = (what, text = "") => setTimeout(() => run(handler, [what, text]), 0);
+    if (!window.crypto || !crypto.subtle) { tell("error", "A link needs a secure page: the Visualised app, or an https address."); return ""; }
+    code = String(code).trim();
+    if (!code) { const r = crypto.getRandomValues(new Uint8Array(32)); code = "VL1" + btoa(String.fromCharCode(...r)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+    let secret;
+    try {
+      if (!code.startsWith("VL1")) throw 0;
+      secret = Uint8Array.from(atob(code.slice(3).replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+      if (secret.length !== 32) throw 0;
+    } catch (err) { tell("error", "That isn't a link code."); return ""; }
+    const mine = link = { code, tell, sender: [...crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(16).padStart(2, "0")).join(""),
+      relay: window.VML_LINK_URL || "https://visualised.io/link/", count: 0, seen: {}, since: start === "start" ? 0 : -1, active: Date.now(),
+      failing: 0, timer: 0, closed: false, queue: Promise.resolve(), ready: null };
+    mine.ready = linkKeys(secret).then(([channel, key]) => { mine.channel = channel; mine.key = key; });
+    mine.ready.then(async () => {
+      try {
+        if (mine.since < 0) mine.since = Number((await linkCall(mine, "&since=-1")).seq) || 0;
+        await linkPost(mine, "hello");
+      } catch (err) { tell("error", err.message || "The relay couldn't be reached."); }
+      linkPoll(mine);
+    }).catch(() => tell("error", "This page can't make a link."));
+    return code;
+  },
+  LinkSend(text = "") {
+    const mine = link;
+    if (!mine) return "";
+    mine.queue = mine.queue.then(() => mine.ready).then(() => linkPost(mine, "msg", String(text))).catch(err => mine.tell("error", err.message || "The relay couldn't be reached."));
+    return "true";
+  },
+  LinkCode: () => link ? link.code : "",
+  LinkClose() {
+    const mine = link;
+    if (!mine) return "";
+    link = null; mine.closed = true; clearTimeout(mine.timer);
+    if (mine.key) linkPost(mine, "bye").catch(() => {});
+    return "";
+  },
   // Hear what the user says and hand the handler the words; or a blank and what went wrong.
   Listen(handler, prompt = "") {
     if (DEV && DEV.listen) { heard = handler; DEV.listen(prompt); return ""; }
@@ -1068,6 +1171,160 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
     if (flashed) { const h = flashed; flashed = ""; run(h, []); }
   }
 };
+// ---- QR codes, made here (the same as vml/qr.py: bytes, error correction M, versions 1 to 10)
+const QR_VERSIONS = { 1: [26, 10, [[1, 16]]], 2: [44, 16, [[1, 28]]], 3: [70, 26, [[1, 44]]], 4: [100, 18, [[2, 32]]], 5: [134, 24, [[2, 43]]],
+  6: [172, 16, [[4, 27]]], 7: [196, 18, [[4, 31]]], 8: [242, 22, [[2, 38], [2, 39]]], 9: [292, 22, [[3, 36], [2, 37]]], 10: [346, 26, [[4, 43], [1, 44]]] };
+const QR_ALIGN = { 1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50] };
+const QR_EXP = new Array(512).fill(0), QR_LOG = new Array(256).fill(0);
+for (let i = 0, x = 1; i < 255; i++) { QR_EXP[i] = x; QR_LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11D; }
+for (let i = 255; i < 512; i++) QR_EXP[i] = QR_EXP[i - 255];
+const qrMul = (a, b) => a === 0 || b === 0 ? 0 : QR_EXP[QR_LOG[a] + QR_LOG[b]];
+function qrEcc(data, count) {                                   // the Reed-Solomon codewords that follow a block of data
+  let gen = [1];
+  for (let i = 0; i < count; i++) { const nxt = new Array(gen.length + 1).fill(0); gen.forEach((g, j) => { nxt[j] ^= g; nxt[j + 1] ^= qrMul(g, QR_EXP[i]); }); gen = nxt; }
+  const rest = data.concat(new Array(count).fill(0));
+  for (let i = 0; i < data.length; i++) { const lead = rest[i]; if (lead) gen.forEach((g, j) => { rest[i + j] ^= qrMul(g, lead); }); }
+  return rest.slice(data.length);
+}
+function qrBch(value, poly, bits) {                             // the remainder that protects the format information
+  let reg = value << bits; const top = 32 - Math.clz32(poly);
+  for (let shift = (32 - Math.clz32(reg)) - top; shift >= 0; shift--) if (reg >> (shift + top - 1) & 1) reg ^= poly << shift;
+  return reg;
+}
+function qrPenalty(m) {
+  const n = m.length; let score = 0;
+  const lines = m.concat(m[0].map((_, x) => m.map(row => row[x])));
+  for (const row of lines) {
+    let run = 0, last = null;
+    for (const cell of row) { if (cell === last) run++; else { if (run >= 5) score += run - 2; run = 1; last = cell; } }
+    if (run >= 5) score += run - 2;
+    const line = row.map(c => c ? "1" : "0").join("");
+    score += 40 * (line.split("10111010000").length - 1 + line.split("00001011101").length - 1);
+  }
+  for (let y = 0; y < n - 1; y++) for (let x = 0; x < n - 1; x++) if (m[y][x] === m[y][x + 1] && m[y][x] === m[y + 1][x] && m[y][x] === m[y + 1][x + 1]) score += 3;
+  const dark = Math.floor(m.reduce((a, row) => a + row.filter(Boolean).length, 0) * 100 / (n * n));
+  return score + 10 * Math.floor(Math.abs(dark - 50) / 5);
+}
+const QR_MASKS = [(y, x) => (y + x) % 2 === 0, (y, x) => y % 2 === 0, (y, x) => x % 3 === 0, (y, x) => (y + x) % 3 === 0,
+  (y, x) => (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0, (y, x) => (y * x) % 2 + (y * x) % 3 === 0,
+  (y, x) => ((y * x) % 2 + (y * x) % 3) % 2 === 0, (y, x) => ((y + x) % 2 + (y * x) % 3) % 2 === 0];
+// text -> rows of true (dark) and false (light); null if it is too long
+function qrMatrix(text) {
+  const raw = [...new TextEncoder().encode(text)];
+  const room = v => QR_VERSIONS[v][2].reduce((a, [k, size]) => a + k * size, 0);
+  const version = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find(v => raw.length <= room(v) - (v >= 10 ? 3 : 2));
+  if (!version) return null;
+  const n = 17 + 4 * version, m = [], fixed = [];
+  for (let y = 0; y < n; y++) { m.push(new Array(n).fill(false)); fixed.push(new Array(n).fill(false)); }
+  const put = (y, x, dark) => { if (y >= 0 && y < n && x >= 0 && x < n) { m[y][x] = !!dark; fixed[y][x] = true; } };
+  for (const [oy, ox] of [[0, 0], [0, n - 7], [n - 7, 0]])        // the three corner squares, with their margins
+    for (let y = -1; y < 8; y++) for (let x = -1; x < 8; x++) {
+      const inside = y >= 0 && y <= 6 && x >= 0 && x <= 6;
+      put(oy + y, ox + x, inside && (y === 0 || y === 6 || x === 0 || x === 6 || (y >= 2 && y <= 4 && x >= 2 && x <= 4)));
+    }
+  for (const cy of QR_ALIGN[version]) for (const cx of QR_ALIGN[version]) {      // the small squares that keep a big code straight
+    if (fixed[cy][cx]) continue;
+    for (let y = -2; y < 3; y++) for (let x = -2; x < 3; x++) put(cy + y, cx + x, Math.max(Math.abs(y), Math.abs(x)) !== 1);
+  }
+  for (let i = 8; i < n - 8; i++) { if (!fixed[6][i]) put(6, i, i % 2 === 0); if (!fixed[i][6]) put(i, 6, i % 2 === 0); }
+  put(n - 8, 8, true);
+  for (let i = 0; i < 9; i++) for (const [y, x] of [[8, i], [i, 8], [8, n - 1 - i], [n - 1 - i, 8]]) if ((i < 8 || (y === 8 && x === 8)) && !fixed[y][x]) fixed[y][x] = true;
+  if (version >= 7) {
+    const info = (version << 12) | qrBch(version, 0x1F25, 12);
+    for (let i = 0; i < 18; i++) { const bit = info >> i & 1; put(Math.floor(i / 3), n - 11 + i % 3, bit); put(n - 11 + i % 3, Math.floor(i / 3), bit); }
+  }
+  const [, ec, groups] = QR_VERSIONS[version], capacity = room(version);
+  let bits = "0100" + raw.length.toString(2).padStart(version >= 10 ? 16 : 8, "0") + raw.map(b => b.toString(2).padStart(8, "0")).join("");
+  bits += "0".repeat(Math.min(4, capacity * 8 - bits.length));
+  bits += "0".repeat((8 - bits.length % 8) % 8);
+  const data = [];
+  for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8), 2));
+  for (let i = 0; data.length < capacity; i++) data.push(i % 2 ? 0x11 : 0xEC);
+  const blocks = []; let at = 0;
+  for (const [k, size] of groups) for (let j = 0; j < k; j++) { const block = data.slice(at, at + size); at += size; blocks.push([block, qrEcc(block, ec)]); }
+  const words = [];
+  for (let i = 0; i < Math.max(...blocks.map(b => b[0].length)); i++) for (const b of blocks) if (i < b[0].length) words.push(b[0][i]);
+  for (let i = 0; i < ec; i++) for (const b of blocks) words.push(b[1][i]);
+  const stream = [];
+  for (const w of words) for (let i = 0; i < 8; i++) stream.push(w >> (7 - i) & 1);
+  const cells = []; at = 0;
+  for (let x = n - 1, up = true; x > 0; x -= 2, up = !up) {       // the data, in two-wide columns from the right, snaking
+    if (x === 6) x--;
+    for (let k = 0; k < n; k++) { const y = up ? n - 1 - k : k;
+      for (const xx of [x, x - 1]) if (!fixed[y][xx]) { m[y][xx] = at < stream.length ? !!stream[at] : false; at++; cells.push([y, xx]); } }
+  }
+  let best = null;
+  QR_MASKS.forEach((test, mask) => {
+    const trial = m.map(row => row.slice());
+    for (const [y, xx] of cells) if (test(y, xx)) trial[y][xx] = !trial[y][xx];
+    const fmt = ((mask << 10) | qrBch(mask, 0x537, 10)) ^ 0x5412;
+    for (let i = 0; i < 15; i++) {
+      const bit = !!(fmt >> (14 - i) & 1);
+      if (i < 6) trial[8][i] = bit; else if (i === 6) trial[8][7] = bit; else if (i === 7) trial[8][8] = bit; else if (i === 8) trial[7][8] = bit; else trial[14 - i][8] = bit;
+      if (i < 7) trial[n - 1 - i][8] = bit; else trial[8][n - 15 + i] = bit;
+    }
+    trial[n - 8][8] = true;
+    const score = qrPenalty(trial);
+    if (!best || score < best[0]) best = [score, trial];
+  });
+  return best[1];
+}
+// ---- Link (the same as vml/link.py does on a computer: see there for how a message is put together)
+let link = null;
+const linkBytes = t => new TextEncoder().encode(t);
+async function linkKeys(secret) {
+  const base = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits", "deriveKey"]);
+  const how = info => ({ name: "HKDF", hash: "SHA-256", salt: linkBytes("visualised-link-v1"), info: linkBytes(info) });
+  const channel = [...new Uint8Array(await crypto.subtle.deriveBits(how("channel"), base, 128))].map(b => b.toString(16).padStart(2, "0")).join("");
+  return [channel, await crypto.subtle.deriveKey(how("key"), base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"])];
+}
+async function linkCall(mine, query, body) {
+  const r = await fetch(`${mine.relay}?c=${mine.channel}${query}`, body === undefined ? { cache: "no-store" }
+    : { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });      // (text/plain: no asking first)
+  const answer = await r.json().catch(() => ({}));
+  if (!r.ok || !answer.ok) throw new Error(answer.error ? `The relay refused that: ${answer.error}.` : "The relay couldn't be reached.");
+  return answer;
+}
+async function linkPost(mine, kind, text = "") {
+  const iv = crypto.getRandomValues(new Uint8Array(12)), plain = linkBytes(JSON.stringify({ k: kind, t: text, n: ++mine.count }));
+  const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: linkBytes(mine.channel + mine.sender) }, mine.key, plain));
+  const all = new Uint8Array(12 + sealed.length); all.set(iv); all.set(sealed, 12);
+  let bin = ""; for (let i = 0; i < all.length; i += 0x8000) bin += String.fromCharCode.apply(null, all.subarray(i, i + 0x8000));
+  const body = btoa(bin);
+  if (body.length > 24000) throw new Error("That is too much for one message (about 17,000 characters is the most).");
+  await linkCall(mine, "", { s: mine.sender, b: body });
+  mine.active = Date.now();
+}
+async function linkTake(mine, sender, body) {
+  if (sender === mine.sender) return;
+  let m;
+  try {
+    const raw = Uint8Array.from(atob(body), c => c.charCodeAt(0));
+    m = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.subarray(0, 12), additionalData: linkBytes(mine.channel + sender) }, mine.key, raw.subarray(12))));
+  } catch (err) { return; }                       // not ours to read: someone else's noise on the channel
+  const count = Number(m.n) || 0;
+  if (count <= (mine.seen[sender] || 0)) return;  // an old one, played back
+  const isNew = !(sender in mine.seen);
+  mine.seen[sender] = count; mine.active = Date.now();
+  if (m.k === "hello") { mine.tell("joined"); linkPost(mine, "ack").catch(() => {}); }
+  else if (m.k === "ack") { if (isNew) mine.tell("joined"); }
+  else if (m.k === "msg") mine.tell("message", String(m.t ?? ""));
+  else if (m.k === "bye") { delete mine.seen[sender]; mine.tell("left"); }
+}
+async function linkPoll(mine) {
+  if (mine.closed) return;
+  try {
+    const answer = await linkCall(mine, `&since=${mine.since}`);
+    mine.failing = 0;
+    for (const m of answer.m || []) { mine.since = Math.max(mine.since, Number(m.q) || 0); await linkTake(mine, String(m.s || ""), String(m.b || "")); }
+    if (Number(answer.seq) < mine.since) mine.since = Number(answer.seq) || 0;      // (the relay began again)
+  } catch (err) {
+    if (++mine.failing === 5) mine.tell("error", "The relay can't be reached. It will keep trying.");
+  }
+  if (mine.closed) return;
+  const quiet = Date.now() - mine.active;
+  mine.timer = setTimeout(() => linkPoll(mine), mine.failing ? Math.min(30000, 2000 * mine.failing) : quiet < 15000 ? 400 : quiet < 300000 ? 1500 : 4000);
+}
 function stopFlash() {
   if (!flashing) return;
   clearTimeout(flashing.timer);
@@ -1307,7 +1564,7 @@ function Vml(cmd, ...args) {
   catch (err) { console.error(`Vml("${cmd}")`, err); return ""; }
 }
 
-window.vml = { Vml, settings, LightReader, BlinkFinder, LightWatcher };                 // handy in the browser console: vml.Vml("GetProperty", "txtName", "Text")
+window.vml = { Vml, settings, LightReader, BlinkFinder, LightWatcher, qrMatrix };                 // handy in the browser console: vml.Vml("GetProperty", "txtName", "Text")
 
 let fns = null;
 function luaFunction(name) {                    // a function one of the project's modules defined

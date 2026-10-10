@@ -24,6 +24,37 @@ function ApplySettings(...)
     for _, n in ipairs({"4", "8", "16", "24"}) do
         Vml("SetMenuItemText", "SetGrid" .. n, tick(n == grid) .. n .. " pixels")
     end
+    Vml("RunScript", "ApplyTheme")
+end
+
+-- The designer's themes: its menu bar, the edge of its window and the boxes it shows all take these colours.
+-- { bar, bar text, hover, hover text, menu background, menu border }
+THEMES = {
+    Classic  = { "#1E3A8A", "White",   "#2563EB", "White",   "White", "#1E3A8A" },
+    Slate    = { "#334155", "White",   "#475569", "White",   "White", "#334155" },
+    Forest   = { "#14532D", "White",   "#15803D", "White",   "White", "#14532D" },
+    Plum     = { "#581C87", "White",   "#7E22CE", "White",   "White", "#581C87" },
+    Charcoal = { "#111827", "#F9FAFB", "#374151", "White",   "White", "#111827" },
+    Paper    = { "#E5E7EB", "#111827", "#CBD5E1", "#111827", "White", "#9CA3AF" },
+}
+THEME_ORDER = { "Classic", "Slate", "Forest", "Plum", "Charcoal", "Paper" }
+
+function ApplyTheme(...)
+    local name = Vml("GetPreference", "theme", "Classic")
+    if not THEMES[name] then name = "Classic" end
+    for i, prop in ipairs({ "Background", "Foreground", "HoverBackground", "HoverForeground", "PopupBackground", "PopupBorder" }) do
+        Vml("SetProperty", "Theme", prop, THEMES[name][i])
+    end
+    for _, n in ipairs(THEME_ORDER) do
+        Vml("SetMenuItemText", "SetTheme" .. n, (n == name and "\226\156\147  " or "     ") .. n)
+    end
+end
+
+function SetTheme(...)
+    local args = { ... }
+    Vml("SetPreference", "theme", args[1])
+    Vml("RunScript", "ApplyTheme")
+    Vml("SetStatusText", "Theme: " .. args[1])
 end
 
 function ToggleSnap(...)

@@ -880,9 +880,9 @@ public class MainActivity extends Activity {
                     return;
                 }
                 String[] got = value.replaceAll("^\"|\"$", "").split("\\\\n", 3);
-                try {
-                    bar(Color.parseColor(got[0].trim()));
-                } catch (IllegalArgumentException e) {
+                try {                                   // (a page that names no colour of its own gets the app's)
+                    bar(got[0].trim().isEmpty() ? BRAND : Color.parseColor(got[0].trim()));
+                } catch (RuntimeException e) {
                     bar(BRAND);
                 }
                 if (got.length > 1 && !got[1].trim().isEmpty()) {

@@ -388,6 +388,16 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         self.themes[theme.scope] = theme.props
         self._style_menus(theme.scope)
 
+    def _retheme(self, theme):
+        """A theme changed while its form is open: the bar, its menus and the window's edge all follow."""
+        self._apply_theme(theme)
+        colour = theme.props.get("Background")
+        for node in self.windows:
+            w = node.widget
+            if node.scope == theme.scope and colour and hasattr(w, "set_edge") and not node.props.get("BorderBrush") \
+                    and node.props.get("BorderThickness") in (None, ""):
+                w.set_edge(colour, 1)
+
     def _style_menus(self, scope):
         t = self.themes.get(scope)
         if not t:
@@ -777,6 +787,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         finally:
             self._quiet -= 1
         self.store.set_prop(outer.cid, prop, value)
+        if outer.type.name == "MenuTheme":
+            self._retheme(outer)
         self._reflow(outer)
         for listener in list(self.listeners):
             try:
@@ -2431,6 +2443,79 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
     def cmd_LightReport(self):
         """On a phone, how WatchLight has gone, in a line: how evenly the camera's pictures came and how long
         its light took to switch. "" on a computer."""
+        return ""
+
+    # ---- Link: this app talking to another, anywhere, with nobody between able to read it (see vml/link.py)
+    def cmd_Link(self, handler, code="", start=""):
+        """Start a link, or join one. With no code a new link is started and its code is returned, to show the
+        other app (QrCode makes a picture of it); with a code, that link is joined. handler is then run with
+        "joined" when the other side arrives, "message" and the text when it sends, "left" when it closes, and
+        "error" and what went wrong. start: "start" to be given the messages of the last day too. "" and the
+        handler told why if it couldn't be done."""
+        from . import link
+        origin = self._script_stack[-1] if self._script_stack else None
+        self.cmd_LinkClose()
+        try:
+            made = link.Link(code, start=str(start))
+        except link.LinkError as exc:
+            QTimer.singleShot(0, lambda why=str(exc): self.run_script(str(handler), "error", why, origin=origin))
+            return ""
+        self._link, self._link_handler, self._link_origin = made, str(handler), origin
+        if getattr(self, "_link_timer", None) is None:
+            self._link_timer = QTimer()
+            self._link_timer.setInterval(100)
+            self._link_timer.timeout.connect(self._link_events)
+        self._link_timer.start()
+        return made.code
+
+    def _link_events(self):
+        made = getattr(self, "_link", None)
+        if made is None:
+            return
+        for _ in range(50):                                      # what has arrived since last looked
+            try:
+                what, text = made.events.get_nowait()
+            except Exception:
+                break
+            if what == "online":
+                continue
+            self.run_script(self._link_handler, what, text, origin=self._link_origin)
+            if getattr(self, "_link", None) is not made:         # the handler closed it, or started another
+                break
+
+    def cmd_LinkSend(self, text=""):
+        """Send some text to the other end of the link. "true", or "" (and the handler is told why)."""
+        from . import link
+        made = getattr(self, "_link", None)
+        if made is None:
+            return ""
+        try:
+            made.send(str(text))
+            return "true"
+        except link.LinkError as exc:
+            made.events.put(("error", str(exc)))
+            return ""
+
+    def cmd_LinkCode(self):
+        """The code of the link this app has open, or ""."""
+        made = getattr(self, "_link", None)
+        return made.code if made is not None else ""
+
+    def cmd_LinkClose(self):
+        """Close the link. The other end is told."""
+        made = getattr(self, "_link", None)
+        if made is not None:
+            self._link = None
+            self._link_timer.stop()
+            threading.Thread(target=made.close, daemon=True).start()
+        return ""
+
+    def cmd_ScanCode(self, handler, prompt=""):
+        """Read a QR code with the camera, then run handler with what it says; or with a blank and what went
+        wrong. A computer asks for it to be pasted instead."""
+        text = dialogs.prompt(self._parent_window(), "Code", str(prompt) or "Paste the code here:", "", self._edge())
+        origin = self._script_stack[-1] if self._script_stack else None
+        self.run_script(str(handler), str(text or "").strip(), "" if text else "Nothing was given.", origin=origin)
         return ""
 
     def cmd_Listen(self, handler, prompt=""):

@@ -1,0 +1,190 @@
+# ============================================================================
+# Link Chat: two apps talking, with nobody in between able to read a word.
+#
+#   One presses "Start a link" and shows the code that appears. The other
+#   presses "Join one" and points its camera at it (or pastes the code). Then
+#   whatever either types reaches the other, wherever in the world they are.
+#
+#   It is here to show Link, in as little as will do it:
+#     Link      start one (and be given its code), or join one with a code
+#     LinkSend  say something to the other end
+#     QrCode    the code as a picture       ScanCode   read one with the camera
+#   The messages are locked with a key made from the code before they leave,
+#   and pass through a relay that sees only what it cannot read.
+#
+#   Made with Visualised.
+# ============================================================================
+
+@Window LinkChat
+Title=Link Chat
+Version=1.0
+Width=360
+Height=640
+
+@Canvas c
+Parent=LinkChat
+Background=#FFFFFF
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=12
+Canvas.Top=10
+Width=336
+Height=30
+FontSize=22
+FontWeight=Bold
+Text=Link Chat
+
+@Button btnStart
+Parent=c
+Canvas.Left=12
+Canvas.Top=48
+Width=164
+Height=44
+Content=Start a link
+OnClick=DoStart
+
+@Button btnJoin
+Parent=c
+Canvas.Left=184
+Canvas.Top=48
+Width=164
+Height=44
+Content=Join one
+OnClick=DoJoin
+
+@TextBlock lblState
+Parent=c
+Canvas.Left=12
+Canvas.Top=100
+Width=336
+Height=44
+TextWrapping=Wrap
+Foreground=#4B5563
+Text=Start a link here, or join one started on another phone or computer.
+
+# the code, as a picture to scan and as text to copy: shown while waiting for the other end
+@Image imgCode
+Parent=c
+Canvas.Left=70
+Canvas.Top=150
+Width=220
+Height=220
+IsVisible=false
+
+@TextBox txtCode
+Parent=c
+Canvas.Left=12
+Canvas.Top=376
+Width=336
+Height=34
+IsReadOnly=true
+IsVisible=false
+
+# what has been said, newest at the foot
+@TextBlock lblLog
+Parent=c
+Canvas.Left=12
+Canvas.Top=150
+Width=336
+Height=396
+FontSize=16
+TextWrapping=Wrap
+Text=
+IsVisible=false
+
+@TextBox txtSay
+Parent=c
+Canvas.Left=12
+Canvas.Top=556
+Width=246
+Height=42
+Watermark=Say something
+Anchor=Left,Right,Bottom
+
+@Button btnSend
+Parent=c
+Canvas.Left=266
+Canvas.Top=556
+Width=82
+Height=42
+Content=Send
+OnClick=DoSend
+Anchor=Right,Bottom
+
+@Script DoStart
+Interpreter=lua
+<<LUA
+-- Start a link: Link gives back its code, which goes on show for the other app to scan or copy.
+local code = Vml("Link", "Got")
+if code == "" then return end
+Linked, Said = false, ""
+Vml("SetProperty", "imgCode", "Source", Vml("QrCode", code, "5"))
+Vml("SetProperty", "txtCode", "Text", code)
+Vml("SetProperty", "imgCode", "IsVisible", "true")
+Vml("SetProperty", "txtCode", "IsVisible", "true")
+Vml("SetProperty", "lblLog", "IsVisible", "false")
+Vml("SetProperty", "lblState", "Text", "Waiting. On the other app press Join one and scan this, or copy the code across.")
+LUA
+
+@Script DoJoin
+Interpreter=lua
+<<LUA
+Vml("ScanCode", "Scanned", "Point the camera at the other app's code")
+LUA
+
+@Script Scanned
+Interpreter=lua
+<<LUA
+-- What the camera read (or what was pasted), or a blank and why not.
+local text, problem = ...
+if text == "" then
+  Vml("SetProperty", "lblState", "Text", problem)
+  return
+end
+Linked, Said = false, ""
+if Vml("Link", "Got", text) ~= "" then Vml("SetProperty", "lblState", "Text", "Joining...") end
+LUA
+
+@Script Got
+Interpreter=lua
+<<LUA
+-- Everything a link tells its app comes here: who came and went, what they said, and what went wrong.
+local what, text = ...
+local function state(t) Vml("SetProperty", "lblState", "Text", t) end
+local function log(line)
+  Said = (Said or "") .. line .. "\n"
+  Vml("SetProperty", "lblLog", "Text", Said)
+end
+if what == "joined" then
+  Linked = true
+  Vml("SetProperty", "imgCode", "IsVisible", "false")
+  Vml("SetProperty", "txtCode", "IsVisible", "false")
+  Vml("SetProperty", "lblLog", "IsVisible", "true")
+  state("Linked. Nobody in between can read this.")
+elseif what == "message" then
+  log("Them: " .. text)
+  Vml("Vibrate", "60")
+elseif what == "left" then
+  Linked = false
+  state("The other end has closed the link.")
+elseif what == "error" then
+  state(text)
+end
+LUA
+
+@Script DoSend
+Interpreter=lua
+<<LUA
+local text = Vml("GetProperty", "txtSay", "Text")
+if text == "" then return end
+if not Linked then
+  Vml("SetProperty", "lblState", "Text", "There is nobody on the link yet.")
+  return
+end
+if Vml("LinkSend", text) == "true" then
+  Said = (Said or "") .. "You: " .. text .. "\n"
+  Vml("SetProperty", "lblLog", "Text", Said)
+  Vml("SetProperty", "txtSay", "Text", "")
+end
+LUA

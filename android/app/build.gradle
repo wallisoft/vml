@@ -1,5 +1,5 @@
 // Visualised for Android: runs apps drawn in Visualised, and lets them use the phone.
-// Plain Java on the Android framework: no libraries, so the app is small and there is nothing to keep up to date.
+// Plain Java on the Android framework, and one library: ZXing's core, to read QR codes (a phone's own web view can't).
 plugins {
     id "com.android.application"
 }
@@ -12,8 +12,8 @@ android {
         applicationId "io.visualised.app"
         minSdk 29               // Android 10: a photo can be saved without asking for the whole of the phone's storage
         targetSdk 34
-        versionCode 16
-        versionName "0.9.2"
+        versionCode 18
+        versionName "0.9.4"
     }
 
     // The release is signed with the key that is yours alone: every update must be signed with the same one, so
@@ -56,4 +56,8 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+}
+
+dependencies {
+    implementation "com.google.zxing:core:3.5.3"      // reads QR codes; plain Java, nothing else comes with it
 }

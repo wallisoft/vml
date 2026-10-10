@@ -1,0 +1,148 @@
+# frmStock: imported from frmStock.frm (Visual Basic 5/6)
+
+@Window frmStock
+Title=Stock
+Width=480
+Height=280
+OnOpened=frmStock_OnOpened
+OnClosing=frmStock_OnClosing
+
+@Canvas frmStockCanvas
+Parent=frmStock
+Background=#f0f0f0
+
+@ComboBox cboDear
+Parent=frmStockCanvas
+Canvas.Left=320
+Canvas.Top=128
+Width=145
+Height=21
+ItemsSource=SELECT "name" FROM (SELECT name, price FROM items WHERE price > 2) ORDER BY 1
+Database=stock
+FontSize=11
+
+@ListBox lstNames
+Parent=frmStockCanvas
+Canvas.Left=320
+Canvas.Top=16
+Width=145
+Height=95
+ItemsSource=SELECT "name" FROM "items" ORDER BY 1
+Database=stock
+FontSize=11
+
+@DataGrid grdStock
+Parent=frmStockCanvas
+Canvas.Left=16
+Canvas.Top=16
+Width=289
+Height=201
+ItemsSource=SELECT * FROM "items"
+Database=stock
+FontSize=11
+
+@TextBox txtPrice
+Parent=frmStockCanvas
+Canvas.Left=16
+Canvas.Top=248
+Width=89
+Height=21
+FontSize=11
+
+@Button cmdCount
+Parent=frmStockCanvas
+Canvas.Left=208
+Canvas.Top=248
+Width=81
+Height=25
+Content=Count
+FontSize=11
+OnClick=cmdCount_OnClick
+
+@Button cmdAbout
+Parent=frmStockCanvas
+Canvas.Left=296
+Canvas.Top=248
+Width=81
+Height=25
+Content=About...
+FontSize=11
+OnClick=cmdAbout_OnClick
+
+@Button cmdClose
+Parent=frmStockCanvas
+Canvas.Left=384
+Canvas.Top=248
+Width=81
+Height=25
+Content=Close
+FontSize=11
+OnClick=cmdClose_OnClick
+
+@Script frmStock_OnOpened
+Interpreter=lua
+<<END_FRMSTOCK_ONOPENED
+-- Imported from frmStock.frm. The lines that are Lua were translated from the Visual Basic beside them, and run.
+-- The lines that are comments are the original Visual Basic: they do not run, and are there to rewrite.
+--
+--   Private Sub Form_Load()
+--       On Error GoTo NoData
+Vml("SetProperty", "frmStock", "Title", "Stock")   -- was: Caption = "Stock"
+Vml("SetProperty", "cmdCount", "IsEnabled", "true")   -- was: cmdCount.Enabled = True
+do return end   -- was: Exit Sub
+--   NoData:
+--       MsgBox "The stock database could not be opened.", vbExclamation, "Stock"
+--   End Sub
+END_FRMSTOCK_ONOPENED
+
+@Script frmStock_OnClosing
+Interpreter=lua
+<<END_FRMSTOCK_ONCLOSING
+-- Imported from frmStock.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub Form_Unload(Cancel As Integer)
+--       MsgBox "Goodbye"
+--   End Sub
+END_FRMSTOCK_ONCLOSING
+
+@Script cmdCount_OnClick
+Interpreter=lua
+<<END_CMDCOUNT_ONCLICK
+-- Imported from frmStock.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub cmdCount_Click()
+--       If grdStock.Row < 0 Then
+--           MsgBox "Nothing is selected."
+--           Exit Sub
+--       End If
+--       MsgBox "There are " & datStock.Recordset.RecordCount & " items."
+--       MsgBox "Counted: ""done""." & vbCrLf & "Thank you.", vbInformation, "Stock"
+--       cmdCount.Caption = "Counted"
+--   End Sub
+END_CMDCOUNT_ONCLICK
+
+@Script cmdAbout_OnClick
+Interpreter=lua
+<<END_CMDABOUT_ONCLICK
+-- Imported from frmStock.frm. The lines that are Lua were translated from the Visual Basic beside them, and run.
+-- The lines that are comments are the original Visual Basic: they do not run, and are there to rewrite.
+--
+--   Private Sub cmdAbout_Click()
+Vml("FormOpenModal", "frmAbout")   -- was: frmAbout.Show vbModal, Me
+--   End Sub
+END_CMDABOUT_ONCLICK
+
+@Script cmdClose_OnClick
+Interpreter=lua
+<<END_CMDCLOSE_ONCLICK
+-- Imported from frmStock.frm: the original Visual Basic, kept here for reference.
+-- It does not run. Write what this should do below, in Lua (or change the script's language).
+--
+--   Private Sub cmdClose_Click()
+--       If Not Saved() Then Exit Sub
+--       Unload Me
+--   End Sub
+END_CMDCLOSE_ONCLICK
+
