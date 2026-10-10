@@ -28,7 +28,7 @@
 
 @Window MorseTorch
 Title=Morse Torch
-Version=1.3
+Version=1.5
 Icon=MorseTorch.png
 Width=360
 Height=640
@@ -365,10 +365,31 @@ Value=10
 ValueChanged=DoPace
 IsVisible=false
 
+@TextBlock lblWait
+Parent=c
+Canvas.Left=12
+Canvas.Top=210
+Width=336
+Height=22
+Text=Morse: send straight away
+IsVisible=false
+
+@Slider sldWait
+Parent=c
+Canvas.Left=12
+Canvas.Top=236
+Width=336
+Height=36
+Minimum=0
+Maximum=30
+Value=0
+ValueChanged=DoPace
+IsVisible=false
+
 @CheckBox chkOpen
 Parent=c
 Canvas.Left=12
-Canvas.Top=216
+Canvas.Top=290
 Width=336
 Height=30
 Content=Torch on as soon as the app opens
@@ -378,7 +399,7 @@ IsVisible=false
 @TextBlock lblVoice
 Parent=c
 Canvas.Left=12
-Canvas.Top=262
+Canvas.Top=336
 Width=336
 Height=220
 TextWrapping=Wrap
@@ -437,6 +458,13 @@ Interval=100
 IsEnabled=false
 OnTick=SendTick
 
+# once a second while counting down to a send that was asked to wait
+@Timer tmrWait
+Parent=c
+Interval=1000
+IsEnabled=false
+OnTick=WaitTick
+
 # ============================================================================
 # Scripts. Start runs when the form opens and holds everything the others share.
 # ============================================================================
@@ -451,7 +479,8 @@ PAGES = {
   torch    = { "lblTitle", "btnBig", "btnSteadyT", "btnFlashT", "btnScreen", "btnTell", "btnMorse", "btnSettings", "lblHome" },
   morse    = { "btnBackM", "lblTitleM", "txtSay", "btnSay", "btnSend", "btnSpeed", "lblOut", "pbSend", "lblStatus", "rcEye",
                "btnWatch", "btnRead", "btnClear", "lblIn", "lblGot" },
-  settings = { "btnBackS", "lblTitleS", "lblOn", "sldOn", "lblOff", "sldOff", "chkOpen", "lblVoice" },
+  settings = { "btnBackS", "lblTitleS", "lblOn", "sldOn", "lblOff", "sldOff", "lblWait", "sldWait", "chkOpen",
+               "lblVoice" },
   screen   = { "rcWhite", "lblDim", "sldDim" },
 }
 Shown = "torch"
@@ -478,6 +507,8 @@ TorchOn = false
 Mode = Vml("GetSetting", "mode") == "flash" and "flash" or "steady"
 OnFor = tonumber(Vml("GetSetting", "on")) or 10        -- tenths of a second the flashing torch is lit for
 OffFor = tonumber(Vml("GetSetting", "off")) or 10      -- and dark for
+Wait = tonumber(Vml("GetSetting", "wait")) or 0        -- seconds between pressing Send and the Morse starting
+Waiting, Ready = 0, nil                                -- seconds still to wait, and the message that is waiting
 
 function Seconds(tenths) return string.format("%.1f", tenths / 10) end
 
@@ -520,6 +551,8 @@ end
 function ShowPace()
   Vml("SetProperty", "lblOn", "Text", "Flashing: on for " .. Seconds(OnFor) .. " seconds")
   Vml("SetProperty", "lblOff", "Text", "Flashing: off for " .. Seconds(OffFor) .. " seconds")
+  Vml("SetProperty", "lblWait", "Text", Wait == 0 and "Morse: send straight away"
+    or "Morse: wait " .. Wait .. " seconds after Send (time to put the phone down)")
 end
 
 -- ---- the screen as a light. A phone app can turn the screen itself up and down; anywhere else the white is greyed.
@@ -597,24 +630,46 @@ function Pattern(text)
   return table.concat(out, ",")
 end
 
--- Read the flashes so far. Nobody says how fast they are sending, so the length of a dot is worked out from the
--- flashes themselves: once there are short ones and long ones, the short are dots. Until then (a message that
--- opens with all dots or all dashes) the speed this phone is set to decides, and the reading corrects itself as
--- more arrives. Returns the finished letters, the dots and dashes of the letter arriving, and all the dots and
--- dashes seen (letters apart, a stroke between words).
-function Read()
-  if #Flashes == 0 then return "", "", "" end
+-- How long a dot is, worked out from the flashes themselves, because nobody says how fast they are sending. It
+-- is the length that best explains them all as dots (one) and dashes (three), so the odd stray flash among
+-- them (a reflection, a hand across the light) doesn't throw it. When they are all much the same (a message
+-- that opens with all dots or all dashes) the speed this phone is set to decides which they are.
+function DotLength()
   local short, long = math.huge, 0
   for _, f in ipairs(Flashes) do short, long = math.min(short, f.on), math.max(long, f.on) end
-  local unit
-  if long >= short * 2 then
-    local middle, sum = (short + long) / 2, 0
-    for _, f in ipairs(Flashes) do sum = sum + (f.on < middle and f.on or f.on / 3) end
-    unit = sum / #Flashes
-  else
+  if long < short * 2 then
     local mean = (short + long) / 2
-    unit = mean < Unit * 2 and mean or mean / 3
+    return mean < Unit * 2 and mean or mean / 3
   end
+  local function miss(on, unit)          -- how badly a flash fits being a dot or a dash of this length
+    return math.min(math.abs(math.log(on / unit)), math.abs(math.log(on / (3 * unit))), 0.7)
+  end
+  local best, least = Unit, math.huge
+  local step = math.max(1, #Flashes // 24)
+  for i = 1, #Flashes, step do
+    for _, unit in ipairs({ Flashes[i].on, Flashes[i].on / 3 }) do
+      if unit >= 40 then
+        local total = 0
+        for _, f in ipairs(Flashes) do total = total + miss(f.on, unit) end
+        if total < least then best, least = unit, total end
+      end
+    end
+  end
+  local sum, count = 0, 0                -- then the average of the flashes it explains
+  for _, f in ipairs(Flashes) do
+    if miss(f.on, best) < 0.5 then
+      sum = sum + (math.abs(math.log(f.on / best)) < math.abs(math.log(f.on / (3 * best))) and f.on or f.on / 3)
+      count = count + 1
+    end
+  end
+  return count > 0 and sum / count or best
+end
+
+-- Read the flashes so far, and correct the reading as more arrive. Returns the finished letters, the dots and
+-- dashes of the letter arriving, and all the dots and dashes seen (letters apart, a stroke between words).
+function Read()
+  if #Flashes == 0 then return "", "", "" end
+  local unit = DotLength()
   Learnt = unit
   local text, code, seen = "", "", ""
   for i, f in ipairs(Flashes) do
@@ -644,6 +699,27 @@ function Show()
   Vml("SetProperty", "lblIn", "Text", Pretty(seen))
 end
 
+-- A light that stays on this long isn't Morse: it is somebody's torch, or the sun.
+function TooLong() return math.max(2500, Learnt * 12) end
+
+-- The light has gone quiet, or steady, or been lost: what has arrived is the message. It is shown, logged for
+-- whoever is working on this app, and read out. A dot too short for a camera to have seen is only flicker.
+function Finish(why)
+  local message, code, seen = Read()
+  if code ~= "" then message = message .. (LETTER[code] or "?") end        -- the letter that was arriving
+  local flashes = #Flashes
+  Flashes = {}
+  Vml("Log", "MorseTorch read '" .. message .. "' (" .. why .. "; " .. flashes .. " flashes, dot taken as " .. math.floor(Learnt)
+    .. " ms) from: " .. table.concat(Heard or {}, ", "))
+  Vml("Log", "MorseTorch camera: " .. Vml("LightReport"))
+  Heard = {}
+  if Learnt < 70 or message:gsub("[%s?]", "") == "" then Show(); return end
+  Earlier, Finished, LastSeen = Earlier .. message, true, seen
+  Show()
+  Status("Message received.")
+  Vml("Speak", message)
+end
+
 function StartWatching()
   Watching, LightOn, Quiet, Learnt = true, false, 0, Unit
   Vml("WatchLight", "Light", "rcEye")
@@ -659,11 +735,25 @@ function StopWatching()
   Vml("SetProperty", "btnWatch", "Content", "Watch for light")
 end
 
--- Flash a message. Returns false when there is nothing in it that Morse can say.
+-- Flash a message, after the wait set in Settings if there is one. Returns false when there is nothing in it
+-- that Morse can say.
 function Send(text)
-  local pattern = Pattern(text)
-  if pattern == "" then return false end
+  if Pattern(text) == "" then return false end
   if TorchOn then TorchOn = false; Lamp() end
+  Vml("SetProperty", "lblOut", "Text", Pretty(Code(text)))
+  Vml("SetProperty", "pbSend", "Value", "0")
+  if Wait > 0 then
+    Waiting, Ready = Wait, text
+    Vml("SetProperty", "tmrWait", "IsEnabled", "true")
+    Status("Sending in " .. Waiting .. "...")
+  else
+    Go(text)
+  end
+  return true
+end
+
+function Go(text)
+  local pattern = Pattern(text)
   Heard = {}
   SendTicks, SendTotal = 0, 0
   for ms in pattern:gmatch("%d+") do SendTotal = SendTotal + tonumber(ms) / 100 end
@@ -673,13 +763,13 @@ function Send(text)
   Vml("Log", "MorseTorch sent (unit " .. Unit .. "): " .. pattern)
   Status(Watching and "Sending, and still watching: try it at a mirror." or "Sending...")
   Vml("Flash", pattern, "Sent")
-  return true
 end
 
 -- ---- as the app opens: the settings as they were left, and the torch on if that was asked for
 Vml("SetProperty", "sldOn", "Value", OnFor)
 Vml("SetProperty", "sldOff", "Value", OffFor)
 Vml("SetProperty", "sldDim", "Value", Dim)
+Vml("SetProperty", "sldWait", "Value", Wait)
 Vml("SetProperty", "chkOpen", "IsChecked", Vml("GetSetting", "open") == "true" and "true" or "false")
 ShowPace()
 Look()
@@ -792,6 +882,8 @@ Interpreter=lua
 <<LUA
 OnFor = tonumber(Vml("GetProperty", "sldOn", "Value")) or 10
 OffFor = tonumber(Vml("GetProperty", "sldOff", "Value")) or 10
+Wait = tonumber(Vml("GetProperty", "sldWait", "Value")) or 0
+Vml("SetSetting", "wait", Wait)
 Vml("SetSetting", "on", OnFor)
 Vml("SetSetting", "off", OffFor)
 ShowPace()
@@ -828,6 +920,21 @@ LUA
 Interpreter=lua
 <<LUA
 if not Send(Vml("GetProperty", "txtSay", "Text")) then Status("Nothing to send: type or say a message first.") end
+LUA
+
+@Script WaitTick
+Interpreter=lua
+<<LUA
+-- Once a second while a send is waiting: count down, then go.
+Waiting = Waiting - 1
+if Waiting > 0 then
+  Status("Sending in " .. Waiting .. "...")
+else
+  Vml("SetProperty", "tmrWait", "IsEnabled", "false")
+  local text = Ready
+  Ready = nil
+  if text then Go(text) end
+end
 LUA
 
 @Script SendTick
@@ -872,12 +979,19 @@ LUA
 @Script Light
 Interpreter=lua
 <<LUA
--- The camera saw the light change. state is what it is now; ms is how long it was the other way.
+-- The camera saw the light change. state is what it is now; ms is how long it was the other way. "new" means
+-- a light has just been found: what was read before came from something else, and how this one began follows.
 local state, ms, problem = ...
 ms = tonumber(ms) or 0
 if state == "error" then
   StopWatching()
   Status(problem)
+  return
+end
+if state == "new" then
+  if #Flashes >= 4 then Finish("another light was found") end
+  Flashes, Heard, LightOn, Quiet, Gap = {}, {}, false, 0, 0
+  Show()
   return
 end
 Quiet = 0
@@ -890,7 +1004,7 @@ if state == "on" then
   end
 else
   LightOn = false
-  Flashes[#Flashes + 1] = { on = ms, gap = Gap }
+  if ms <= TooLong() then Flashes[#Flashes + 1] = { on = ms, gap = Gap } end
   Show()
 end
 LUA
@@ -898,21 +1012,16 @@ LUA
 @Script Tick
 Interpreter=lua
 <<LUA
--- Ten times a second while watching: a long enough dark ends a letter, and a longer one ends the message.
-if not Watching or LightOn or Finished or #Flashes == 0 then return end
+-- Ten times a second while watching: a long enough dark ends a letter, and a longer one ends the message. So
+-- does a light that comes on and stays on.
+if not Watching or #Flashes == 0 then return end
 Quiet = Quiet + 1
-Show()
-if Quiet * 100 >= Learnt * 12 then
-  local message, _, seen = Message()
-  Earlier, Flashes, Finished, LastSeen = Earlier .. message, {}, true, seen
-  Show()
-  Status("Message received.")
-  -- For whoever is working on this app: what was seen, flash by flash, and how the camera behaved.
-  Vml("Log", "MorseTorch read '" .. message .. "' (dot taken as " .. math.floor(Learnt) .. " ms) from: " .. table.concat(Heard or {}, ", "))
-  Vml("Log", "MorseTorch camera: " .. Vml("LightReport"))
-  Heard = {}
-  if message ~= "" then Vml("Speak", message) end
+if LightOn then
+  if Quiet * 100 >= TooLong() then Finish("the light stayed on") end
+  return
 end
+Show()
+if Quiet * 100 >= Learnt * 12 then Finish("the light went quiet") end
 LUA
 
 @Script DoRead

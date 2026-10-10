@@ -105,6 +105,8 @@ public class MainActivity extends Activity {
     private EditText address;
     private ListView keptList;
     private WebView web;
+    private final List<String> logged = Collections.synchronizedList(new ArrayList<String>());   // what the app on screen has logged
+    private String loggedBy = "";           // and which app that was
     private String host = "";               // the address (in here) of the app on screen
     private String title = "Visualised";    // and its name
     private String liveSource = "";         // where it is being fetched from, when it is not one kept on the phone
@@ -384,9 +386,15 @@ public class MainActivity extends Activity {
 
     private void keptMenu(final Apps.Kept app) {
         boolean canFetch = !app.source.isEmpty();
-        final String[] choices = canFetch
-                ? new String[]{"Open", "Add to the home screen", "Share with someone here", "Fetch the newest from where it came from", "Remove from this phone"}
-                : new String[]{"Open", "Add to the home screen", "Share with someone here", "Remove from this phone"};
+        List<String> offered = new ArrayList<>(java.util.Arrays.asList("Open", "Add to the home screen", "Share with someone here"));
+        if (canFetch) {
+            offered.add("Fetch the newest from where it came from");
+        }
+        if (app.name.equals(loggedBy) && !logged.isEmpty()) {
+            offered.add("See what it logged");
+        }
+        offered.add("Remove from this phone");
+        final String[] choices = offered.toArray(new String[0]);
         new AlertDialog.Builder(this).setTitle(app.name).setItems(choices, (d, which) -> {
             String chosen = choices[which];
             if (chosen.startsWith("Open")) {
@@ -395,6 +403,8 @@ public class MainActivity extends Activity {
                 addToHomeScreen(app);
             } else if (chosen.startsWith("Share")) {
                 shareMenu(app);
+            } else if (chosen.startsWith("See")) {
+                showLog();
             } else if (chosen.startsWith("Fetch")) {
                 keep(app.source, app.id);
             } else {
@@ -412,6 +422,32 @@ public class MainActivity extends Activity {
                         .setNegativeButton("Cancel", null).show();
             }
         }).show();
+    }
+
+    // ---------------------------------------------------------------- what an app logged, for whoever made it
+    void log(String text) {
+        logged.add(DateFormat.getTimeInstance(DateFormat.MEDIUM).format(new Date()) + "  " + text);
+        while (logged.size() > 300) {
+            logged.remove(0);
+        }
+    }
+
+    /** The lines the last app run wrote with Vml("Log", ...), to read here or send somewhere. */
+    private void showLog() {
+        final String all;
+        synchronized (logged) {
+            all = logged.isEmpty() ? "Nothing has been logged." : android.text.TextUtils.join("\n\n", logged);
+        }
+        TextView text = words(all, 12, 0xFF111827, false);
+        text.setTextIsSelectable(true);
+        text.setTypeface(Typeface.MONOSPACE);
+        text.setPadding(dp(20), dp(8), dp(20), dp(8));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(text);
+        new AlertDialog.Builder(this).setTitle("Logged by " + loggedBy).setView(scroll)
+                .setPositiveButton("Send it", (d, w) -> device.share(all, "Log from " + loggedBy))
+                .setNegativeButton("Close", null)
+                .show();
     }
 
     // ---------------------------------------------------------------- handing an app to a friend
@@ -643,6 +679,8 @@ public class MainActivity extends Activity {
     private void show(String name, String called, String path) {
         host = name;
         title = called;
+        logged.clear();
+        loggedBy = called;
         device.warmVoice();
         home.setVisibility(View.INVISIBLE);
         running.setVisibility(View.VISIBLE);
@@ -706,6 +744,10 @@ public class MainActivity extends Activity {
         strip.setPadding(dp(12), 0, dp(4), 0);
         liveText = words("", 13, 0xFF374151, false);
         liveText.setSingleLine(true);
+        liveText.setOnLongClickListener(v -> {      // for whoever is making the app: what it has logged so far
+            showLog();
+            return true;
+        });
         Button again = new Button(this, null, android.R.attr.borderlessButtonStyle);
         again.setText("Refresh");
         again.setOnClickListener(v -> web.reload());

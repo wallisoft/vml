@@ -24,11 +24,11 @@ def check(label, got, want=True):
 page = export_html(FORM, os.path.join(WORK, "morse.html"))
 made = open(page, encoding="utf-8").read()
 check("an app's version and icon travel inside the page, where a phone looks for them",
-      ('<meta name="app-version" content="1.3">' in made, '<link rel="icon" href="data:image/png;base64,' in made), (True, True))
+      ('<meta name="app-version" content="1.5">' in made, '<link rel="icon" href="data:image/png;base64,' in made), (True, True))
 APP = """window.asked = [];
 window.VisualisedDevice = { info: () => '{"platform":"android-app","app":true}',
   flash: p => { asked.push(["flash", p]); }, listen: p => { asked.push(["listen", p]); }, speak: t => { asked.push(["speak", t]); },
-  torch: on => { asked.push(["torch", on]); }, brightness: n => { asked.push(["brightness", n]); }, keepAwake: () => {} };
+  torch: on => { asked.push(["torch", on]); }, brightness: n => { asked.push(["brightness", n]); }, keepAwake: () => {}, log: t => { window.kept = (window.kept || []).concat([t]); } };
 navigator.mediaDevices.getUserMedia = () => new Promise(() => {});      // a camera that never shows a picture"""
 # A made-up light, seen the way a camera would see it: a reading every 33 ms, a little noise, and the Tick
 # script run every 100 ms as the form's Timer would. unit: how fast the sender is sending.
@@ -112,6 +112,22 @@ with sync_playwright() as p:
     V("SetProperty", "txtSay", "Text", "a b")
     pg.evaluate("asked.length = 0"); pg.tap("#v_btnSend")
     check("app: Quick is a shorter dot, and a space is seven of them", pg.evaluate("asked")[0][1], "120,120,360,840,360,120,120,120,120,120,120")
+    pg.tap("#v_btnBackM"); pg.tap("#v_btnSettings")
+    pg.evaluate("""() => { const e = document.getElementById("v_sldWait"); e.value = 3; e.dispatchEvent(new Event("input", { bubbles: true })); }""")
+    check("Settings can make Send wait, for someone testing with a phone in each hand", (pg.inner_text("#v_lblWait"), V("GetSetting", "wait")), ("Morse: wait 3 seconds after Send (time to put the phone down)", "3"))
+    pg.tap("#v_btnBackS"); pg.tap("#v_btnMorse")
+    V("SetProperty", "txtSay", "Text", "e"); pg.evaluate("asked.length = 0"); pg.tap("#v_btnSend")
+    first = (pg.evaluate("asked.filter(a => a[0] === 'flash' && a[1])"), status())
+    V("RunScript", "WaitTick"); V("RunScript", "WaitTick")
+    second = (pg.evaluate("asked.filter(a => a[0] === 'flash' && a[1])"), status())
+    V("RunScript", "WaitTick")
+    check("app: then Send counts down before the torch starts", (first, second, pg.evaluate("asked.filter(a => a[0] === 'flash' && a[1])"), status()),
+          (([], "Sending in 3..."), ([], "Sending in 1..."), [["flash", "120"]], "Sending..."))
+    pg.evaluate("window.vmlFromPhone('flash')")
+    check("app: what an app logs is handed to the phone app to keep, for its maker to read there", pg.evaluate("window.kept[window.kept.length - 1]"), "MorseTorch sent (unit 120): 120")
+    V("RunScript", "DoPace")
+    pg.evaluate("""() => { const e = document.getElementById("v_sldWait"); e.value = 0; e.dispatchEvent(new Event("input", { bubbles: true })); }""")
+    V("SetProperty", "txtSay", "Text", "a b")
     pg.tap("#v_btnSpeed"); pg.tap("#v_btnSpeed")
     check("the speed button goes Steady, Quick, Slow and round again", (pg.inner_text("#v_btnSpeed"), status()), ("Steady", "Steady: about 6 words a minute."))
 
@@ -135,7 +151,7 @@ with sync_playwright() as p:
           pg.inner_text("#v_lblIn").endswith("\u2022 \u2014 \u2014 \u2022 \u2003\u2022 \u2022 \u2003\u2022 \u2003\u2022 \u2014 \u2022"), True)
     logged = [m for m in said if m.startswith("[log] MorseTorch")]
     check("what was sent, what was seen flash by flash, and how the camera behaved are logged for the app's maker",
-          (any("sent (unit 200): 200,200,200,200,200,600" in m for m in logged), any("read 'MEET AT THE PIER' (dot taken as" in m and "on " in m and "off " in m for m in logged), "camera: pictures" in logged[-1]), (True, True, True))
+          (any("sent (unit 200): 200,200,200,200,200,600" in m for m in logged), any("read 'MEET AT THE PIER' (the light went quiet; " in m and "dot taken as" in m and "on " in m and "off " in m for m in logged), "camera: pictures" in logged[-1]), (True, True, True))
     check("and spoken when the light has been quiet a while", (pg.evaluate("asked"), status()), ([["speak", "MEET AT THE PIER"]], "Message received."))
     quick = ",".join(str(int(int(n) * 0.6)) for n in pier.split(","))
     pg.tap("#v_btnClear")
@@ -154,8 +170,7 @@ with sync_playwright() as p:
     # the whole picture: a street lamp that never changes, a far torch two dots across that does, and a shaking hand
     pg.tap("#v_btnClear"); pg.tap("#v_btnWatch")
     seen = pg.evaluate("""([pattern]) => { const V = window.vml.Vml, steps = pattern.split(",").map(Number), W = 320, H = 240;
-      const finder = new window.vml.BlinkFinder(W, H), lum = new Uint8Array(W * H);
-      const reader = new window.vml.LightReader((state, ms) => V("RunScript", "Light", state, String(Math.round(ms)), ""));
+      const watcher = new window.vml.LightWatcher(W, H, (state, ms) => V("RunScript", "Light", state, String(Math.round(ms)), "")), finder = watcher.finder, lum = new Uint8Array(W * H);
       const total = steps.reduce((a, b) => a + b, 0) + 5000; let nextTick = 100, seed = 11, spots = [];
       const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
       for (let t = -3000; t < total; t += 33) {
@@ -165,7 +180,7 @@ with sync_playwright() as p:
         for (let i = 0; i < lum.length; i++) lum[i] = 50 + rnd() * 12;
         for (let y = 30; y < 50; y++) for (let x = 40; x < 60; x++) lum[(y + dy) * W + x + dx] = 255;       // the lamp
         if (on) for (let y = 180; y < 182; y++) for (let x = 250; x < 252; x++) lum[(y + dy) * W + x + dx] = 240;     // the torch
-        reader.feed(finder.feed(lum, t), t);
+        watcher.feed(lum, t);
         if (t > 3000 && finder.spot) spots.push(finder.spot);
         while (t >= nextTick) { V("RunScript", "Tick"); nextTick += 100; }
       }
@@ -180,6 +195,23 @@ with sync_playwright() as p:
         f.feed(lum, t); if (t > 5000 && f.spot) found++; }
       return found; }""")
     check("a lamp and a shaking hand with nothing flashing is not taken for a signal", still, 0)
+    # the real thing: what a phone's camera saw of another phone's torch, hand held in a bright room, played back
+    import gzip, json
+    tape = json.load(gzip.open(os.path.join(HERE, "tests", "data", "light-hello-claude.json.gz"), "rt"))
+    pg.tap("#v_btnClear")
+    real = pg.evaluate("""tape => { const V = window.vml.Vml, raw = atob(tape.squares), n = tape.cols * tape.rows;
+      const watcher = new window.vml.LightWatcher(tape.cols * 8, tape.rows * 8, (state, ms) => V("RunScript", "Light", state, String(Math.round(ms)), "")), finder = watcher.finder;
+      let nextTick = tape.times[0] + 100, on = 0, frames = 0;
+      tape.times.forEach((t, f) => {
+        for (let i = 0; i < n; i++) finder.now[i] = raw.charCodeAt(f * n + i);
+        watcher.squares(t);
+        if (finder.spot) { frames++; if (Math.abs(finder.spot.x * tape.cols - 22) < 5 && Math.abs(finder.spot.y * tape.rows - 14) < 5) on++; }
+        while (t >= nextTick) { V("RunScript", "Tick"); nextTick += 100; }
+      });
+      for (let k = 0; k < 40; k++) V("RunScript", "Tick");
+      return [document.querySelector("#v_lblGot").innerText, on / frames > 0.8]; }""", tape)
+    check("a recording of a real phone's torch, hand held in a bright room, is read", ("HELLO CLAUDE," in real[0], real[1]), (True, True))
+    print("      (read as: " + " ".join(real[0].split()) + ")")
     pg.tap("#v_btnWatch")
     steady = pg.evaluate("""() => { let n = 0; const r = new window.vml.LightReader(() => n++);
         for (let t = 0; t < 20000; t += 33) r.feed(200 + (t % 99 < 50 ? 4 : -4), t); return n; }""")

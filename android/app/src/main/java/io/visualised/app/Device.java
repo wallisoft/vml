@@ -129,6 +129,12 @@ final class Device {
         manager.notify(nextNote++, note);
     }
 
+    /** A line for whoever made the app: kept while the app runs, and shown from the list of apps (press and hold). */
+    @JavascriptInterface
+    public void log(String text) {
+        activity.log(text == null ? "" : text);
+    }
+
     /** A few words at the foot of the screen that go away by themselves. */
     @JavascriptInterface
     public void toast(String text) {

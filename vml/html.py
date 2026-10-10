@@ -913,6 +913,7 @@ const commands = {
   // from when the app is being previewed on a phone.
   Log(text = "") {
     console.log("[log]", text);
+    if (DEV && DEV.log) DEV.log(text);                   // the phone app keeps it: press and hold the app in its list
     if (window.VML_PREVIEW && location.protocol !== "file:") fetch("/_log?t=" + encodeURIComponent(text.slice(0, 6000))).catch(() => {});
     return "";
   },
@@ -994,7 +995,8 @@ const commands = {
     return "";
   },
   // Watch for a light going on and off through the camera: whatever in the picture is flashing. Each change
-  // runs the handler with "on" or "off" and how many milliseconds the state before it lasted; or with "error",
+  // runs the handler with "on" or "off" and how many milliseconds the state before it lasted; with "new" when a
+  // light is found (anything read before was something else; how this one began follows at once); or with "error",
   // 0 and what went wrong. where: a control to show the camera's picture over, to aim by. No handler stops it.
   WatchLight(handler = "", where = "") {
     stopWatching();
@@ -1012,9 +1014,9 @@ const commands = {
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } }, audio: false }).then(stream => {
       if (watching !== mine) { stream.getTracks().forEach(t => t.stop()); return; }
       mine.stream = stream; v.srcObject = stream; v.play().catch(() => {});
-      const reader = new LightReader((state, ms) => run(handler, [state, String(Math.round(ms)), ""]));
+      const tell = (state, ms) => run(handler, [state, String(Math.round(ms)), ""]);
       const W = 320, H = 240, c = document.createElement("canvas"); c.width = W; c.height = H;
-      const g = c.getContext("2d", { willReadFrequently: true }), lum = new Uint8Array(W * H), finder = new BlinkFinder(W, H);
+      const g = c.getContext("2d", { willReadFrequently: true }), lum = new Uint8Array(W * H), watcher = new LightWatcher(W, H, tell), finder = watcher.finder;
       const ring = document.createElement("div");                  // shows what it has taken to be the signal
       ring.style.cssText = "position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #FDE047;border-radius:50%;z-index:6;display:none;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.5)";
       if (v.parentElement) { v.parentElement.appendChild(ring); mine.ring = ring; }
@@ -1026,9 +1028,9 @@ const commands = {
         g.drawImage(v, 0, 0, W, H);
         const px = g.getImageData(0, 0, W, H).data;
         for (let i = 0, j = 0; i < lum.length; i++, j += 4) lum[i] = (px[j] * 2 + px[j + 1] * 5 + px[j + 2]) >> 3;
-        const level = finder.feed(lum, time);
+        const level = watcher.feed(lum, time);
+        if (window.VML_RECORD) record(time, finder);
         seen.levels.push(Math.round(level)); if (seen.levels.length > 3000) seen.levels.shift();
-        reader.feed(level, time);
         const spot = finder.spot;
         if (!spot || !mine.ring) { ring.style.display = "none"; return; }
         // the picture fills its box and is cropped to fit, so the spot is placed the same way
@@ -1085,8 +1087,26 @@ function setLamp(track, on) {
 }
 // What watching has been like, for LightReport: how evenly the camera's pictures came, and how long its light took to switch.
 const seen = { gaps: [], lamp: [], refused: 0, last: 0, levels: [] };
+// For whoever is tuning the reading of lights (set window.VML_RECORD before watching): the last minute of what
+// the camera saw, square by square, kept and saved as a file when watching stops, to be played back at a desk.
+const taped = [];
+function record(time, finder) {
+  taped.push({ t: time, cols: finder.cols, rows: finder.rows, now: finder.now.slice() });
+  if (taped.length > 1800) taped.shift();
+}
+function saveRecording() {
+  if (!taped.length) return;
+  const first = taped[0], bytes = new Uint8Array(taped.length * first.now.length);
+  taped.forEach((f, i) => bytes.set(f.now, i * first.now.length));
+  let text = ""; for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  const file = JSON.stringify({ what: "vml-light-recording", cols: first.cols, rows: first.rows, times: taped.map(f => Math.round(f.t * 10) / 10),
+    agent: navigator.userAgent, settings: (() => { try { return watching.stream.getVideoTracks()[0].getSettings(); } catch (err) { return null; } })(), camera: watching && watching.video ? watching.video.videoWidth + "x" + watching.video.videoHeight : "", squares: btoa(text) });
+  taped.length = 0;
+  commands.SaveFile("light-recording.json", file);
+}
 function stopWatching() {
   if (!watching) return;
+  if (window.VML_RECORD) saveRecording();
   clearInterval(watching.timer);
   if (watching.stream) watching.stream.getTracks().forEach(t => t.stop());
   watching.video.remove();
@@ -1111,15 +1131,23 @@ class BlinkFinder {
     this.now = new Uint8Array(n); this.across = new Uint8Array(n); this.wide = new Uint8Array(n);
     this.lo = new Float32Array(n); this.hi = new Float32Array(n); this.up = new Uint8Array(n); this.flips = new Float32Array(n);
     this.at = -1; this.last = null; this.where = null;
+    this.past = [];            // the last few seconds, to read back how a light began once it has been found
+    this.moved = false;        // true for the one picture in which a light is found, or a different one taken up
+    this.cells = [];           // the squares flashing with the light
   }
   // lum: how bright each dot of the picture is (0 to 255), row by row. time: milliseconds.
   feed(lum, time) {
-    const { w, h, cell, reach, cols, rows, now, across, wide, lo, hi, up, flips } = this;
+    const { w, h, cell, cols, now } = this;
     now.fill(0);
     for (let y = 0; y < h; y++) {
       const row = ((y / cell) | 0) * cols, line = y * w;
       for (let x = 0; x < w; x++) { const v = lum[line + x], i = row + ((x / cell) | 0); if (v > now[i]) now[i] = v; }
     }
+    return this.squares(time);
+  }
+  // The same, from the squares themselves (this.now already filled in): each as bright as its brightest dot.
+  squares(time) {
+    const { reach, cols, rows, now, across, wide, lo, hi, up, flips } = this;
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {            // the brightest of the neighbourhood: across, then down
       let m = 0;
       for (let k = Math.max(0, x - reach); k <= Math.min(cols - 1, x + reach); k++) m = Math.max(m, now[y * cols + k]);
@@ -1130,6 +1158,9 @@ class BlinkFinder {
       for (let k = Math.max(0, y - reach); k <= Math.min(rows - 1, y + reach); k++) m = Math.max(m, across[k * cols + x]);
       wide[y * cols + x] = m;
     }
+    this.moved = false;
+    this.past.push({ t: time, wide: wide.slice() });
+    while (this.past.length > 600 || time - this.past[0].t > 6000) this.past.shift();
     const first = this.last === null, passed = first ? 0 : Math.max(0, time - this.last) / 1000;
     this.last = time;
     const drift = 40 * passed, fade = Math.pow(0.5, passed / 3);      // a change is forgotten in a few seconds
@@ -1148,21 +1179,59 @@ class BlinkFinder {
       if (score > bestScore) { bestScore = score; best = i; }
     }
     const score = i => (hi[i] - lo[i]) * Math.min(flips[i], 6);
+    // A hand is never still, so the light wanders: each time, move to the strongest square close by.
+    const close = i => { const out = [], cx = i % cols, cy = (i / cols) | 0;
+      for (let y = Math.max(0, cy - 3); y <= Math.min(rows - 1, cy + 3); y++) for (let x = Math.max(0, cx - 3); x <= Math.min(cols - 1, cx + 3); x++) out.push(y * cols + x);
+      return out; };
+    if (this.at >= 0) { let top = this.at; for (const i of close(this.at)) if (score(i) > score(top)) top = i; this.at = top; }
     const mine = this.at < 0 ? 0 : score(this.at);
-    if (best >= 0 && bestScore >= 90 && (this.at < 0 || bestScore > mine * 1.5)) this.at = best;      // (it doesn't hop about for a little)
-    else if (this.at >= 0 && mine < 30) this.at = -1;
-    if (this.at < 0) { this.where = null; return 0; }
+    // A light is taken up once it has flashed a few times, strongly; and left for another only if that one is
+    // somewhere else and flashing half as strongly again.
+    if (best >= 0 && bestScore >= 240 && hi[best] - lo[best] >= 50
+        && (this.at < 0 || (bestScore > mine * 1.5 && !close(this.at).includes(best)))) { this.at = best; this.moved = true; }
+    else if (this.at >= 0 && mine < 80) this.at = -1;
+    if (this.at < 0) { this.where = null; this.cells = []; return 0; }
     // Every square within reach of the light flashes with it: the light is in the middle of them.
-    let sx = 0, sy = 0, n = 0;
-    const cx = this.at % cols, cy = (this.at / cols) | 0, near = score(this.at) * 0.8;
-    for (let y = Math.max(0, cy - 2 * reach); y <= Math.min(rows - 1, cy + 2 * reach); y++)
-      for (let x = Math.max(0, cx - 2 * reach); x <= Math.min(cols - 1, cx + 2 * reach); x++)
-        if (score(y * cols + x) >= near) { sx += x; sy += y; n++; }
-    this.where = n ? { x: (sx / n + 0.5) / cols, y: (sy / n + 0.5) / rows } : null;
-    return wide[this.at];
+    const near = score(this.at) * 0.6;
+    this.cells = close(this.at).filter(i => score(i) >= near);
+    let sx = 0, sy = 0;
+    for (const i of this.cells) { sx += i % cols; sy += (i / cols) | 0; }
+    this.where = { x: (sx / this.cells.length + 0.5) / cols, y: (sy / this.cells.length + 0.5) / rows };
+    return this.level(wide);
+  }
+  // How lit the light is, 0 to 255: each of its squares measured against its own darkest and brightest, and the
+  // middle one taken, so a square that has wandered off the light doesn't spoil the reading.
+  level(wide) {
+    const { lo, hi } = this, v = this.cells.map(i => (wide[i] - lo[i]) / Math.max(1, hi[i] - lo[i])).sort((a, b) => a - b);
+    return v.length ? 255 * Math.max(0, Math.min(1, v[v.length >> 1])) : 0;
+  }
+  // What the light just found was doing before it was found, as [time, level] pairs: back to the last time it
+  // was dark for a good second, because a message starts from darkness.
+  history() {
+    const all = this.past.map(p => [p.t, this.level(p.wide)]);
+    let start = 0, dark = -1;
+    all.forEach(([t, l], k) => { if (l < 100) { if (dark < 0) dark = k; if (t - all[dark][0] >= 1000) start = k; } else dark = -1; });
+    return all.slice(start);
   }
   // Where in the picture the signal is (0 to 1 across and down), or null when nothing is flashing.
   get spot() { return this.where; }
+}
+// The two together: pictures in, and out comes "new" (a light has been found: what was reported before was
+// something else, and how this one began follows at once), then "on" and "off" with how long the state before lasted.
+class LightWatcher {
+  constructor(width, height, report) { this.finder = new BlinkFinder(width, height); this.report = report; this.reader = new LightReader(report); }
+  feed(lum, time) { this.finder.feed(lum, time); return this.seen(time); }
+  squares(time) { this.finder.squares(time); return this.seen(time); }       // (when the finder's squares are filled in already)
+  seen(time) {
+    const f = this.finder, level = f.spot ? f.level(f.wide) : 0;
+    if (f.moved) {
+      this.report("new", 0);
+      this.reader = new LightReader(this.report);
+      for (const [t, l] of f.history().slice(0, -1)) this.reader.feed(l, t);
+    }
+    if (f.spot) this.reader.feed(level, time);
+    return level;
+  }
 }
 // Turns a run of brightness readings into "it went on" and "it went off", each with how long the state before
 // lasted. What counts as bright is learned from what it sees: the darkest and brightest readings lately, each
@@ -1238,7 +1307,7 @@ function Vml(cmd, ...args) {
   catch (err) { console.error(`Vml("${cmd}")`, err); return ""; }
 }
 
-window.vml = { Vml, settings, LightReader, BlinkFinder };                 // handy in the browser console: vml.Vml("GetProperty", "txtName", "Text")
+window.vml = { Vml, settings, LightReader, BlinkFinder, LightWatcher };                 // handy in the browser console: vml.Vml("GetProperty", "txtName", "Text")
 
 let fns = null;
 function luaFunction(name) {                    // a function one of the project's modules defined
