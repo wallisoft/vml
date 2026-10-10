@@ -24,11 +24,11 @@ def check(label, got, want=True):
 page = export_html(FORM, os.path.join(WORK, "morse.html"))
 made = open(page, encoding="utf-8").read()
 check("an app's version and icon travel inside the page, where a phone looks for them",
-      ('<meta name="app-version" content="1.1">' in made, '<link rel="icon" href="data:image/png;base64,' in made), (True, True))
+      ('<meta name="app-version" content="1.3">' in made, '<link rel="icon" href="data:image/png;base64,' in made), (True, True))
 APP = """window.asked = [];
 window.VisualisedDevice = { info: () => '{"platform":"android-app","app":true}',
   flash: p => { asked.push(["flash", p]); }, listen: p => { asked.push(["listen", p]); }, speak: t => { asked.push(["speak", t]); },
-  torch: on => { asked.push(["torch", on]); } };
+  torch: on => { asked.push(["torch", on]); }, brightness: n => { asked.push(["brightness", n]); }, keepAwake: () => {} };
 navigator.mediaDevices.getUserMedia = () => new Promise(() => {});      // a camera that never shows a picture"""
 # A made-up light, seen the way a camera would see it: a reading every 33 ms, a little noise, and the Tick
 # script run every 100 ms as the form's Timer would. unit: how fast the sender is sending.
@@ -50,21 +50,70 @@ with sync_playwright() as p:
     pg = ctx.new_page()
     errors = []
     pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    said = []
+    pg.on("console", lambda m: said.append(m.text) if m.type == "log" else None)
     pg.goto("file://" + str(page))
     pg.wait_for_selector("#vml_status[data-ready='1']", state="attached", timeout=20000)
     status = lambda: pg.inner_text("#v_lblStatus")
     V = lambda *a: pg.evaluate("a => window.vml.Vml(...a)", list(a))
 
-    pg.tap("#v_btnSend")
+    # the torch page: what the app opens on
+    shown = lambda name: pg.is_visible("#v_" + name)
+    check("it opens on the torch, with the Morse out of the way", (shown("btnBig"), shown("btnSend"), shown("sldOn"), shown("rcWhite")), (True, False, False, False))
+    pg.evaluate("asked.length = 0"); pg.tap("#v_btnBig")
+    check("app: one tap and the torch is on, and the button says so", (pg.evaluate("asked")[-1], pg.inner_text("#v_btnBig"), pg.inner_text("#v_lblHome")), (["torch", True], "ON", "Torch on."))
+    pg.evaluate("asked.length = 0"); pg.tap("#v_btnFlashT")
+    check("app: Flashing is a second on and a second off", pg.evaluate("asked")[-1], ["flash", "1000,1000"])
+    pg.evaluate("asked.length = 0; window.vmlFromPhone('flash')")
+    check("app: and it goes round again until it is switched off", pg.evaluate("asked"), [["flash", "1000,1000"]])
+    pg.tap("#v_btnSettings")
+    pg.evaluate("""() => { for (const [id, v] of [["v_sldOn", 3], ["v_sldOff", 20]]) { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event("input", { bubbles: true })); } }""")
+    check("the sliders in Settings set how long it is on and off, and say so",
+          (pg.inner_text("#v_lblOn"), pg.inner_text("#v_lblOff"), V("GetSetting", "on"), V("GetSetting", "off")),
+          ("Flashing: on for 0.3 seconds", "Flashing: off for 2.0 seconds", "3", "20"))
+    pg.tap("#v_btnBackS")
+    pg.evaluate("asked.length = 0; window.vmlFromPhone('flash')")
+    check("app: the next flash keeps the new time", pg.evaluate("asked"), [["flash", "300,2000"]])
+    pg.evaluate("asked.length = 0"); pg.tap("#v_btnBig")
+    check("app: the big button again and it is off, and stays off", (pg.evaluate("asked"), pg.inner_text("#v_btnBig"), pg.evaluate("window.vmlFromPhone('flash'), asked.length")),
+          ([["flash", ""], ["torch", False]], "Torch", 2))
+    pg.evaluate("asked.length = 0"); pg.tap("#v_btnScreen")
+    check("app: Screen light turns the whole screen white and the screen up", (shown("rcWhite"), shown("btnBig"), pg.evaluate("asked")[-1]), (True, False, ["brightness", 100]))
+    pg.evaluate("""() => { const e = document.getElementById("v_sldDim"); e.value = 30; e.dispatchEvent(new Event("input", { bubbles: true })); }""")
+    check("app: its slider dims it", pg.evaluate("asked")[-1], ["brightness", 30])
+    pg.dispatch_event("#v_rcWhite", "mousedown")
+    check("app: a tap on the light goes back, and the screen is the phone's own again", (shown("rcWhite"), shown("btnBig"), pg.evaluate("asked")[-1]), (False, True, ["brightness", -1]))
+    pg.tap("#v_btnTell")
+    check("app: Tell it asks the phone to listen", pg.evaluate("asked")[-1][0], "listen")
+    pg.evaluate("asked.length = 0; window.vmlFromPhone('listen', 'torch on please', '')")
+    check("app: 'torch on' turns it on", pg.evaluate("asked")[-1], ["torch", True])
+    pg.tap("#v_btnTell"); pg.evaluate("asked.length = 0; window.vmlFromPhone('listen', 'turn it off', '')")
+    check("app: 'off' turns it off", pg.evaluate("asked")[-1], ["torch", False])
+    pg.tap("#v_btnTell"); pg.evaluate("asked.length = 0; window.vmlFromPhone('listen', 'send hi', '')")
+    check("app: 'send' and a message goes to the Morse page and flashes it, showing the dots and dashes",
+          (shown("btnSend"), shown("btnBig"), pg.evaluate("asked")[-1], pg.inner_text("#v_lblOut")),
+          (True, False, ["flash", "200,200,200,200,200,200,200,600,200,200,200"], "\u2022 \u2022 \u2022 \u2022 \u2003\u2022 \u2022"))
+    pg.evaluate("for (let i = 0; i < 13; i++) window.vml.Vml('RunScript', 'SendTick')")
+    check("and a bar under them shows how far the torch has got", V("GetProperty", "pbSend", "Value"), "50")
+    pg.evaluate("window.vmlFromPhone('flash')")
+    check("app: full when it is sent", (V("GetProperty", "pbSend", "Value"), status()), ("100", "Sent."))
+    pg.tap("#v_btnBackM")
+    pg.tap("#v_btnTell"); pg.evaluate("window.vmlFromPhone('listen', 'make me a sandwich', '')")
+    check("app: anything else is told what it can say", status(), "Heard 'make me a sandwich'. Try: torch on, flash, screen, off, or send and a message.")
+    pg.tap("#v_btnMorse")
+    V("SetProperty", "txtSay", "Text", "SOS")
+
+    pg.evaluate("asked.length = 0"); pg.tap("#v_btnSend")
     check("app: SOS goes to the torch as dots and dashes with the right gaps",
           (pg.evaluate("asked"), status()), ([["flash", "200,200,200,200,200,600,600,200,600,200,600,600,200,200,200,200,200"]], "Sending..."))
     pg.evaluate("window.vmlFromPhone('flash')")
     check("app: and the form is told when the torch has finished", status(), "Sent.")
-    pg.tap("#v_btnQuick")
+    pg.tap("#v_btnSpeed")
     V("SetProperty", "txtSay", "Text", "a b")
     pg.evaluate("asked.length = 0"); pg.tap("#v_btnSend")
     check("app: Quick is a shorter dot, and a space is seven of them", pg.evaluate("asked")[0][1], "120,120,360,840,360,120,120,120,120,120,120")
-    pg.tap("#v_btnSteady")
+    pg.tap("#v_btnSpeed"); pg.tap("#v_btnSpeed")
+    check("the speed button goes Steady, Quick, Slow and round again", (pg.inner_text("#v_btnSpeed"), status()), ("Steady", "Steady: about 6 words a minute."))
 
     pg.tap("#v_btnSay")
     check("app: Say it asks the phone to listen", pg.evaluate("asked")[-1], ["listen", "Say your message"])
@@ -82,6 +131,11 @@ with sync_playwright() as p:
     pg.evaluate("asked.length = 0")
     got = pg.evaluate(SEE, [pier, 40, 230])
     check("a message flashed at a camera is read back, letter for letter", got.strip(), "MEET AT THE PIER")
+    check("with the dots and dashes it arrived as on show (the newest, when there are too many to fit)",
+          pg.inner_text("#v_lblIn").endswith("\u2022 \u2014 \u2014 \u2022 \u2003\u2022 \u2022 \u2003\u2022 \u2003\u2022 \u2014 \u2022"), True)
+    logged = [m for m in said if m.startswith("[log] MorseTorch")]
+    check("what was sent, what was seen flash by flash, and how the camera behaved are logged for the app's maker",
+          (any("sent (unit 200): 200,200,200,200,200,600" in m for m in logged), any("read 'MEET AT THE PIER' (dot taken as" in m and "on " in m and "off " in m for m in logged), "camera: pictures" in logged[-1]), (True, True, True))
     check("and spoken when the light has been quiet a while", (pg.evaluate("asked"), status()), ([["speak", "MEET AT THE PIER"]], "Message received."))
     quick = ",".join(str(int(int(n) * 0.6)) for n in pier.split(","))
     pg.tap("#v_btnClear")
@@ -142,7 +196,7 @@ navigator.mediaDevices.getUserMedia = async () => { const s = document.createEle
         pg = ctx.new_page()
         pg.goto("file://" + str(page))
         pg.wait_for_selector("#vml_status[data-ready='1']", state="attached", timeout=20000)
-        pg.evaluate('window.vml.Vml("SetProperty", "txtSay", "Text", "e e")'); pg.tap("#v_btnQuick")
+        pg.evaluate('window.vml.Vml("SetProperty", "txtSay", "Text", "e e")'); pg.tap("#v_btnMorse"); pg.tap("#v_btnSpeed")
         pg.tap("#v_btnWatch"); pg.wait_for_timeout(300)
         pg.tap("#v_btnSend")
         if can:
@@ -164,7 +218,7 @@ navigator.mediaDevices.getUserMedia = async () => { const s = document.createEle
     pg = ctx.new_page()
     pg.goto("file://" + str(page))
     pg.wait_for_selector("#vml_status[data-ready='1']", state="attached", timeout=20000)
-    pg.evaluate('window.vml.Vml("SetProperty", "txtSay", "Text", "e e")'); pg.click("#v_btnQuick"); pg.click("#v_btnSend")
+    pg.evaluate('window.vml.Vml("SetProperty", "txtSay", "Text", "e e")'); pg.click("#v_btnMorse"); pg.click("#v_btnSpeed"); pg.click("#v_btnSend")
     lit = pg.evaluate("getComputedStyle(document.querySelector('#vml_flash')).backgroundColor")
     pg.wait_for_function("document.querySelector('#v_lblStatus').innerText === 'Sent.'", timeout=5000)
     check("browser: Flash lights the whole screen, then clears it and says it is done", (lit, pg.query_selector("#vml_flash") is None), ("rgb(255, 255, 255)", True))

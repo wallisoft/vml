@@ -838,4 +838,5 @@ DESIGN_DEFAULTS = {
     "Frame": {"Width": "240", "Height": "160"},
     "Timer": {"Interval": "1000"},
     "ProgressBar": {"Width": "200", "Height": "18", "Value": "40"},
+    "Slider": {"Width": "200", "Height": "28", "Value": "40"},
 }

@@ -6,6 +6,7 @@
     ./vml.py myapp.vmlproj         run a project (several forms and modules) from its start-up form
     ./vml.py html form.vml         write the form as a web page (form.html); add --open to view it
     ./vml.py parse form.vml        print the SQL the parser makes
+    ./vml.py --version             which Visualised this is
     ./vml.py setup-csharp          (optional) build the C# script host
     ./vml.py get txtName Text      talk to the running form: get / set / setting / run / any Vml command
 """
@@ -16,6 +17,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 APP_VERBS = ("setup-csharp", "html", "parse")
 first = sys.argv[1] if len(sys.argv) > 1 else ""
+if first in ("--version", "-V", "version"):                    # before anything heavy is loaded: just the number
+    from vml import __version__
+    print("Visualised " + __version__)
+    raise SystemExit(0)
 
 def own_app(program):
     """An exported app: this program renamed MyApp(.exe), with MyApp.vmlproj (a project) or MyApp.vml (one form)

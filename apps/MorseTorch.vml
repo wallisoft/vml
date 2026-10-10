@@ -1,27 +1,34 @@
 # ============================================================================
-# Morse Torch: say it, flash it, read it back.
+# Morse Torch: a torch first, and a way to talk with light second.
 #
-#   Type a message or press "Say it" and speak. "Send" flashes it in Morse on
-#   the torch. "Watch for light" finds whatever is flashing in the camera's
-#   picture, writes the letters as they come, and reads the message out when
-#   the light goes quiet. Send while watching and a mirror will show you both
-#   halves at once.
+#   One tap on the big button and the torch is on: steady, or flashing at the
+#   pace set in Settings. "Screen light" turns the whole screen white, with a
+#   dimmer. "Tell it" listens: say "torch on", "flash", "screen", "off", or
+#   "send" and a message.
+#
+#   "Morse" is the clever half. Type or say a message and Send flashes it on
+#   the torch, showing the dots and dashes as they go. "Watch for light" finds
+#   whatever is flashing in the camera's picture, shows the dots and dashes as
+#   they arrive, writes the letters, and reads the message out when the light
+#   goes quiet. Send while watching and a mirror will show you both halves.
 #
 #   What it uses, all through Vml(...):
-#     Listen      speech to text          Flash        a timed on/off pattern
+#     Torch       just a torch            Flash        a timed on/off pattern
+#     Listen      speech to text          Speak        text to speech
 #     WatchLight  "the light went on/off, and how long the last state lasted"
-#     Speak       text to speech          Torch        just a torch
+#     Brightness  the screen's own brightness, for the screen light
 #   In a browser Flash lights the whole screen, which a phone reads as well.
 #
-#   The Morse itself is the Lua at the bottom: Pattern() turns text into
-#   milliseconds on and off, and Read() turns flashes back into text.
+#   The form is four pages laid over each other: Page() at the bottom shows
+#   one and hides the rest. The Morse itself is Lua too: Pattern() turns text
+#   into milliseconds on and off, and Read() turns flashes back into text.
 #
 #   Made with Visualised.
 # ============================================================================
 
 @Window MorseTorch
 Title=Morse Torch
-Version=1.1
+Version=1.3
 Icon=MorseTorch.png
 Width=360
 Height=640
@@ -35,148 +42,400 @@ Background=#111827
 Parent=MorseTorch
 Background=#FFFFFF
 
+# --- page one, the torch: what the app opens on --------------------------------
+
 @TextBlock lblTitle
 Parent=c
 Canvas.Left=12
-Canvas.Top=8
+Canvas.Top=10
 Width=336
-Height=28
-FontSize=20
+Height=30
+FontSize=22
 FontWeight=Bold
 Text=Morse Torch
 
-# --- sending: the message, and how fast ---------------------------------------
+@Button btnBig
+Parent=c
+Canvas.Left=50
+Canvas.Top=52
+Width=260
+Height=210
+FontSize=40
+FontWeight=Bold
+CornerRadius=28
+Background=#111827
+Foreground=#FFFFFF
+Content=Torch
+OnClick=DoTorch
+
+@Button btnSteadyT
+Parent=c
+Canvas.Left=12
+Canvas.Top=276
+Width=164
+Height=46
+Content=Steady
+OnClick=DoModeSteady
+
+@Button btnFlashT
+Parent=c
+Canvas.Left=184
+Canvas.Top=276
+Width=164
+Height=46
+Content=Flashing
+OnClick=DoModeFlash
+
+@Button btnScreen
+Parent=c
+Canvas.Left=12
+Canvas.Top=330
+Width=164
+Height=46
+Content=Screen light
+OnClick=DoScreen
+
+@Button btnTell
+Parent=c
+Canvas.Left=184
+Canvas.Top=330
+Width=164
+Height=46
+Content=Tell it
+OnClick=DoTell
+
+@Button btnMorse
+Parent=c
+Canvas.Left=12
+Canvas.Top=384
+Width=336
+Height=52
+FontSize=17
+Content=Morse: send and read messages
+OnClick=DoMorse
+
+@Button btnSettings
+Parent=c
+Canvas.Left=12
+Canvas.Top=444
+Width=336
+Height=42
+Content=Settings
+OnClick=DoSettings
+
+@TextBlock lblHome
+Parent=c
+Canvas.Left=12
+Canvas.Top=496
+Width=336
+Height=130
+TextWrapping=Wrap
+Foreground=#4B5563
+Text=Tap the big button for light.
+
+# --- page two, Morse: sending at the top, receiving below ----------------------
+
+@Button btnBackM
+Parent=c
+Canvas.Left=12
+Canvas.Top=8
+Width=84
+Height=34
+Content=Torch
+OnClick=DoHome
+IsVisible=false
+
+@TextBlock lblTitleM
+Parent=c
+Canvas.Left=108
+Canvas.Top=10
+Width=240
+Height=30
+FontSize=20
+FontWeight=Bold
+Text=Morse
+IsVisible=false
 
 @TextBox txtSay
 Parent=c
 Canvas.Left=12
-Canvas.Top=42
+Canvas.Top=48
 Width=336
-Height=64
+Height=46
 AcceptsReturn=true
 TextWrapping=Wrap
 Watermark=Type a message, or press Say it
 Text=SOS
 Anchor=Top,Left,Right
+IsVisible=false
 
 @Button btnSay
 Parent=c
 Canvas.Left=12
-Canvas.Top=114
+Canvas.Top=100
 Width=106
-Height=40
+Height=38
 Content=Say it
 OnClick=DoSay
+IsVisible=false
 
 @Button btnSend
 Parent=c
 Canvas.Left=127
-Canvas.Top=114
+Canvas.Top=100
 Width=106
-Height=40
+Height=38
 Content=Send
 OnClick=DoSend
+IsVisible=false
 
-@Button btnTorch
+@Button btnSpeed
 Parent=c
 Canvas.Left=242
-Canvas.Top=114
+Canvas.Top=100
 Width=106
-Height=40
-Content=Torch
-OnClick=DoTorch
+Height=38
+Content=Steady
+OnClick=DoSpeed
+IsVisible=false
 
-@Button btnSlow
+# the dots and dashes going out, and how far through them the torch has got
+@TextBlock lblOut
 Parent=c
 Canvas.Left=12
-Canvas.Top=162
-Width=106
-Height=40
-Content=Slow
-OnClick=DoSlow
+Canvas.Top=142
+Width=336
+Height=46
+FontSize=20
+FontWeight=Bold
+TextWrapping=Wrap
+Foreground=#B45309
+Text=
+IsVisible=false
 
-@Button btnSteady
+@ProgressBar pbSend
 Parent=c
-Canvas.Left=127
-Canvas.Top=162
-Width=106
-Height=40
-Content=Steady
-OnClick=DoSteady
-
-@Button btnQuick
-Parent=c
-Canvas.Left=242
-Canvas.Top=162
-Width=106
-Height=40
-Content=Quick
-OnClick=DoQuick
+Canvas.Left=12
+Canvas.Top=190
+Width=336
+Height=6
+BarStyle=Thin
+Foreground=#F59E0B
+Value=0
+IsVisible=false
 
 @TextBlock lblStatus
 Parent=c
 Canvas.Left=12
-Canvas.Top=208
+Canvas.Top=198
 Width=336
-Height=40
+Height=34
 TextWrapping=Wrap
 Foreground=#4B5563
 Text=Steady: about 6 words a minute.
+IsVisible=false
 
-# --- receiving: the camera's picture goes over this box while watching --------
-
+# the camera's picture goes over this box while watching
 @Rectangle rcEye
 Parent=c
 Canvas.Left=12
-Canvas.Top=252
+Canvas.Top=234
 Width=336
-Height=150
+Height=120
 Fill=#111827
+IsVisible=false
 
 @Button btnWatch
 Parent=c
 Canvas.Left=12
-Canvas.Top=410
+Canvas.Top=360
 Width=164
-Height=40
+Height=38
 Content=Watch for light
 OnClick=DoWatch
+IsVisible=false
 
 @Button btnRead
 Parent=c
 Canvas.Left=184
-Canvas.Top=410
+Canvas.Top=360
 Width=106
-Height=40
+Height=38
 Content=Read it out
 OnClick=DoRead
+IsVisible=false
 
 @Button btnClear
 Parent=c
 Canvas.Left=298
-Canvas.Top=410
+Canvas.Top=360
 Width=50
-Height=40
+Height=38
 Content=Clear
 OnClick=DoClear
+IsVisible=false
+
+# the dots and dashes coming in, as the camera sees them
+@TextBlock lblIn
+Parent=c
+Canvas.Left=12
+Canvas.Top=402
+Width=336
+Height=72
+FontSize=20
+FontWeight=Bold
+TextWrapping=Wrap
+Foreground=#1D4ED8
+Text=
+IsVisible=false
 
 @TextBlock lblGot
 Parent=c
 Canvas.Left=12
-Canvas.Top=458
+Canvas.Top=478
 Width=336
-Height=170
-FontSize=18
+Height=152
+FontSize=20
 TextWrapping=Wrap
 Text=What is received appears here.
+IsVisible=false
 
-# --- ten times a second while watching: has the light been dark long enough? --
+# --- page three, settings ------------------------------------------------------
+
+@Button btnBackS
+Parent=c
+Canvas.Left=12
+Canvas.Top=8
+Width=84
+Height=34
+Content=Torch
+OnClick=DoHome
+IsVisible=false
+
+@TextBlock lblTitleS
+Parent=c
+Canvas.Left=108
+Canvas.Top=10
+Width=240
+Height=30
+FontSize=20
+FontWeight=Bold
+Text=Settings
+IsVisible=false
+
+@TextBlock lblOn
+Parent=c
+Canvas.Left=12
+Canvas.Top=62
+Width=336
+Height=22
+Text=Flashing: on for 1.0 seconds
+IsVisible=false
+
+@Slider sldOn
+Parent=c
+Canvas.Left=12
+Canvas.Top=88
+Width=336
+Height=36
+Minimum=1
+Maximum=30
+Value=10
+ValueChanged=DoPace
+IsVisible=false
+
+@TextBlock lblOff
+Parent=c
+Canvas.Left=12
+Canvas.Top=136
+Width=336
+Height=22
+Text=Flashing: off for 1.0 seconds
+IsVisible=false
+
+@Slider sldOff
+Parent=c
+Canvas.Left=12
+Canvas.Top=162
+Width=336
+Height=36
+Minimum=1
+Maximum=30
+Value=10
+ValueChanged=DoPace
+IsVisible=false
+
+@CheckBox chkOpen
+Parent=c
+Canvas.Left=12
+Canvas.Top=216
+Width=336
+Height=30
+Content=Torch on as soon as the app opens
+OnChecked=DoOpenOn
+IsVisible=false
+
+@TextBlock lblVoice
+Parent=c
+Canvas.Left=12
+Canvas.Top=262
+Width=336
+Height=220
+TextWrapping=Wrap
+Foreground=#4B5563
+Text=Tell it: press Tell it and say "torch on", "flash", "screen", "off", or "send" and your message. For a torch in one tap from the phone's home screen, tick the box above, then in Visualised press and hold Morse Torch and choose Add to the home screen.
+IsVisible=false
+
+# --- page four, the screen as a light: tap it to go back ------------------------
+
+@Rectangle rcWhite
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=360
+Height=640
+Fill=#FFFFFF
+Anchor=Top,Left,Right,Bottom
+OnPointerPressed=DoHome
+IsVisible=false
+
+@TextBlock lblDim
+Parent=c
+Canvas.Left=12
+Canvas.Top=560
+Width=336
+Height=22
+Foreground=#9CA3AF
+Text=Slide to dim. Tap the light to go back.
+Anchor=Left,Bottom
+IsVisible=false
+
+@Slider sldDim
+Parent=c
+Canvas.Left=12
+Canvas.Top=588
+Width=336
+Height=36
+Minimum=5
+Maximum=100
+Value=100
+ValueChanged=DoDim
+Anchor=Left,Right,Bottom
+IsVisible=false
+
+# --- ten times a second: while watching, has the light been dark long enough? and while sending, how far through? --
 
 @Timer tmr
 Parent=c
 Interval=100
 IsEnabled=false
 OnTick=Tick
+
+@Timer tmrSend
+Parent=c
+Interval=100
+IsEnabled=false
+OnTick=SendTick
 
 # ============================================================================
 # Scripts. Start runs when the form opens and holds everything the others share.
@@ -185,8 +444,98 @@ OnTick=Tick
 @Script Start
 Interpreter=lua
 <<LUA
--- Morse Torch: say or type a message and it goes out as flashes of the torch; aim the camera at someone
--- else's flashes and it is read back to you. Everything shared between the scripts below is set up here.
+-- Morse Torch. Everything shared between the scripts below is set up here: the pages, the torch, and the Morse.
+
+-- ---- the four pages: every control belongs to one, and Page() shows that one and hides the rest
+PAGES = {
+  torch    = { "lblTitle", "btnBig", "btnSteadyT", "btnFlashT", "btnScreen", "btnTell", "btnMorse", "btnSettings", "lblHome" },
+  morse    = { "btnBackM", "lblTitleM", "txtSay", "btnSay", "btnSend", "btnSpeed", "lblOut", "pbSend", "lblStatus", "rcEye",
+               "btnWatch", "btnRead", "btnClear", "lblIn", "lblGot" },
+  settings = { "btnBackS", "lblTitleS", "lblOn", "sldOn", "lblOff", "sldOff", "chkOpen", "lblVoice" },
+  screen   = { "rcWhite", "lblDim", "sldDim" },
+}
+Shown = "torch"
+
+function Page(name)
+  if Shown == "morse" and name ~= "morse" and Watching then StopWatching() end     -- the camera is only for that page
+  if Shown == "screen" and name ~= "screen" then
+    Vml("Brightness", "")                         -- the screen goes back to the phone's own brightness
+    Vml("KeepAwake", "false")
+  end
+  for page, controls in pairs(PAGES) do
+    for _, control in ipairs(controls) do Vml("SetProperty", control, "IsVisible", page == name and "true" or "false") end
+  end
+  Shown = name
+end
+
+function Status(text)
+  Vml("SetProperty", "lblStatus", "Text", text)
+  Vml("SetProperty", "lblHome", "Text", text)
+end
+
+-- ---- the torch: on or off, steady or flashing
+TorchOn = false
+Mode = Vml("GetSetting", "mode") == "flash" and "flash" or "steady"
+OnFor = tonumber(Vml("GetSetting", "on")) or 10        -- tenths of a second the flashing torch is lit for
+OffFor = tonumber(Vml("GetSetting", "off")) or 10      -- and dark for
+
+function Seconds(tenths) return string.format("%.1f", tenths / 10) end
+
+-- Make the torch do what TorchOn and Mode say, and (Look) make the buttons say so too.
+function Lamp()
+  Vml("Flash", "")
+  if TorchOn and Mode == "flash" then
+    Vml("Torch", "false")
+    Vml("Flash", (OnFor * 100) .. "," .. (OffFor * 100), "Again")      -- one flash; Again asks for the next
+  else
+    Vml("Torch", TorchOn and "true" or "false")
+  end
+  Look()
+end
+
+function Look()
+  Vml("SetProperty", "btnBig", "Content", TorchOn and "ON" or "Torch")
+  Vml("SetProperty", "btnBig", "Background", TorchOn and "#FACC15" or "#111827")
+  Vml("SetProperty", "btnBig", "Foreground", TorchOn and "#111827" or "#FFFFFF")
+  Vml("SetProperty", "btnSteadyT", "Background", Mode == "steady" and "#BFDBFE" or "#E5E7EB")
+  Vml("SetProperty", "btnFlashT", "Background", Mode == "flash" and "#BFDBFE" or "#E5E7EB")
+end
+
+function Torch(on, mode)
+  TorchOn = on
+  if mode then
+    Mode = mode
+    Vml("SetSetting", "mode", mode)
+  end
+  Lamp()
+  if not TorchOn then
+    Status("Torch off.")
+  elseif Mode == "flash" then
+    Status("Flashing: " .. Seconds(OnFor) .. " seconds on, " .. Seconds(OffFor) .. " off. Change that in Settings.")
+  else
+    Status("Torch on.")
+  end
+end
+
+function ShowPace()
+  Vml("SetProperty", "lblOn", "Text", "Flashing: on for " .. Seconds(OnFor) .. " seconds")
+  Vml("SetProperty", "lblOff", "Text", "Flashing: off for " .. Seconds(OffFor) .. " seconds")
+end
+
+-- ---- the screen as a light. A phone app can turn the screen itself up and down; anywhere else the white is greyed.
+Dim = tonumber(Vml("GetSetting", "dim")) or 100
+InApp = Vml("DeviceInfo"):find('"app":true', 1, true) ~= nil
+
+function ScreenLight()
+  if InApp then
+    Vml("Brightness", Dim)
+  else
+    local grey = string.format("%02X", math.floor(Dim * 2.55 + 0.5))
+    Vml("SetProperty", "rcWhite", "Fill", "#" .. grey .. grey .. grey)
+  end
+end
+
+-- ---- Morse
 MORSE = {
   A=".-", B="-...", C="-.-.", D="-..", E=".", F="..-.", G="--.", H="....", I="..", J=".---", K="-.-", L=".-..", M="--",
   N="-.", O="---", P=".--.", Q="--.-", R=".-.", S="...", T="-", U="..-", V="...-", W=".--", X="-..-", Y="-.--", Z="--..",
@@ -197,14 +546,36 @@ MORSE = {
 LETTER = {}
 for letter, code in pairs(MORSE) do LETTER[code] = letter end
 
+SPEEDS = { { "Steady", 200 }, { "Quick", 120 }, { "Slow", 300 } }
+SpeedAt = 1
 Unit = 200            -- how long a dot is sent for, in milliseconds
 Learnt = Unit         -- how long the dots being received seem to be: it follows whoever is sending
-Watching, TorchOn = false, false
+Watching = false
 Flashes = {}          -- the message arriving: each flash, how long it was on and how long the dark before it
 Earlier = ""          -- messages already received and read out
+LastSeen = ""         -- the dots and dashes of the last message, left on show until the next one starts
 Gap, LightOn, Quiet, Finished = 0, false, 0, false   -- Quiet: tenths of a second since the light last changed
+SendTicks, SendTotal = 0, 0                          -- how far through sending: tenths gone, and tenths in all
 
-function Status(text) Vml("SetProperty", "lblStatus", "Text", text) end
+-- Dots and dashes drawn to be looked at: "... ---" becomes round dots and long bars, with room between letters.
+function Pretty(code)
+  code = code:gsub("  ", "\u{2003}")              -- between letters: a wide space, which a web page won't squeeze up
+  return (code:gsub("%.", "\u{2022} "):gsub("%-", "\u{2014} "):gsub(" $", ""))
+end
+
+-- A message as the dots and dashes it will be sent as: a space between letters, a stroke between words.
+function Code(text)
+  local out, word = {}, false
+  for ch in text:upper():gmatch(".") do
+    if ch == " " or ch == "\n" then
+      word = #out > 0
+    elseif MORSE[ch] then
+      if word then out[#out + 1] = "/" end
+      out[#out + 1], word = MORSE[ch], false
+    end
+  end
+  return table.concat(out, "  ")
+end
 
 -- A message as milliseconds on, off, on, off...: a dot is one unit, a dash three; one unit between the parts
 -- of a letter, three between letters, seven between words.
@@ -226,17 +597,13 @@ function Pattern(text)
   return table.concat(out, ",")
 end
 
-function Speed(unit, name)
-  Unit, Learnt = unit, unit
-  Status(name .. ": about " .. math.floor(1200 / unit + 0.5) .. " words a minute.")
-end
-
--- Read the flashes so far as text. Nobody says how fast they are sending, so the length of a dot is worked out
--- from the flashes themselves: once there are short ones and long ones, the short are dots. Until then (a
--- message that opens with all dots or all dashes) the speed this phone is set to decides, and the reading
--- corrects itself as more arrives. Returns the finished letters, and the dots and dashes of the one arriving.
+-- Read the flashes so far. Nobody says how fast they are sending, so the length of a dot is worked out from the
+-- flashes themselves: once there are short ones and long ones, the short are dots. Until then (a message that
+-- opens with all dots or all dashes) the speed this phone is set to decides, and the reading corrects itself as
+-- more arrives. Returns the finished letters, the dots and dashes of the letter arriving, and all the dots and
+-- dashes seen (letters apart, a stroke between words).
 function Read()
-  if #Flashes == 0 then return "", "" end
+  if #Flashes == 0 then return "", "", "" end
   local short, long = math.huge, 0
   for _, f in ipairs(Flashes) do short, long = math.min(short, f.on), math.max(long, f.on) end
   local unit
@@ -249,28 +616,32 @@ function Read()
     unit = mean < Unit * 2 and mean or mean / 3
   end
   Learnt = unit
-  local text, code = "", ""
+  local text, code, seen = "", "", ""
   for i, f in ipairs(Flashes) do
     if i > 1 and f.gap >= unit * 2 then
-      text, code = text .. (LETTER[code] or "?"), ""
-      if f.gap >= unit * 5 then text = text .. " " end
+      text, code, seen = text .. (LETTER[code] or "?"), "", seen .. "  "
+      if f.gap >= unit * 5 then text, seen = text .. " ", seen .. "/  " end
     end
-    code = code .. (f.on >= unit * 2 and "-" or ".")
+    local mark = f.on >= unit * 2 and "-" or "."
+    code, seen = code .. mark, seen .. mark
   end
-  return text, code
+  return text, code, seen
 end
 
 -- The message as it stands, counting the letter arriving as finished once the light has been dark long enough.
 function Message()
-  local text, code = Read()
+  local text, code, seen = Read()
   if code ~= "" and not LightOn and Quiet * 100 >= Learnt * 2 then text, code = text .. (LETTER[code] or "?"), "" end
-  return text, code
+  return text, code, seen
 end
 
 function Show()
-  local text, code = Message()
-  local all = Earlier .. text .. (code ~= "" and (" " .. code) or "")
+  local text, code, seen = Message()
+  local all = Earlier .. text
   Vml("SetProperty", "lblGot", "Text", all ~= "" and all or "What is received appears here.")
+  if seen == "" then seen = LastSeen end
+  if #seen > 46 then seen = seen:sub(-46):gsub("^[^ ]* +", "") end       -- the newest, when there is more than fits
+  Vml("SetProperty", "lblIn", "Text", Pretty(seen))
 end
 
 function StartWatching()
@@ -287,7 +658,152 @@ function StopWatching()
   Vml("SetProperty", "tmr", "IsEnabled", "false")
   Vml("SetProperty", "btnWatch", "Content", "Watch for light")
 end
+
+-- Flash a message. Returns false when there is nothing in it that Morse can say.
+function Send(text)
+  local pattern = Pattern(text)
+  if pattern == "" then return false end
+  if TorchOn then TorchOn = false; Lamp() end
+  Heard = {}
+  SendTicks, SendTotal = 0, 0
+  for ms in pattern:gmatch("%d+") do SendTotal = SendTotal + tonumber(ms) / 100 end
+  Vml("SetProperty", "lblOut", "Text", Pretty(Code(text)))
+  Vml("SetProperty", "pbSend", "Value", "0")
+  Vml("SetProperty", "tmrSend", "IsEnabled", "true")
+  Vml("Log", "MorseTorch sent (unit " .. Unit .. "): " .. pattern)
+  Status(Watching and "Sending, and still watching: try it at a mirror." or "Sending...")
+  Vml("Flash", pattern, "Sent")
+  return true
+end
+
+-- ---- as the app opens: the settings as they were left, and the torch on if that was asked for
+Vml("SetProperty", "sldOn", "Value", OnFor)
+Vml("SetProperty", "sldOff", "Value", OffFor)
+Vml("SetProperty", "sldDim", "Value", Dim)
+Vml("SetProperty", "chkOpen", "IsChecked", Vml("GetSetting", "open") == "true" and "true" or "false")
+ShowPace()
+Look()
+if Vml("GetSetting", "open") == "true" then Torch(true) end
 LUA
+
+# ---- the torch page ---------------------------------------------------------
+
+@Script DoTorch
+Interpreter=lua
+<<LUA
+Torch(not TorchOn)
+LUA
+
+@Script DoModeSteady
+Interpreter=lua
+<<LUA
+Torch(true, "steady")
+LUA
+
+@Script DoModeFlash
+Interpreter=lua
+<<LUA
+Torch(true, "flash")
+LUA
+
+@Script Again
+Interpreter=lua
+<<LUA
+-- One flash of the flashing torch has finished: start the next, unless it has been switched off or to steady.
+if TorchOn and Mode == "flash" then Vml("Flash", (OnFor * 100) .. "," .. (OffFor * 100), "Again") end
+LUA
+
+@Script DoScreen
+Interpreter=lua
+<<LUA
+if TorchOn then Torch(false) end
+Page("screen")
+Vml("KeepAwake", "true")
+ScreenLight()
+LUA
+
+@Script DoDim
+Interpreter=lua
+<<LUA
+Dim = tonumber(Vml("GetProperty", "sldDim", "Value")) or 100
+Vml("SetSetting", "dim", Dim)
+ScreenLight()
+LUA
+
+@Script DoMorse
+Interpreter=lua
+<<LUA
+Page("morse")
+LUA
+
+@Script DoSettings
+Interpreter=lua
+<<LUA
+Page("settings")
+LUA
+
+@Script DoHome
+Interpreter=lua
+<<LUA
+Page("torch")
+LUA
+
+@Script DoTell
+Interpreter=lua
+<<LUA
+Vml("Listen", "Told", "Torch on, flash, screen, off, or send and a message")
+LUA
+
+@Script Told
+Interpreter=lua
+<<LUA
+-- What was said to "Tell it". The first thing recognised wins; "send" takes the rest of the sentence as the message.
+local words, problem = ...
+if problem ~= "" then Status(problem); return end
+local said = " " .. words:lower() .. " "
+local message = said:match(" send (.+)") or said:match(" morse (.+)") or said:match(" signal (.+)")
+if message and message:gsub("%s", "") ~= "" then
+  message = message:gsub("^%s+", ""):gsub("%s+$", "")
+  Page("morse")
+  Vml("SetProperty", "txtSay", "Text", message:upper())
+  if not Send(message) then Status("Nothing in '" .. message .. "' can be sent in Morse.") end
+elseif said:find(" sos ", 1, true) or said:find(" help ", 1, true) then
+  Page("morse")
+  Vml("SetProperty", "txtSay", "Text", "SOS")
+  Send("SOS")
+elseif said:find(" off ", 1, true) or said:find(" stop ", 1, true) then
+  if Shown == "screen" then Page("torch") end
+  Torch(false)
+elseif said:find("flash", 1, true) or said:find("blink", 1, true) then
+  Torch(true, "flash")
+elseif said:find("screen", 1, true) or said:find("white", 1, true) then
+  Vml("RunScript", "DoScreen")
+elseif said:find(" on ", 1, true) or said:find("torch", 1, true) or said:find("light", 1, true) or said:find("steady", 1, true) then
+  Torch(true, "steady")
+else
+  Status("Heard '" .. words .. "'. Try: torch on, flash, screen, off, or send and a message.")
+end
+LUA
+
+# ---- the settings page ------------------------------------------------------
+
+@Script DoPace
+Interpreter=lua
+<<LUA
+OnFor = tonumber(Vml("GetProperty", "sldOn", "Value")) or 10
+OffFor = tonumber(Vml("GetProperty", "sldOff", "Value")) or 10
+Vml("SetSetting", "on", OnFor)
+Vml("SetSetting", "off", OffFor)
+ShowPace()
+LUA
+
+@Script DoOpenOn
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "open", Vml("GetProperty", "chkOpen", "IsChecked"))
+LUA
+
+# ---- the Morse page ---------------------------------------------------------
 
 @Script DoSay
 Interpreter=lua
@@ -303,6 +819,7 @@ if problem ~= "" then
   Status(problem)
 else
   Vml("SetProperty", "txtSay", "Text", words)
+  Vml("SetProperty", "lblOut", "Text", Pretty(Code(words)))
   Status("Heard. Press Send to flash it.")
 end
 LUA
@@ -310,47 +827,34 @@ LUA
 @Script DoSend
 Interpreter=lua
 <<LUA
-local pattern = Pattern(Vml("GetProperty", "txtSay", "Text"))
-if pattern == "" then
-  Status("Nothing to send: type or say a message first.")
-  return
-end
-TorchOn = false
-Status(Watching and "Sending, and still watching: try it at a mirror." or "Sending...")
-Vml("Flash", pattern, "Sent")
+if not Send(Vml("GetProperty", "txtSay", "Text")) then Status("Nothing to send: type or say a message first.") end
+LUA
+
+@Script SendTick
+Interpreter=lua
+<<LUA
+-- Ten times a second while sending: move the bar under the dots and dashes along.
+SendTicks = SendTicks + 1
+Vml("SetProperty", "pbSend", "Value", SendTotal > 0 and math.min(100, math.floor(SendTicks * 100 / SendTotal)) or 0)
 LUA
 
 @Script Sent
 Interpreter=lua
 <<LUA
+Vml("SetProperty", "tmrSend", "IsEnabled", "false")
+Vml("SetProperty", "pbSend", "Value", "100")
 Status("Sent.")
 LUA
 
-@Script DoTorch
+@Script DoSpeed
 Interpreter=lua
 <<LUA
-TorchOn = not TorchOn
-Vml("Flash", "")
-Vml("Torch", TorchOn and "true" or "false")
-Status(TorchOn and "Torch on." or "Torch off.")
-LUA
-
-@Script DoSlow
-Interpreter=lua
-<<LUA
-Speed(300, "Slow")
-LUA
-
-@Script DoSteady
-Interpreter=lua
-<<LUA
-Speed(200, "Steady")
-LUA
-
-@Script DoQuick
-Interpreter=lua
-<<LUA
-Speed(120, "Quick")
+-- Steady, Quick, Slow, and round again.
+SpeedAt = SpeedAt % #SPEEDS + 1
+local name, unit = SPEEDS[SpeedAt][1], SPEEDS[SpeedAt][2]
+Unit, Learnt = unit, unit
+Vml("SetProperty", "btnSpeed", "Content", name)
+Status(name .. ": about " .. math.floor(1200 / unit + 0.5) .. " words a minute.")
 LUA
 
 @Script DoWatch
@@ -360,7 +864,7 @@ if Watching then
   StopWatching()
   Status("Stopped watching.")
 else
-  if TorchOn then TorchOn = false; Vml("Torch", "false") end
+  if TorchOn then TorchOn = false; Lamp() end
   StartWatching()
 end
 LUA
@@ -377,10 +881,12 @@ if state == "error" then
   return
 end
 Quiet = 0
+Heard = Heard or {}
+Heard[#Heard + 1] = (state == "on" and "off " or "on ") .. ms       -- what just ended, for the log
 if state == "on" then
   LightOn, Gap = true, ms
   if Finished then                       -- a new message after the last one was read out
-    Earlier, Finished = Earlier .. " / ", false
+    Earlier, Finished, LastSeen = Earlier .. " / ", false, ""
   end
 else
   LightOn = false
@@ -397,10 +903,14 @@ if not Watching or LightOn or Finished or #Flashes == 0 then return end
 Quiet = Quiet + 1
 Show()
 if Quiet * 100 >= Learnt * 12 then
-  local message = Message()
-  Earlier, Flashes, Finished = Earlier .. message, {}, true
+  local message, _, seen = Message()
+  Earlier, Flashes, Finished, LastSeen = Earlier .. message, {}, true, seen
   Show()
   Status("Message received.")
+  -- For whoever is working on this app: what was seen, flash by flash, and how the camera behaved.
+  Vml("Log", "MorseTorch read '" .. message .. "' (dot taken as " .. math.floor(Learnt) .. " ms) from: " .. table.concat(Heard or {}, ", "))
+  Vml("Log", "MorseTorch camera: " .. Vml("LightReport"))
+  Heard = {}
   if message ~= "" then Vml("Speak", message) end
 end
 LUA
@@ -419,7 +929,6 @@ LUA
 @Script DoClear
 Interpreter=lua
 <<LUA
-Earlier, Flashes, Finished, Quiet = "", {}, false, 0
+Earlier, Flashes, Finished, Quiet, LastSeen = "", {}, false, 0, ""
 Show()
 LUA
-

@@ -1057,6 +1057,38 @@ register(ControlType("ProgressBar", lambda n: ProgressWidget(n), events=dict(POI
           Prop("CornerRadius", "number", "Appearance", apply=_progress)])
 
 
+class SliderWidget(QFrame):
+    """A slider: a track with a knob the user drags. Value runs from Minimum to Maximum in whole numbers."""
+
+    def __init__(self, node):
+        super().__init__()
+        from PySide6.QtWidgets import QSlider, QHBoxLayout
+        self.node = node
+        self.bar = QSlider(Qt.Horizontal, self)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.bar)
+        self.valueChanged = self.bar.valueChanged
+        self.setMinimumSize(24, 16)
+        self.refresh()
+
+    def refresh(self):
+        p = self.node.props
+        low, high = int(num(p.get("Minimum"), 0)), int(num(p.get("Maximum"), 100))
+        self.bar.blockSignals(True)                     # only the user moving it is a change to tell the form about
+        self.bar.setRange(low, max(low, high))
+        self.bar.setValue(int(num(p.get("Value"), low)))
+        self.bar.blockSignals(False)
+
+
+_slider = lambda n, v=None: n.widget.refresh()
+register(ControlType("Slider", lambda n: SliderWidget(n), events={"ValueChanged": on_signal("valueChanged"), **POINTER_EVENTS}),
+         [p for p in COMMON if p.name not in ("Background", "Foreground", "CornerRadius")], ATTACHED,
+         [Prop("Value", "number", "Common", default="0", apply=_slider, read=lambda n: str(n.widget.bar.value())),
+          Prop("Minimum", "number", "Common", default="0", apply=_slider),
+          Prop("Maximum", "number", "Common", default="100", apply=_slider)])
+
+
 # For docked layouts (a DockPanel), so it is not offered on the design surface, where controls sit on a canvas.
 register(ControlType("Splitter", lambda n: SplitterBar(n), events={"OnMoved": splitter_moved}),
          COMMON, ATTACHED,

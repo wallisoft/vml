@@ -27,7 +27,8 @@ MENU_H = 26
 WEIGHTS = {"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600,
            "Bold": 700, "ExtraBold": 800, "Black": 900}
 EVENT_NAMES = ("OnClick", "TextChanged", "SelectionChanged", "OnKeyDown", "OnKeyUp", "OnPointerPressed",
-               "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus", "OnChecked", "OnOpened", "OnDoubleClick", "OnTick")
+               "OnPointerReleased", "OnPointerMoved", "OnLostFocus", "OnGotFocus", "OnChecked", "OnOpened", "OnDoubleClick", "OnTick",
+               "ValueChanged")
 FIT = {"Fill": "fill", "UniformToFill": "cover", "None": "none"}        # Image.Stretch -> CSS object-fit
 EMBED_LIMIT = 2_000_000          # a picture file smaller than this goes inside the page, so the page stays one file
 MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".bmp": "image/bmp",
@@ -266,6 +267,11 @@ class Page:
                 ("upright", str(p.get("Orientation", "")).lower() == "vertical")))
             css += [f"--track:{colour(p.get('Background') or '#E5E7EB')}", f"--bar:{colour(p.get('Foreground') or '#2563EB')}"]
             return f'<div {attrs} class="pbar"{flags} style="{";".join(css)}"><i></i><b></b></div>'
+        if ctype == "Slider":
+            css = [c for c in css if not c.startswith(("background:", "color:"))]
+            low, high = int(num(p.get("Minimum"), 0)), int(num(p.get("Maximum"), 100))
+            return (f'<input type="range" {attrs} class="slide" min="{low}" max="{max(low, high)}" '
+                    f'value="{int(num(p.get("Value"), low))}" style="{";".join(css)}"{disabled}>')
         if ctype == "Rectangle":
             return f'<div {attrs} style="{";".join(css)}"></div>'
         if ctype == "Frame":
@@ -480,6 +486,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .cb { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .tb { overflow: hidden; text-overflow: ellipsis; }
   .canvas > *, .frame > * { box-sizing: border-box; }
+  .slide { margin: 0; padding: 0; accent-color: #2563EB; touch-action: none; }
   .pbar { position: absolute; overflow: hidden; display: flex; align-items: center; }
   .pbar::before { content: ""; position: absolute; inset: 0; background: var(--track); border-radius: 3px; }
   .pbar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--bar); border-radius: 3px; }
@@ -738,6 +745,7 @@ const commands = {
       else e.dataset[BAR_PROPS[prop]] = String(Number(value) || 0);
       drawBar(e);
     }
+    else if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = String(Math.round(Number(value) || 0));
     else if (prop === "Text" || prop === "Content" || prop === "Header") setText(e, value);
     else if (css[prop]) e.style[css[prop]] = value;
     else if (prop === "FontSize") e.style.fontSize = value + "px";
@@ -783,6 +791,7 @@ const commands = {
     if (prop === "Text" || prop === "Content" || prop === "Header") return textOf(e);
     if (prop === "IsChecked") return e.querySelector("input").checked ? "true" : "false";
     if (e.dataset.type === "Timer") { if (prop === "Interval") return e.dataset.interval; if (prop === "IsEnabled") return e.dataset.on; }
+    if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) return e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]];
     if (e.matches(".pbar") && ["Value", "Minimum", "Maximum"].includes(prop)) return e.dataset[BAR_PROPS[prop]];
     if (e.matches(".grid")) {
       if (prop === "SelectedIndex") return String(e._sel);
@@ -835,6 +844,9 @@ const commands = {
     return JSON.stringify(Object.assign({ platform: /Android/.test(ua) ? "android-browser" : /iPhone|iPad/.test(ua) ? "ios-browser" : "browser", app: false, online: navigator.onLine }, screen));
   },
   RunInBackground(on = "true") { if (DEV && DEV.background) DEV.background(!/^(false|0|no|)$/i.test(on)); return ""; },
+  // The screen's own brightness on a phone, 0 to 100, for an app that is a light or shows a code to scan. ""
+  // hands it back to the phone's setting. A browser can't, so nothing happens there.
+  Brightness(percent = "") { if (DEV && DEV.brightness) DEV.brightness(percent === "" ? -1 : Math.max(0, Math.min(100, Number(percent) || 0))); return ""; },
   Torch(on = "true") {
     const lit = !/^(false|0|no|)$/i.test(on), lamp = cameraLamp();
     if (lamp) setLamp(lamp, lit); else if (DEV && DEV.torch) DEV.torch(lit);
@@ -885,6 +897,23 @@ const commands = {
       p => run(handler, [String(p.coords.latitude), String(p.coords.longitude), String(Math.round(p.coords.accuracy)), ""]),
       e => fail(e.code === 1 ? "Location wasn't allowed." : "The phone couldn't find where it is."),
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 });
+    return "";
+  },
+  // How watching has gone since it started, in a line, for when a signal reads wrongly: how evenly the camera's
+  // pictures came, how long its light took to switch, and how bright the signal was from picture to picture.
+  LightReport() {
+    const mid = a => a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : 0, most = a => a.length ? Math.max(...a) : 0;
+    const g = seen.gaps, l = seen.lamp;
+    return `pictures ${g.length + 1}, usually ${mid(g)} ms apart, longest ${most(g)} ms, over 100 ms ${g.filter(x => x > 100).length} times; `
+      + `light switched ${l.length} times, usually in ${mid(l)} ms, slowest ${most(l)} ms, refused ${seen.refused}; `
+      + `camera ${watching && watching.video.videoWidth ? watching.video.videoWidth + "x" + watching.video.videoHeight : "off"}; `
+      + `levels ${seen.levels.slice(-600).join(" ")}`;
+  },
+  // Write a line where its maker can see it: the browser's console, and the terminal the designer was started
+  // from when the app is being previewed on a phone.
+  Log(text = "") {
+    console.log("[log]", text);
+    if (window.VML_PREVIEW && location.protocol !== "file:") fetch("/_log?t=" + encodeURIComponent(text.slice(0, 6000))).catch(() => {});
     return "";
   },
   // Put a photo in an Image: straight from the camera, or one chosen from the phone. Then the handler is run, if there is one.
@@ -989,12 +1018,17 @@ const commands = {
       const ring = document.createElement("div");                  // shows what it has taken to be the signal
       ring.style.cssText = "position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #FDE047;border-radius:50%;z-index:6;display:none;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.5)";
       if (v.parentElement) { v.parentElement.appendChild(ring); mine.ring = ring; }
+      seen.gaps = []; seen.lamp = []; seen.levels = []; seen.refused = 0; seen.last = 0;
       const look = time => {
         if (watching !== mine || !v.videoWidth) return;
+        if (seen.last) { seen.gaps.push(Math.round(time - seen.last)); if (seen.gaps.length > 3000) seen.gaps.shift(); }
+        seen.last = time;
         g.drawImage(v, 0, 0, W, H);
         const px = g.getImageData(0, 0, W, H).data;
         for (let i = 0, j = 0; i < lum.length; i++, j += 4) lum[i] = (px[j] * 2 + px[j + 1] * 5 + px[j + 2]) >> 3;
-        reader.feed(finder.feed(lum, time), time);
+        const level = finder.feed(lum, time);
+        seen.levels.push(Math.round(level)); if (seen.levels.length > 3000) seen.levels.shift();
+        reader.feed(level, time);
         const spot = finder.spot;
         if (!spot || !mine.ring) { ring.style.display = "none"; return; }
         // the picture fills its box and is cropped to fit, so the spot is placed the same way
@@ -1045,7 +1079,12 @@ function cameraLamp() {
   const track = watching && watching.stream && watching.stream.getVideoTracks()[0];
   try { return track && track.getCapabilities && track.getCapabilities().torch ? track : null; } catch (err) { return null; }
 }
-function setLamp(track, on) { try { track.applyConstraints({ advanced: [{ torch: on }] }).catch(() => {}); } catch (err) {} }
+function setLamp(track, on) {
+  const asked = performance.now();
+  try { track.applyConstraints({ advanced: [{ torch: on }] }).then(() => { seen.lamp.push(Math.round(performance.now() - asked)); if (seen.lamp.length > 400) seen.lamp.shift(); }).catch(() => { seen.refused++; }); } catch (err) { seen.refused++; }
+}
+// What watching has been like, for LightReport: how evenly the camera's pictures came, and how long its light took to switch.
+const seen = { gaps: [], lamp: [], refused: 0, last: 0, levels: [] };
 function stopWatching() {
   if (!watching) return;
   clearInterval(watching.timer);
@@ -1181,10 +1220,14 @@ function offerApp() {
   a.href = "visualised://" + location.host + "/";
   a.textContent = "Open in the Visualised app";
   a.style.cssText = "flex:1;color:#fff;font-weight:600;text-decoration:none";
+  const get = document.createElement("a");                    // for someone who hasn't the app yet
+  get.href = "https://visualised.io/#download";
+  get.textContent = "Get the app";
+  get.style.cssText = "color:#93C5FD;text-decoration:none;white-space:nowrap";
   const x = document.createElement("span");
   x.textContent = "×"; x.style.cssText = "padding:0 6px;font-size:20px;cursor:pointer";
   x.onclick = () => b.remove();
-  b.append(a, x);
+  b.append(a, get, x);
   document.body.appendChild(b);
 }
 function Vml(cmd, ...args) {
@@ -1302,6 +1345,7 @@ function wire() {
       OnClick: () => e.addEventListener("click", ev => { if (outer.dataset.type === "MenuItem") { ev.stopPropagation(); if (e.querySelector(".drop")) return; closeMenus(); } go(); }),
       OnChecked: () => e.addEventListener("change", () => go()),
       TextChanged: () => e.addEventListener("input", () => go()),
+      ValueChanged: () => e.addEventListener("input", () => go()),
       SelectionChanged: () => e.addEventListener("change", () => go()),
       OnKeyDown: () => e.addEventListener("keydown", ev => go(keyDetails(ev))),
       OnKeyUp: () => e.addEventListener("keyup", ev => go(keyDetails(ev))),

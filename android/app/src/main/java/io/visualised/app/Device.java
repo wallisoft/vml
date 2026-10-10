@@ -224,6 +224,16 @@ final class Device {
         });
     }
 
+    /** How bright the screen is while this app is in front, 0 to 100. Anything below 0 hands it back to the phone. */
+    @JavascriptInterface
+    public void brightness(int percent) {
+        activity.runOnUiThread(() -> {
+            WindowManager.LayoutParams look = activity.getWindow().getAttributes();
+            look.screenBrightness = percent < 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.01f, Math.min(100, percent) / 100f);
+            activity.getWindow().setAttributes(look);
+        });
+    }
+
     /** The torch (the camera's light), on or off. */
     @JavascriptInterface
     public void torch(boolean on) {
@@ -396,6 +406,7 @@ final class Device {
         if (voice != null) {
             voice.stop();
         }
+        brightness(-1);
     }
 
     void close() {

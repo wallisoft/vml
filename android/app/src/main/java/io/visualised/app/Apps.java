@@ -92,10 +92,28 @@ final class Apps {
 
     /** Fetch the page at an address and keep it. Returns the app it became. Not for the main thread. */
     Kept keep(String address, String replaceId) throws IOException {
-        byte[] page = fetch(address);
+        return keepPage(fetch(address), address, replaceId);
+    }
+
+    /**
+     * Keep a page that was sent to this phone as a file. It has no address to fetch a newer one from, so the next
+     * one sent under the same name takes its place. Not for the main thread.
+     */
+    Kept keepSent(byte[] page) throws IOException {
+        Matcher m = TITLE.matcher(new String(page, StandardCharsets.UTF_8));
+        String name = m.find() ? unescape(m.group(1).trim()) : "";
+        for (Kept had : all()) {
+            if (had.source.isEmpty() && had.name.equals(name)) {
+                return keepPage(page, "", had.id);
+            }
+        }
+        return keepPage(page, "", null);
+    }
+
+    private Kept keepPage(byte[] page, String address, String replaceId) throws IOException {
         String html = new String(page, StandardCharsets.UTF_8);
         if (!html.contains("vml_window")) {
-            throw new IOException("That address didn't give a Visualised app.");
+            throw new IOException(address.isEmpty() ? "That file isn't a Visualised app." : "That address didn't give a Visualised app.");
         }
         Matcher m = TITLE.matcher(html);
         String name = m.find() ? unescape(m.group(1).trim()) : "App";

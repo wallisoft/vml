@@ -86,6 +86,7 @@ public class MainActivity extends Activity {
     private static final int BRAND = 0xFF1E3A8A;
     private static final int PICK = 71;
     private static final int LISTEN = 72;
+    private static final int SENT = 73;
 
     /** Told whether the user allowed something. */
     interface Answer {
@@ -149,6 +150,14 @@ public class MainActivity extends Activity {
     /** Opened from a link (visualised://computer:number/), as the page the designer serves offers. Always asks first. */
     private void opened(Intent intent) {
         Uri link = intent == null ? null : intent.getData();
+        if (intent != null && Intent.ACTION_SEND.equals(intent.getAction())) {
+            sent((Uri) intent.getParcelableExtra(Intent.EXTRA_STREAM));    // shared to Visualised from another app
+            return;
+        }
+        if (link != null && ("content".equals(link.getScheme()) || "file".equals(link.getScheme()))) {
+            sent(link);                                 // a file opened with Visualised
+            return;
+        }
         if (link != null && "visualised-kept".equals(link.getScheme()) && link.getHost() != null) {
             for (Apps.Kept app : apps.all()) {          // an icon on the home screen for an app kept on this phone
                 if (app.id.equals(link.getHost())) {
@@ -167,6 +176,40 @@ public class MainActivity extends Activity {
                 .setTitle("Open this app?")
                 .setMessage("From " + link.getEncodedAuthority() + ".\n\nOnly open apps from a computer you know.")
                 .setPositiveButton("Open", (d, w) -> openLive(where))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** An app's page that reached this phone as a file: sent by a friend, or saved from a message. Always asks first. */
+    private void sent(final Uri file) {
+        if (file == null) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Keep this app on this phone?")
+                .setMessage("It was sent to this phone as a file.\n\nOnly keep apps from someone you know.")
+                .setPositiveButton("Keep", (d, w) -> new Thread(() -> {
+                    try {
+                        byte[] page;
+                        try (InputStream in = getContentResolver().openInputStream(file)) {
+                            if (in == null) {
+                                throw new IOException("That file couldn't be read.");
+                            }
+                            page = Apps.readAll(in, 64 * 1024 * 1024);
+                        }
+                        final Apps.Kept got = apps.keepSent(page);
+                        main.post(() -> {
+                            Toast.makeText(this, got.name + " is on this phone. Press and hold it in the list to give it an icon "
+                                    + "on the home screen, or to send it on.", Toast.LENGTH_LONG).show();
+                            showHome();
+                            openKept(got);
+                        });
+                    } catch (final Exception e) {
+                        main.post(() -> new AlertDialog.Builder(this).setTitle("That couldn't be kept")
+                                .setMessage(e instanceof IOException && e.getMessage() != null ? e.getMessage() : "That file couldn't be read.")
+                                .setPositiveButton("OK", null).show());
+                    }
+                }).start())
                 .setNegativeButton("Cancel", null)
                 .show();
     }
@@ -277,6 +320,20 @@ public class MainActivity extends Activity {
         nothingKept = words("Nothing kept yet. Open an app from your computer, then choose Keep on this phone: "
                 + "after that it runs anywhere, with the computer off, and can have an icon of its own on the home screen.", 14, 0xFF4B5563, false);
         body.addView(nothingKept);
+        Button file = new Button(this, null, android.R.attr.borderlessButtonStyle);
+        file.setText("Open an app someone sent you");
+        file.setAllCaps(false);
+        file.setTextColor(BRAND);
+        file.setPadding(0, 0, 0, 0);
+        file.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        file.setOnClickListener(v -> {
+            try {
+                startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("text/html"), SENT);
+            } catch (ActivityNotFoundException e) {
+                Toast.makeText(this, "This phone has nothing to choose a file with.", Toast.LENGTH_LONG).show();
+            }
+        });
+        body.addView(file, new LinearLayout.LayoutParams(-1, -2));
         page.addView(body, new LinearLayout.LayoutParams(-1, -2));
 
         keptList = new ListView(this);
@@ -322,19 +379,22 @@ public class MainActivity extends Activity {
         home.setVisibility(View.VISIBLE);
         running.setVisibility(View.INVISIBLE);
         bar(BRAND);
+        device.brightness(-1);                          // a screen an app turned up goes back to the phone's own
     }
 
     private void keptMenu(final Apps.Kept app) {
         boolean canFetch = !app.source.isEmpty();
         final String[] choices = canFetch
-                ? new String[]{"Open", "Add to the home screen", "Fetch the newest from where it came from", "Remove from this phone"}
-                : new String[]{"Open", "Add to the home screen", "Remove from this phone"};
+                ? new String[]{"Open", "Add to the home screen", "Share with someone here", "Fetch the newest from where it came from", "Remove from this phone"}
+                : new String[]{"Open", "Add to the home screen", "Share with someone here", "Remove from this phone"};
         new AlertDialog.Builder(this).setTitle(app.name).setItems(choices, (d, which) -> {
             String chosen = choices[which];
             if (chosen.startsWith("Open")) {
                 openKept(app);
             } else if (chosen.startsWith("Add")) {
                 addToHomeScreen(app);
+            } else if (chosen.startsWith("Share")) {
+                shareMenu(app);
             } else if (chosen.startsWith("Fetch")) {
                 keep(app.source, app.id);
             } else {
@@ -352,6 +412,133 @@ public class MainActivity extends Activity {
                         .setNegativeButton("Cancel", null).show();
             }
         }).show();
+    }
+
+    // ---------------------------------------------------------------- handing an app to a friend
+    /**
+     * Three ways to hand an app over. Sending it is the one for two people stood together: the phone's own
+     * sharing (Quick Share) finds the other phone and passes the files across with no internet and no Wi-Fi in
+     * common. Visualised itself can go along for a friend who hasn't got it.
+     */
+    private void shareMenu(final Apps.Kept app) {
+        final String[] ways = {"Send it to their phone", "Send it, and Visualised too", "Show a code to scan"};
+        new AlertDialog.Builder(this).setTitle("Share " + app.name).setItems(ways, (d, which) -> {
+            if (which == 2) {
+                shareHere(app);
+                return;
+            }
+            final boolean both = which == 1;
+            new AlertDialog.Builder(this).setTitle(both ? "Sending both" : "Sending " + app.name)
+                    .setMessage("Next, pick Quick Share and then their phone. It needs no internet.\n\nOn their phone"
+                            + (both ? ": open Visualised.apk first, to install Visualised. Then open " : ": open ")
+                            + "the other file, " + Given.app(app).getLastPathSegment() + ", choose Visualised to open it, and press Keep.")
+                    .setPositiveButton("Send", (dd, w) -> send(app, both))
+                    .setNegativeButton("Cancel", null).show();
+        }).show();
+    }
+
+    private void send(Apps.Kept app, boolean withVisualised) {
+        ArrayList<Uri> files = new ArrayList<>();
+        if (withVisualised) {
+            files.add(Given.visualised());
+        }
+        files.add(Given.app(app));
+        Intent send;
+        if (files.size() == 1) {
+            send = new Intent(Intent.ACTION_SEND).setType("text/html").putExtra(Intent.EXTRA_STREAM, files.get(0));
+        } else {
+            send = new Intent(Intent.ACTION_SEND_MULTIPLE).setType("*/*").putParcelableArrayListExtra(Intent.EXTRA_STREAM, files);
+        }
+        ClipData lent = ClipData.newRawUri(app.name, files.get(0));     // what the receiving app is allowed to read
+        for (int i = 1; i < files.size(); i++) {
+            lent.addItem(new ClipData.Item(files.get(i)));
+        }
+        send.setClipData(lent);
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(send, "Send " + app.name).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "This phone has nothing to send files with.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * Show a QR code a friend's phone can point its camera at to get this app. An app that came from a web site
+     * is shared by its address, which works anywhere. One that didn't (made on the owner's own computer) is
+     * handed over directly: this phone serves the page for as long as the code is on screen, to phones on the
+     * same Wi-Fi (or joined to this phone's hotspot). Nothing goes over the internet.
+     */
+    private void shareHere(final Apps.Kept app) {
+        Uri from = Uri.parse(app.source);
+        boolean onTheWeb = "https".equals(from.getScheme()) && from.getHost() != null && from.getHost().contains(".")
+                && !from.getHost().matches("[0-9.]+") && !from.getHost().endsWith(".local");
+        final Sharer sharer;
+        final String link;
+        String how;
+        if (onTheWeb) {
+            sharer = null;
+            // By way of a page that explains itself: it offers Visualised to a phone that hasn't got it, opens the
+            // app in Visualised on one that has, and runs it in the browser on anything else.
+            String landing = "https://visualised.io/open.html#" + app.source;
+            link = landing.length() <= 200 ? landing : app.source;
+            how = "Ask them to point their camera at this. It works anywhere.";
+        } else {
+            String here = Sharer.address();
+            if (here == null) {
+                new AlertDialog.Builder(this).setTitle("Share " + app.name)
+                        .setMessage("To hand this app over, both phones need to be on the same Wi-Fi. If there isn't one, turn on "
+                                + "this phone's hotspot, have them join it, and try again.")
+                        .setPositiveButton("OK", null).show();
+                return;
+            }
+            try {
+                sharer = new Sharer(apps.page(app.id), new File(getApplicationInfo().sourceDir));
+            } catch (IOException e) {
+                Toast.makeText(this, "This phone couldn't start sharing.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            link = "http://" + here + ":" + sharer.port() + "/";
+            how = "Ask them to point their camera at this while it is on screen. No internet is needed, but their phone has to "
+                    + "be able to reach this one: both on the same Wi-Fi, or, surest of all, turn on this phone's hotspot and have "
+                    + "them join it, then share again. Keep this open until they have pressed Keep on this phone.";
+        }
+        boolean[][] code = Qr.matrix(link);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
+        if (code != null) {
+            int side = Math.min(getResources().getDisplayMetrics().widthPixels - dp(120), dp(280)), dot = Math.max(2, side / (code.length + 8));
+            Bitmap picture = Bitmap.createBitmap(dot * (code.length + 8), dot * (code.length + 8), Bitmap.Config.RGB_565);
+            Canvas canvas = new Canvas(picture);
+            canvas.drawColor(Color.WHITE);              // with the quiet margin a scanner needs
+            Paint ink = new Paint();
+            ink.setColor(Color.BLACK);
+            for (int y = 0; y < code.length; y++) {
+                for (int x = 0; x < code.length; x++) {
+                    if (code[y][x]) {
+                        canvas.drawRect((x + 4) * dot, (y + 4) * dot, (x + 5) * dot, (y + 5) * dot, ink);
+                    }
+                }
+            }
+            ImageView shown = new ImageView(this);
+            shown.setImageBitmap(picture);
+            box.addView(shown, new LinearLayout.LayoutParams(picture.getWidth(), picture.getHeight()));
+        }
+        TextView address = words(sharer == null ? app.source : link, 14, 0xFF111827, true);
+        address.setTextIsSelectable(true);
+        address.setPadding(0, dp(8), 0, dp(6));
+        box.addView(address);
+        box.addView(words(how + "\n\nIf they haven't got Visualised, the page they land on offers it"
+                + (sharer != null ? ", straight from this phone." : "."), 13, 0xFF4B5563, false));
+        new AlertDialog.Builder(this).setTitle("Share " + app.name).setView(box)
+                .setPositiveButton("Done", null)
+                .setOnDismissListener(d -> {
+                    if (sharer != null) {
+                        sharer.close();
+                    }
+                })
+                .show();
     }
 
     /** Offer an icon of its own on the phone's home screen for an app kept here: one tap and it is running. */
@@ -811,6 +998,12 @@ public class MainActivity extends Activity {
                 tell("listen", words.get(0), "");
             } else {
                 tell("listen", "", "Nothing was heard.");
+            }
+            return;
+        }
+        if (request == SENT) {
+            if (result == RESULT_OK && data != null) {
+                sent(data.getData());
             }
             return;
         }

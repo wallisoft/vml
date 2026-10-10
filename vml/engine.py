@@ -2100,6 +2100,13 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
                     pass
 
                 def do_GET(handler):                            # a phone that opens the page says how big its screen is
+                    if handler.path.startswith("/_log?"):       # a line the app on the phone wants its maker to see
+                        from urllib.parse import parse_qs
+                        said = parse_qs(handler.path.split("?", 1)[1]).get("t", [""])[0]
+                        print("[phone] " + said[:6000].replace("\r", " ").replace("\n", " "), flush=True)
+                        handler.send_response(204)
+                        handler.end_headers()
+                        return
                     if handler.path.startswith("/_size?"):
                         from urllib.parse import parse_qs
                         said = parse_qs(handler.path.split("?", 1)[1])
@@ -2363,6 +2370,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         """Keep the app going on a phone while the phone is used for something else. A computer does that anyway."""
         return ""
 
+    def cmd_Brightness(self, percent=""):
+        """How bright the phone's screen is while this app is in front, 0 to 100; nothing puts it back to the
+        phone's own setting. A computer's screen is left alone."""
+        return ""
+
     def cmd_Torch(self, on="true"):
         """The phone's torch, on or off. Nothing happens on a computer."""
         return ""
@@ -2408,6 +2420,17 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
 
     def cmd_Pressure(self):
         """The air pressure in hectopascals from a phone's barometer (it tells one floor from the next). "" here."""
+        return ""
+
+    def cmd_Log(self, text=""):
+        """Write a line where the app's maker can see it: the terminal Visualised was started from. From an app
+        being previewed on a phone, the line comes back to that same terminal."""
+        print("[log] " + str(text), flush=True)
+        return ""
+
+    def cmd_LightReport(self):
+        """On a phone, how WatchLight has gone, in a line: how evenly the camera's pictures came and how long
+        its light took to switch. "" on a computer."""
         return ""
 
     def cmd_Listen(self, handler, prompt=""):

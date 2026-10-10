@@ -86,6 +86,23 @@ Value=50
 BarStyle=Blocks
 Foreground=#16A34A
 
+@Slider slide
+Parent=c
+Canvas.Left=10
+Canvas.Top=120
+Width=200
+Height=28
+Minimum=1
+Maximum=30
+Value=10
+ValueChanged=Slid
+
+@Script Slid
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "slid", Vml("GetProperty", "slide", "Value"))
+LUA
+
 @Script Tick
 Interpreter=lua
 <<LUA
@@ -113,6 +130,12 @@ LUA
     check("a Timer isn't seen in the running form", (eng.find("tmr").widget.isVisible(), eng.find("tmr").widget.width()), (False, 0))
     bar, blocks = eng.find("bar").widget, eng.find("blocks").widget
     check("a ProgressBar follows its Value", (V("GetProperty", "bar", "Value"), round(bar.fraction(), 2)), ("50", 0.5))
+    slide = eng.find("slide").widget
+    check("a Slider starts at its Value, between its Minimum and Maximum", (slide.bar.minimum(), slide.bar.maximum(), slide.bar.value(), V("GetProperty", "slide", "Value")), (1, 30, 10, "10"))
+    slide.bar.setValue(22); settle()
+    check("moving it runs ValueChanged, and its Value is where it was left", (eng.store.get_setting("slid"), V("GetProperty", "slide", "Value")), ("22", "22"))
+    eng.store.set_setting("slid", ""); V("SetProperty", "slide", "Value", "5"); settle()
+    check("a script setting it moves it without that counting as the user's change", (slide.bar.value(), eng.store.get_setting("slid")), (5, ""))
     shot = bar.grab().toImage()
     check("it is drawn: filled on the left in its bar colour, the track on the right", (shot.pixelColor(20, 9).name(), shot.pixelColor(180, 9).name()), ("#2563eb", "#e5e7eb"))
     shot = blocks.grab().toImage()
