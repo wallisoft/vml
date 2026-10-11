@@ -10,7 +10,7 @@ function ApplyLicence(...)
     local lic = require("dkjson").decode(raw)
     local paid = lic.tier ~= "community"
     -- (a web page is free: it is the app turned into a program of its own that is Pro)
-    local exports = {FileExportWin = "Windows app...", FileExportLinux = "Linux app...", FileExportAndroid = "Android app..."}
+    local exports = {FileExportWin = "Windows app...", FileExportLinux = "Linux app...", FileExportAndroid = "Android app (.apk)..."}
     for item, text in pairs(exports) do
         Vml("SetMenuItemEnabled", item, paid and "true" or "false")
         Vml("SetMenuItemText", item, text .. (paid and "" or "   (Pro)"))

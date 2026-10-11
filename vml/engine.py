@@ -1381,7 +1381,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
 
     # What a form says about the app it is, in its @Window, and the designer's name for each: read when a form is
     # opened and written back when it is saved, so a form keeps its version, picture and the rest through the designer.
-    APP_KEYS = (("Version", "FormVersion"), ("Icon", "FormIcon"), ("WebAddress", "FormWebAddress"), ("PhoneFit", "FormPhoneFit"),
+    APP_KEYS = (("Version", "FormVersion"), ("Icon", "FormIcon"), ("WebAddress", "FormWebAddress"), ("PhoneFit", "FormPhoneFit"), ("WebFit", "FormWebFit"),
                 ("AndroidPackage", "FormAndroidPackage"), ("AndroidKey", "FormAndroidKey"))
 
     def cmd_ExportVml(self, surface, path):

@@ -299,7 +299,11 @@ def key_info(folder=None):
     if key is None:
         return {"exists": False, "id": "", "path": str(key_file), "made": "", "saved": "", "problem": ""}
     from cryptography import x509
-    made = (lambda c: getattr(c, "not_valid_before_utc", None) or c.not_valid_before)(x509.load_der_x509_certificate(certificate)).strftime("%Y-%m-%d")    # (the first name is newer than some installed copies of cryptography)
+    import datetime
+    # (the certificate is dated a day before it was made, to allow for clocks that disagree; and the first name
+    # below is newer than some installed copies of cryptography)
+    starts = (lambda c: getattr(c, "not_valid_before_utc", None) or c.not_valid_before)(x509.load_der_x509_certificate(certificate))
+    made = (starts + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     kept = licence.load_prefs().get("android_key_saved", "")
     saved = kept.split(" ", 1)[1] if isinstance(kept, str) and kept.startswith(key_id(certificate) + " ") else ""
     return {"exists": True, "id": key_id(certificate), "path": str(key_file), "made": made, "saved": saved, "problem": ""}

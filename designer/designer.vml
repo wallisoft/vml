@@ -232,7 +232,7 @@ OnClick=ExportLinux
 
 @MenuItem FileExportAndroid
 Parent=FileExport
-Text=Android app...
+Text=Android app (.apk)...
 OnClick=ExportAndroid
 
 @MenuItem FileSep

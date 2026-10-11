@@ -432,7 +432,7 @@ class Page:
         self.bar_colour = colour(theme.get("Background") or wp.get("Background") or "#ffffff")
         data = {"form": win[3], "names": self.names, "scripts": scripts, "onOpened": wp.get("OnOpened", ""),
                 "design": [int(num(wp.get("Width"), 0)), int(num(wp.get("Height"), 0))],     # the size it was drawn at
-                "fit": str(wp.get("PhoneFit") or "Fit"), "linkPass": self.link_pass(wp, scripts), "webAddress": str(wp.get("WebAddress") or ""),
+                "fit": str(wp.get("PhoneFit") or "Fit"), "webFit": str(wp.get("WebFit") or "Window"), "linkPass": self.link_pass(wp, scripts), "webAddress": str(wp.get("WebAddress") or ""),
                 "modules": self.modules, "project": self.project_name, "sources": self.sources(),
                 "data": self.with_data, "databases": self.databases() if self.with_data else {}, "mainDb": main,
                 "sqljs": SQLJS, "named": list(self.project.databases) if self.project is not None else [],
@@ -486,6 +486,9 @@ TEMPLATE = r"""<!DOCTYPE html>
   body.phone { overflow-x: hidden; }
   body { font: 13px system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif; color: #111827; background: %%BG%%; }
   #vml_window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
+  /* on a screen with room to spare the form is shown as a window: its own size, in the middle, with an edge */
+  body.framed { background: #E9ECF1; }
+  body.framed #vml_window { background: %%BG%%; border-radius: 10px; box-shadow: 0 0 0 1px #C9CED6, 0 10px 34px rgba(17, 24, 39, .16), 0 2px 6px rgba(17, 24, 39, .08); }   /* (the edge is drawn outside it: the form keeps its exact size) */
   #vml_window > * { flex: 1; min-height: 0; }
   #vml_window > .menubar { flex: 0 0 auto; }
   button { font: inherit; padding: 4px 10px; border: 1px solid #c4c8cf; border-radius: 4px; background: #f7f7f8; cursor: pointer; }
@@ -1765,9 +1768,20 @@ let SCALE = 1;
 function fitScreen() {
   const w = document.getElementById("vml_window"), [dw, dh] = VML.design || [0, 0];
   const narrow = VML.fit !== "None" && dw > 0 && window.innerWidth < dw;
+  // With plenty of room (half as wide again as the form, or more: a computer's browser, a tablet), the form is a window in the middle of the
+  // page at the size it was drawn, not stretched across it. WebFit=Fill on the Window fills the page instead.
+  const roomy = !narrow && VML.webFit !== "Fill" && dw > 0 && dh > 0 && window.innerWidth >= dw * 1.5 && window.innerWidth >= dw + 240;
   document.body.classList.toggle("phone", narrow);
+  document.body.classList.toggle("framed", roomy);
+  if (roomy) {
+    SCALE = 1;
+    const high = Math.min(dh, window.innerHeight - 32);
+    w.style.cssText = `inset:auto;left:${Math.round((window.innerWidth - dw) / 2)}px;top:${Math.max(16, Math.round((window.innerHeight - high) / 2))}px;width:${dw}px;height:${high}px`;
+    document.querySelectorAll(".pbar").forEach(drawBar);
+    return;
+  }
   if (!narrow) {
-    if (SCALE !== 1) { SCALE = 1; w.style.cssText = ""; }
+    if (SCALE !== 1 || w.style.cssText) { SCALE = 1; w.style.cssText = ""; }
     return;
   }
   SCALE = window.innerWidth / dw;
