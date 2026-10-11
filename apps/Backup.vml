@@ -1,0 +1,245 @@
+# ============================================================================
+#   Backup: last night's backup at a glance, and the buttons to run one,
+#   list the nights kept, and check the store.
+#
+#   It is a thin front for bkup (github.com/wallisoft/bkup), which does the
+#   work on the machine that holds the store. This app only asks it things:
+#       bkup status      what happened last time, as JSON
+#       bkup             back up now
+#       bkup snapshots   the nights kept
+#       bkup check       read part of the store back to prove it is sound
+#   and reads the last line of the backup stick's log on this computer.
+#
+#   Where bkup lives is the one setting, at the top of the script "Ask":
+#   by default the machine "len1", reached over ssh.
+#
+#   Made with Visualised.
+# ============================================================================
+
+@Window Backup
+Title=Backup
+Version=1.0
+Width=520
+Height=620
+OnOpened=Refresh
+
+@MenuTheme Theme
+Background=#14532D
+Foreground=White
+
+@Canvas c
+Parent=Backup
+Background=#FFFFFF
+
+@TextBlock lblLight
+Parent=c
+Canvas.Left=18
+Canvas.Top=6
+Width=64
+Height=72
+FontSize=54
+Foreground=#9CA3AF
+Text=●
+
+@TextBlock lblHead
+Parent=c
+Canvas.Left=86
+Canvas.Top=18
+Width=416
+Height=30
+FontSize=20
+FontWeight=Bold
+Text=Asking…
+
+@TextBlock lblWhen
+Parent=c
+Canvas.Left=86
+Canvas.Top=50
+Width=416
+Height=22
+Foreground=#4B5563
+Text=
+
+@TextBox txtOut
+Parent=c
+Canvas.Left=18
+Canvas.Top=92
+Width=484
+Height=330
+AcceptsReturn=true
+IsReadOnly=true
+FontFamily=monospace
+FontSize=12
+Text=
+
+@TextBlock lblStick
+Parent=c
+Canvas.Left=18
+Canvas.Top=430
+Width=484
+Height=40
+Foreground=#4B5563
+TextWrapping=Wrap
+Text=
+
+@Button btnRefresh
+Parent=c
+Canvas.Left=18
+Canvas.Top=478
+Width=236
+Height=44
+Content=Look again
+OnClick=Refresh
+
+@Button btnNow
+Parent=c
+Canvas.Left=266
+Canvas.Top=478
+Width=236
+Height=44
+Content=Back up now
+OnClick=BackUpNow
+
+@Button btnNights
+Parent=c
+Canvas.Left=18
+Canvas.Top=530
+Width=236
+Height=44
+Content=The nights kept
+OnClick=Nights
+
+@Button btnCheck
+Parent=c
+Canvas.Left=266
+Canvas.Top=530
+Width=236
+Height=44
+Content=Check the store
+OnClick=Check
+
+# every ten minutes, so a window left open stays true
+@Timer tmr
+Parent=c
+Interval=600000
+OnTick=Refresh
+
+@Script Ask
+Interpreter=lua
+<<LUA
+-- The command that reaches bkup. Change "len1" to the machine that holds your store, or to plain
+-- "sudo -n bkup" if that is this computer. (BKUP_CMD, if set, is used instead: the tests set it.)
+local where = "ssh -o BatchMode=yes -o ConnectTimeout=8 len1 sudo -n bkup"
+return '${BKUP_CMD:-' .. where .. '} ' .. (... or "")
+LUA
+
+@Script Refresh
+Interpreter=lua
+<<LUA
+-- Ask bkup what happened last time and say it plainly: a light, a headline, and each step.
+local json = require("dkjson")
+local raw = Vml("Shell", Vml("RunScript", "Ask", "status") .. " 2>&1")
+local s = json.decode(raw or "")
+local function show(colour, head, when, body)
+    Vml("SetProperty", "lblLight", "Foreground", colour)
+    Vml("SetProperty", "lblHead", "Text", head)
+    Vml("SetProperty", "lblWhen", "Text", when)
+    Vml("SetProperty", "txtOut", "Text", body)
+end
+if type(s) ~= "table" or not s.steps then
+    show("#9CA3AF", "Couldn't ask the backup machine", "It may be off, asleep, or not answering.",
+         (raw and raw ~= "") and raw or "No answer came back.")
+else
+    local lines = {}
+    for _, st in ipairs(s.steps) do
+        lines[#lines + 1] = (st.result == "ok" and "✓  " or "✗  ") .. st.step .. "\n     " .. (st.detail or "")
+    end
+    -- how long ago it finished, from its own clock's date: more than 26 hours is a missed night
+    local y, mo, d, h, mi, se = (s.finished or ""):match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
+    local age = y and (os.time() - os.time({ year = y, month = mo, day = d, hour = h, min = mi, sec = se })) / 3600 or nil
+    local when = "Finished " .. (s.finished or "?") .. "   ·   store " .. (s.store_size or "?") .. "   ·   " .. (s.snapshot or "")
+    if not s.ok or (s.problems or 0) > 0 then
+        show("#DC2626", (s.problems or 1) .. " problem" .. ((s.problems or 1) == 1 and "" or "s") .. " in the last backup", when, table.concat(lines, "\n"))
+    elseif age and age > 26 then
+        show("#D97706", "No backup for " .. math.floor(age) .. " hours", when, table.concat(lines, "\n"))
+    else
+        show("#16A34A", "The last backup worked", when, table.concat(lines, "\n"))
+    end
+end
+-- the stick in this computer: the last thing its hourly copy said
+local stick = Vml("Shell", "tail -1 ${BKUP_STICK_LOG:-$HOME/.local/state/bkup-stick.log} 2>/dev/null")
+stick = (stick or ""):gsub("%s+$", "")
+Vml("SetProperty", "lblStick", "Text", stick == "" and "Backup stick: nothing recorded on this computer." or ("Backup stick: " .. stick))
+Vml("SetProperty", "lblStick", "Foreground", stick:find("FAILED") and "#DC2626" or "#4B5563")
+LUA
+
+@Script Busy
+Interpreter=lua
+<<LUA
+-- While a job runs the buttons wait, so two can't be started at once. "true" or "false".
+local on = ...
+for _, b in ipairs({ "btnRefresh", "btnNow", "btnNights", "btnCheck" }) do
+    Vml("SetProperty", b, "IsEnabled", on == "true" and "false" or "true")
+end
+LUA
+
+@Script BackUpNow
+Interpreter=lua
+<<LUA
+local yes = Vml("ConfirmDialog", "Run a backup now?\n\nIt takes a minute or so. Last night's stays as it is; this adds another.", "Back up now")
+if yes ~= true and yes ~= "true" and yes ~= "True" then return end
+Vml("RunScript", "Busy", "true")
+Vml("SetProperty", "lblLight", "Foreground", "#2563EB")
+Vml("SetProperty", "lblHead", "Text", "Backing up now…")
+Vml("SetProperty", "lblWhen", "Text", "Leave this open. It says when it has finished.")
+Vml("SetProperty", "txtOut", "Text", "")
+Vml("RunProcess", Vml("RunScript", "Ask", "") .. " 2>&1", "txtOut", "Finished")
+LUA
+
+@Script Check
+Interpreter=lua
+<<LUA
+Vml("RunScript", "Busy", "true")
+Vml("SetProperty", "lblLight", "Foreground", "#2563EB")
+Vml("SetProperty", "lblHead", "Text", "Checking the store…")
+Vml("SetProperty", "lblWhen", "Text", "Reading part of it back to prove it is sound.")
+Vml("SetProperty", "txtOut", "Text", "")
+Vml("RunProcess", Vml("RunScript", "Ask", "check") .. " 2>&1", "txtOut", "Checked")
+LUA
+
+@Script Nights
+Interpreter=lua
+<<LUA
+Vml("RunScript", "Busy", "true")
+Vml("SetProperty", "lblHead", "Text", "The nights kept")
+Vml("SetProperty", "lblWhen", "Text", "Each line is a night that can be restored.")
+Vml("SetProperty", "txtOut", "Text", "")
+Vml("RunProcess", Vml("RunScript", "Ask", "snapshots") .. " 2>&1", "txtOut", "Listed")
+LUA
+
+@Script Finished
+Interpreter=lua
+<<LUA
+-- A backup has ended: show what bkup itself now says about it.
+Vml("RunScript", "Busy", "false")
+Vml("RunScript", "Refresh")
+LUA
+
+@Script Checked
+Interpreter=lua
+<<LUA
+Vml("RunScript", "Busy", "false")
+local good = Vml("GetSetting", "exit_code") == "0"
+Vml("SetProperty", "lblLight", "Foreground", good and "#16A34A" or "#DC2626")
+Vml("SetProperty", "lblHead", "Text", good and "The store reads back sound" or "The check found a problem")
+Vml("SetProperty", "lblWhen", "Text", good and "What was read back matched what was stored." or "Read what it says below.")
+LUA
+
+@Script Listed
+Interpreter=lua
+<<LUA
+Vml("RunScript", "Busy", "false")
+if Vml("GetSetting", "exit_code") ~= "0" then
+    Vml("SetProperty", "lblHead", "Text", "Couldn't list the nights")
+end
+LUA
