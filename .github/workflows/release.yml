@@ -42,7 +42,7 @@ jobs:
       - name: Install build tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pillow nuitka ordered-set zstandard
+          python -m pip install -r packaging/build-requirements.txt
           choco install innosetup -y --no-progress
       - name: Compile with Nuitka
         run: |
@@ -64,6 +64,12 @@ jobs:
           Start-Process build\vml.dist\vml.exe -ArgumentList "tests\step1.vml", "--shot", "shot.png" -Wait -NoNewWindow -RedirectStandardError form.log
           if (-not (Test-Path shot.png)) { Get-Content form.log; throw "the compiled program didn't open a form" }
           "the compiled program opens a form"
+          # the designer itself, and a form that runs a script as it opens: what people actually start
+          Start-Process build\vml.dist\vml.exe -ArgumentList "--shot", "designer.png" -Wait -NoNewWindow -RedirectStandardError designer.log
+          if (-not (Test-Path designer.png)) { Get-Content designer.log; throw "the compiled program didn't open the designer" }
+          Start-Process build\vml.dist\vml.exe -ArgumentList "build\vml.dist\designer\databases.vml", "--shot", "script.png" -Wait -NoNewWindow -RedirectStandardError script.log
+          if (-not (Test-Path script.png)) { Get-Content script.log; throw "the compiled program didn't open a form that runs a script" }
+          "the compiled program opens the designer, and a form that runs a script"
           # an exported app: the program renamed SmokeApp.exe, beside SmokeApp.vml, must run that form by itself
           Copy-Item -Recurse build\vml.dist app
           Rename-Item app\vml.exe SmokeApp.exe
@@ -138,7 +144,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq patchelf libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0 unixodbc
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pillow nuitka ordered-set zstandard
+          python -m pip install -r packaging/build-requirements.txt
       - name: Compile with Nuitka
         run: |
           python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 \
@@ -159,6 +165,11 @@ jobs:
           ./dist-vml/vml parse tests/step1.vml | grep -q "INSERT INTO ui_tree"
           QT_QPA_PLATFORM=offscreen timeout 60 ./dist-vml/vml tests/step1.vml --shot shot.png
           test -s shot.png && echo "the compiled binary opens a form"
+          # the designer itself, and a form that runs a script as it opens: what people actually start
+          QT_QPA_PLATFORM=offscreen timeout 90 ./dist-vml/vml --shot designer.png 2> designer.log || true
+          test -s designer.png && echo "the compiled binary opens the designer" || { cat designer.log; exit 1; }
+          QT_QPA_PLATFORM=offscreen timeout 90 ./dist-vml/vml dist-vml/designer/databases.vml --shot script.png 2> script.log || true
+          test -s script.png && echo "and a form that runs a script" || { cat script.log; exit 1; }
           # an exported app: the binary renamed SmokeApp, beside SmokeApp.vml, must run that form by itself
           cp -r dist-vml app && mv app/vml app/SmokeApp && cp tests/step1.vml app/SmokeApp.vml
           VML_DEBUG=1 QT_QPA_PLATFORM=offscreen timeout 60 ./app/SmokeApp --shot app.png 2> app.log || true

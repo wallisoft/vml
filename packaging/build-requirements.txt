@@ -1,0 +1,14 @@
+# What the released programs are built with: exact versions, so that a build made today is made of the same
+# parts as the one that was tested. Raise a line here on purpose, build, and try the result before releasing.
+#
+# (October 2026: Nuitka 4.3 with PySide6 6.12.0 produced a Windows program that crashed as soon as a form ran a
+# script. These are the versions of the last build known to be good.)
+PySide6==6.11.2
+shiboken6==6.11.2
+lupa==2.8
+pyodbc>=5.0
+cryptography==50.0.2
+nuitka==4.2.2
+ordered-set
+zstandard
+pillow

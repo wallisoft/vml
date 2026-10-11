@@ -20,6 +20,10 @@ def main():
     ap.add_argument("extra", nargs="*", help=argparse.SUPPRESS)
     ap.add_argument("--db", help="project database to use (default: a fresh temporary one)")
     ap.add_argument("--shot", help="save a screenshot of the first window and exit")
+    if any(x in ("--version", "-V") for x in sys.argv[1:]):   # (the compiled program answers this sooner, in vml.py)
+        from . import __version__
+        print("Visualised " + __version__)
+        return
     a = ap.parse_known_args()[0]                            # (vml html has options of its own, read below)
     if a.vml == "apk-key":                                  # vml apk-key [save file | restore file [--replace]]
         from . import apk
