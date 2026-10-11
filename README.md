@@ -442,6 +442,18 @@ repository's history at the tag `avalonia-final`.
 
 ## Licence
 
-Dual-licensed: see [LICENSE-MIT.md](LICENSE-MIT.md) and [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md).
+Visualised is free software.
+
+- **Visualised itself** is under the GNU General Public License, version 3: [LICENSE](LICENSE).
+- **The apps you make with it are yours.** An exported app carries part of Visualised inside it, and
+  [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md) says that this places no condition on your app.
+- **The Link relay and the site pages** in `server/` are under the GNU Affero General Public License, version 3:
+  [server/LICENSE](server/LICENSE).
+- **The example apps** in `apps/` are under the MIT licence, to copy from freely: [apps/LICENSE](apps/LICENSE).
+- **The name** "Visualised" and its logo are trade marks: [TRADEMARKS.md](TRADEMARKS.md).
+- For anyone who can't use GPL code there is a [commercial licence](LICENSE-COMMERCIAL.md).
+
+Other people's work that Visualised includes is listed, with its licences, in
+[packaging/THIRD-PARTY-NOTICES.txt](packaging/THIRD-PARTY-NOTICES.txt).
 
 Built by Wallisoft with Claude.

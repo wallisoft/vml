@@ -93,6 +93,7 @@ jobs:
           New-Item -ItemType Directory stage | Out-Null
           Copy-Item -Recurse build\vml.dist stage\vml
           Copy-Item packaging\THIRD-PARTY-NOTICES.txt stage\vml\
+          Copy-Item LICENSE stage\vml\LICENSE.txt; Copy-Item LICENSE-EXCEPTION.md stage\vml\
           Compress-Archive -Path stage\vml -DestinationPath vml-windows-x64.zip
       - name: Build Visualised.msix (Microsoft Store)
         if: vars.MSIX_IDENTITY_NAME != ''
@@ -108,6 +109,7 @@ jobs:
           New-Item -ItemType Directory msix\Assets -Force | Out-Null
           Copy-Item -Recurse build\vml.dist\* msix\
           Copy-Item packaging\THIRD-PARTY-NOTICES.txt msix\
+          Copy-Item LICENSE msix\LICENSE.txt; Copy-Item LICENSE-EXCEPTION.md msix\
           python packaging/make_icon.py msix/Assets/Square150x150Logo.png 150
           python packaging/make_icon.py msix/Assets/Square44x44Logo.png 44
           python packaging/make_icon.py msix/Assets/StoreLogo.png 50
@@ -149,6 +151,7 @@ jobs:
           mv build/vml.dist dist-vml                 # (a folder called "vml" already exists: the source)
           python packaging/make_icon.py dist-vml/vml.png
           cp packaging/THIRD-PARTY-NOTICES.txt dist-vml/
+          cp LICENSE dist-vml/LICENSE.txt; cp LICENSE-EXCEPTION.md dist-vml/
           tar czf vml-linux-x86_64.tar.gz --transform 's,^dist-vml,vml,' dist-vml
           cp packaging/install.sh install.sh
       - name: Smoke test the compiled binary

@@ -35,6 +35,8 @@ Name: "addtopath"; Description: "Add vml to my PATH (so scripts and terminals ca
 ; The whole compiled folder. Qt stays as separate, replaceable libraries (LGPL).
 Source: "..\build\vml.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\LICENSE-EXCEPTION.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Visualised"; Filename: "{app}\vml.exe"

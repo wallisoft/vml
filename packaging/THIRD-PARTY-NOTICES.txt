@@ -12,4 +12,8 @@ sql.js (SQLite in WebAssembly)     MIT          https://github.com/sql-js/sql.js
   Bundled into exported web pages that use a database (licence: web/SQLJS-LICENSE). SQLite itself is public domain.
 pyodbc (ODBC for Python)           MIT-0        https://github.com/mkleehammer/pyodbc
   ODBC itself is the system's own: Windows' built-in ODBC, or unixODBC on Linux if you have installed it.
+cryptography (for Python)          Apache-2.0 or BSD-3-Clause   https://cryptography.io
+  Seals Link messages, and signs the Android apps you export.
+ZXing core (reads QR codes)        Apache-2.0   https://github.com/zxing/zxing
+  Inside the Visualised phone app, and so inside each Android app you export (web/android-template.apk).
 Nuitka (compiler runtime)          Apache-2.0   https://nuitka.net
