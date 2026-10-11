@@ -24,10 +24,11 @@ function ApplySettings(...)
     for _, n in ipairs({"4", "8", "16", "24"}) do
         Vml("SetMenuItemText", "SetGrid" .. n, tick(n == grid) .. n .. " pixels")
     end
-    Vml("RunScript", "ApplyTheme")
 end
 
--- The designer's themes: its menu bar, the edge of its window and the boxes it shows all take these colours.
+-- Themes for the menu bar of the form being designed: Edit, Menu Theme. A theme belongs to the app, not to the
+-- designer: it is saved in the form (its @MenuTheme), and goes wherever the form goes. The designer's own bar only
+-- changes when the designer is the form that is open.
 -- { bar, bar text, hover, hover text, menu background, menu border }
 THEMES = {
     Classic  = { "#1E3A8A", "White",   "#2563EB", "White",   "White", "#1E3A8A" },
@@ -39,22 +40,20 @@ THEMES = {
 }
 THEME_ORDER = { "Classic", "Slate", "Forest", "Plum", "Charcoal", "Paper" }
 
-function ApplyTheme(...)
-    local name = Vml("GetPreference", "theme", "Classic")
-    if not THEMES[name] then name = "Classic" end
-    for i, prop in ipairs({ "Background", "Foreground", "HoverBackground", "HoverForeground", "PopupBackground", "PopupBorder" }) do
-        Vml("SetProperty", "Theme", prop, THEMES[name][i])
-    end
-    for _, n in ipairs(THEME_ORDER) do
-        Vml("SetMenuItemText", "SetTheme" .. n, (n == name and "\226\156\147  " or "     ") .. n)
-    end
-end
-
 function SetTheme(...)
-    local args = { ... }
-    Vml("SetPreference", "theme", args[1])
-    Vml("RunScript", "ApplyTheme")
-    Vml("SetStatusText", "Theme: " .. args[1])
+    local name = ({ ... })[1]
+    if not THEMES[name] then return end
+    for i, prop in ipairs({ "Background", "Foreground", "HoverBackground", "HoverForeground", "PopupBackground", "PopupBorder" }) do
+        Vml("SetProperty", "menubar", prop, THEMES[name][i])
+    end
+    Vml("SetSetting", "dirty", "true")
+    Vml("RunScript", "UpdateTitle")
+    local menu = Vml("GetDesignMenu", "Surface")
+    if menu == "" or menu == "[]" then
+        Vml("SetStatusText", "Menu theme: " .. name .. ". This form has no menu bar yet (Edit, Menu Editor): the theme will show when it has one.")
+    else
+        Vml("SetStatusText", "Menu theme: " .. name .. ", for this form")
+    end
 end
 
 function ToggleSnap(...)

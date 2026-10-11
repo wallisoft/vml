@@ -459,8 +459,8 @@ Text=C# Scripting...
 OnClick=CSharpSetup
 
 @MenuItem SetTheme
-Parent=Settings
-Text=Theme
+Parent=Edit
+Text=Menu Theme
 
 @MenuItem SetThemeClassic
 Parent=SetTheme
