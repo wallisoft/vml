@@ -759,6 +759,7 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                   Prop("Icon", "text", "Common"),                                # a picture for the app: its icon on a phone
                   Prop("WebAddress", "text", "Common"),                          # where the app is on the web, if it is: LinkAddress builds on it
                   Prop("AndroidPackage", "text", "Common"),                      # its package name as an Android app, to choose one's own (com.example.myapp)
+                  Prop("AndroidKey", "text", "Common"),                          # which signing key it was last exported with: put in by the export
                   Prop("LinkPass", "text", "Behaviour"),                         # put in by Visualised Pro when it saves an app that uses Link: see vml/link.py
                   Prop("PhoneFit", "choice", "Behaviour", options=("Fit", "None")),  # as a web page on a phone: scale to the screen's width, or leave alone
                   Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window

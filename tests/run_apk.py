@@ -173,18 +173,68 @@ if tools:
 else:
     print("      (Android's build tools aren't installed here, so zipalign, apksigner and aapt2 were not asked)")
 
+# ---- looking after the key
+info = apk.key_info(KEYS)
+check("about the key: that it exists, its short name (the end of its apps' package names), where it is and when it was made",
+      (info["exists"], made["package"].endswith(".k" + info["id"]), info["path"] == str(key_file), bool(re.fullmatch(r"\d{4}-\d\d-\d\d", info["made"])), made["key_id"] == info["id"]), (True, True, True, True, True))
+copy = apk.save_key(os.path.join(WORK, "my-key.pem"), KEYS)
+check("a copy is one file, private, holding the key and its certificate", (oct(os.stat(copy).st_mode & 0o777), open(copy).read().count("-----BEGIN "), open(copy).read().startswith("# Visualised")), ("0o600", 2, True))
+fresh = os.path.join(WORK, "new-computer")
+check("on another computer the copy puts the same key back", (apk.restore_key(copy, fresh), apk.key_info(fresh)["id"]), (info["id"], info["id"]))
+moved = apk.build(page, "Morse Torch", os.path.join(WORK, "moved.apk"), version="1.6", key_folder=fresh, signed_with=info["id"])
+check("and an export there is an update to the same app: same package, same signer", (moved["package"] == made["package"], verify(moved["path"]) == signer, moved["new_key"]), (True, True, False))
+def said_no(fn):
+    try:
+        fn()
+        return ""
+    except apk.ApkError as exc:
+        return type(exc).__name__ + ": " + str(exc)
+elsewhere = os.path.join(WORK, "someone-else")
+check("an app last exported with one key is not exported with another: it says which, and what to do",
+      (said_no(lambda: apk.build(page, "Morse Torch", os.path.join(WORK, "no.apk"), key_folder=elsewhere, signed_with=info["id"])).startswith(f"OtherKey: This app was last exported with a different signing key ({info['id']}) from the one on this computer ("),
+       os.path.exists(os.path.join(WORK, "no.apk"))), (True, False))
+empty = os.path.join(WORK, "empty")
+check("nor with no key at all: a new key is not quietly made for an app that already has one",
+      ("there is none here yet" in said_no(lambda: apk.build(page, "Morse Torch", os.path.join(WORK, "no.apk"), key_folder=empty, signed_with=info["id"])), os.path.exists(os.path.join(empty, "android-key.pem"))), (True, False))
+check("restoring over a different key is refused unless asked for, and then the old one is kept beside it, renamed",
+      ("already a different signing key" in said_no(lambda: apk.restore_key(copy, elsewhere)), apk.restore_key(copy, elsewhere, replace=True), len(glob.glob(os.path.join(elsewhere, "android-key.pem.replaced-*")))), (True, info["id"], 1))
+open(os.path.join(WORK, "notakey.pem"), "w").write("hello")
+check("what isn't a copy of a key is refused", (said_no(lambda: apk.restore_key(os.path.join(WORK, "notakey.pem"), fresh)), said_no(lambda: apk.restore_key(os.path.join(WORK, "nowhere.pem"), fresh))),
+      ("ApkError: That file isn't a copy of a Visualised signing key.", "ApkError: That file couldn't be read."))
+vfile = os.path.join(WORK, "remember.vml")
+open(vfile, "w").write("# a form\n@Window Thing\nTitle=Thing\nWidth=100\n\n@Canvas c\nParent=Thing\n")
+apk.remember(vfile, "io.visualised.made.thing.k12345678", "12345678"); apk.remember(vfile, "io.visualised.made.thing.k12345678", "12345678")
+check("a form's file is told the app it has become, once, in its @Window", open(vfile).read(), "# a form\n@Window Thing\nTitle=Thing\nWidth=100\nAndroidPackage=io.visualised.made.thing.k12345678\nAndroidKey=12345678\n\n@Canvas c\nParent=Thing\n")
+
 # ---- from the designer
 from PySide6.QtWidgets import QApplication
 from vml.engine import Engine
-said = []
-eng = Engine()
-eng.cmd_InfoDialog = lambda msg, title="", picture="": said.append((str(title), str(msg)))
-eng.load(os.path.join(HERE, "designer", "designer.vml"))
-for _ in range(4):
-    QApplication.instance().processEvents()
+said, asked, answers, picks = [], [], [], {}
+def new_designer():
+    eng = Engine()
+    eng.cmd_InfoDialog = lambda msg, title="", picture="": said.append((str(title), str(msg)))
+    def choose(message, title="Choose", buttons="Yes|No|Cancel"):
+        asked.append((str(title), str(message), str(buttons)))
+        return answers.pop(0) if answers else ""
+    eng.cmd_ChoiceDialog = choose
+    eng.cmd_FileSaveDialog = lambda title="", default="", ext="": picks.get(ext, "")
+    eng.cmd_FileOpenDialog = lambda title="", ext="": picks.get("open", "")
+    eng.load(os.path.join(HERE, "designer", "designer.vml"))
+    for _ in range(4):
+        QApplication.instance().processEvents()
+    return eng
+def load(eng, path):
+    eng.cmd_ImportVml(path, "Surface")
+    for _ in range(4):
+        QApplication.instance().processEvents()
+eng = new_designer()
 form = os.path.join(WORK, "Hello.vml")
 open(form, "w").write("""@Window Hello
 Title=Hello There
+Version=2.1
+Icon=hello.png
+WebAddress=https://example.org/hello.html
+PhoneFit=None
 Width=320
 Height=480
 
@@ -206,26 +256,81 @@ Interpreter=lua
 Vml("Vibrate", "80")
 LUA
 """)
-eng.cmd_ImportVml(form, "Surface")
-for _ in range(4):
-    QApplication.instance().processEvents()
+load(eng, form)
+kept = os.path.join(WORK, "kept.vml")
+eng.cmd_ExportVml("Surface", kept)
+window = open(kept).read().split("@Canvas")[0]
+check("the designer keeps what a form says about its app when it saves: version, picture, web address, phone fit",
+      [l for l in window.split("\n") if l.split("=")[0] in ("Version", "Icon", "WebAddress", "PhoneFit")], ["Version=2.1", "Icon=hello.png", "WebAddress=https://example.org/hello.html", "PhoneFit=None"])
+eng.cmd_ClearDesign("Surface")
+eng.cmd_ExportVml("Surface", kept)
+check("and a new form doesn't inherit the last one's", [l for l in open(kept).read().split("\n") if l.split("=")[0] in ("Version", "Icon", "WebAddress", "PhoneFit", "AndroidPackage", "AndroidKey")], [])
+load(eng, form)
+
 target = os.path.join(WORK, "Hello.apk")
-eng.cmd_FileSaveDialog = lambda title="", default="", ext="": target
+picks.update(apk=target, pem=os.path.join(WORK, "designer-key.pem"))
 check("Community: the designer refuses, and says it is part of Pro", (eng.vml("ExportApk", "Surface", target), "Visualised Pro" in said[-1][1], os.path.exists(target)), ("", True, False))
 eng.licence_override = "pro"
-said.clear()
+said.clear(); answers[:] = ["Cancel"]
 eng.run_script("ExportAndroid")
-print("      said:", [(t, m[:160]) for t, m in said]) if not os.path.exists(target) else None
+check("Pro, first time: before anything is made, the key is explained, and cancelling makes nothing",
+      (asked[-1][0], "its signing key" in asked[-1][1], asked[-1][2], os.path.exists(target), json.loads(eng.vml("AndroidKey"))["exists"]), ("Export", True, "Make my key and export|Restore a key I have...|Cancel", False, False))
+asked.clear(); answers[:] = ["Make my key and export", "Save a copy of my key..."]
+eng.run_script("ExportAndroid")
 got = apk.Manifest(zipfile.ZipFile(target).read("AndroidManifest.xml"))
 gels = list(got.elements())
-check("Pro: File, Export, Android app writes the app, named from the form's title, asking only to vibrate",
-      ([got.value(a["label"]) for p, n, d, a in gels if n == "application"], sorted(got.value(a["name"]).split(".")[-1] for p, n, d, a in gels if n == "uses-permission"), isinstance(verify(target), bytes)),
-      (["Hello There"], ["ACCESS_NETWORK_STATE", "INTERNET", "VIBRATE"], True))
-check("it says what was made and what the phone will be asked for", (said[0][0], "Hello.apk" in said[0][1], "It will ask the phone for: vibrate." in said[0][1], "Google Play" in said[0][1]), ("Export", True, True, True))
-check("and, the first time, that the signing key must be kept safe, and where it is", (len(said), said[1][0], "android-key.pem" in said[1][1] and "android-key.cert" in said[1][1], os.path.exists(os.path.join(HOME, ".vml", "android-key.pem"))), (2, "Your signing key", True, True))
-said.clear()
+check("going ahead writes the app, named from the form's title, at the form's version, asking only to vibrate",
+      ([got.value(a["label"]) for p, n, d, a in gels if n == "application"], [got.value(a["versionName"]) for p, n, d, a in gels if n == "manifest"],
+       sorted(got.value(a["name"]).split(".")[-1] for p, n, d, a in gels if n == "uses-permission"), isinstance(verify(target), bytes)),
+      (["Hello There"], ["2.1"], ["ACCESS_NETWORK_STATE", "INTERNET", "VIBRATE"], True))
+check("it says what was made and what the phone will be asked for, and that the key has no copy yet, with saving one the first button",
+      ("Hello.apk" in asked[1][1], "It will ask the phone for: vibrate." in asked[1][1], "Google Play" in asked[1][1], "HAS NO COPY YET" in asked[1][1], asked[1][2]), (True, True, True, True, "Save a copy of my key...|Later"))
+key_now = json.loads(eng.vml("AndroidKey"))
+check("choosing to save writes the copy and says where; Visualised knows a copy now exists",
+      (os.path.exists(picks["pem"]), said[-1][0], picks["pem"] in said[-1][1], key_now["saved"] != ""), (True, "Android signing key", True, True))
+check("the form now remembers the app it became, and is marked as changed so it gets saved",
+      (eng.vml("GetProperty", "Surface", "FormAndroidKey"), eng.vml("GetProperty", "Surface", "FormAndroidPackage").endswith(".k" + key_now["id"]), eng.vml("GetSetting", "dirty")), (key_now["id"], True, "true"))
+said.clear(); asked.clear()
 eng.run_script("ExportAndroid")
-check("the second time it doesn't say that again", [t for t, _ in said], ["Export"])
+check("the next export just exports: no key talk, no reminder, and nothing new to remember", ([t for t, _ in said], asked, "Save the form" in said[0][1]), (["Export"], [], False))
+
+# the same form on a computer with a different key
+eng.cmd_ExportVml("Surface", form)
+check("saved, the form carries its package and key", sorted(l.split("=")[0] for l in open(form).read().split("\n") if l.startswith("Android")), ["AndroidKey", "AndroidPackage"])
+key_was, pkg_was = key_now["id"], eng.vml("GetProperty", "Surface", "FormAndroidPackage")
+for f in apk.key_files():
+    os.rename(f, str(f) + ".away")
+os.remove(target)
+said.clear(); asked.clear(); answers[:] = ["Cancel"]
+eng.run_script("ExportAndroid")
+check("with the key gone, exporting stops and says why, offering to restore the key or to make a new app; cancel does nothing",
+      (key_was in asked[0][1], "there is no signing key on this computer" in asked[0][1], asked[0][2], os.path.exists(target), apk.key_files()[0].exists()), (True, True, "Restore my key...|Export as a new app|Cancel", False, False))
+check("the engine refuses too, if asked directly", json.loads(eng.vml("ExportApk", "Surface", target)).get("other_key"), True)
+picks["open"] = picks["pem"]
+asked.clear(); answers[:] = ["Restore my key..."]
+eng.run_script("ExportAndroid")
+check("restoring the key from its copy carries on with the same app", (os.path.exists(target), apk.Manifest(zipfile.ZipFile(target).read("AndroidManifest.xml")).strings.count(pkg_was) >= 1, json.loads(eng.vml("AndroidKey"))["id"]), (True, True, key_was))
+for f in apk.key_files():
+    os.remove(f)
+apk.signing_key()                                    # a different key is here now
+asked.clear(); answers[:] = ["Export as a new app", "Later"]
+eng.run_script("ExportAndroid")
+new_pkg = eng.vml("GetProperty", "Surface", "FormAndroidPackage")
+check("or it can be exported as a new app: a new package, signed with the key that is here", (new_pkg != pkg_was, new_pkg.endswith(".k" + json.loads(eng.vml("AndroidKey"))["id"]), "different one" in asked[0][1]), (True, True, True))
+
+# Settings, Android Signing Key
+asked.clear(); answers[:] = ["Close"]
+eng.run_script("AndroidKeyShow")
+check("Settings shows the key, says plainly when no copy has been saved, and offers to save or restore",
+      ("NO COPY HAS BEEN SAVED" in asked[0][1], asked[0][2]), (True, "Save a copy...|Restore from a copy...|Close"))
+answers[:] = ["Save a copy..."]; eng.run_script("AndroidKeyShow")
+asked.clear(); answers[:] = ["Close"]; eng.run_script("AndroidKeyShow")
+check("and once one has, says when", ("A copy was saved on " in asked[0][1], asked[0][2]), (True, "Close|Save a copy...|Restore from a copy..."))
+
+# the examples everyone gets must not carry one person's identity
+marked = [os.path.basename(f) for f in glob.glob(os.path.join(HERE, "apps", "**", "*.vml"), recursive=True)
+          if re.search(r"^(AndroidKey|AndroidPackage|LinkPass)=", open(f, encoding="utf-8").read(), re.M)]
+check("no example app carries its maker's signing key, package or Link pass", marked, [])
 
 print(f"\n{sum(ok)}/{len(ok)} passed")
 sys.exit(0 if all(ok) else 1)

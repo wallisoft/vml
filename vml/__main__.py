@@ -1,6 +1,7 @@
 """vml [form.vml | app.vmlproj] [--db path/to/vml.db] [--shot out.png]   (no form: open the VML designer)
    vml setup-csharp                                         (optional: build the C# script host)
-   vml apk form.vml [out.apk]                               (an Android app of its own: Pro)
+   vml apk form.vml [out.apk] [--new-app]                   (an Android app of its own: Pro)
+   vml apk-key [save FILE | restore FILE [--replace]]       (the key your Android apps are signed with: keep a copy)
    vml html form.vml [out.html] [--open] [--cdn] [--no-pass]  (a web page, Lua engine inside it; --cdn: load it online instead;
                                                             --no-pass: leave out this licence's pass for the Link relay)"""
 import argparse
@@ -20,6 +21,22 @@ def main():
     ap.add_argument("--db", help="project database to use (default: a fresh temporary one)")
     ap.add_argument("--shot", help="save a screenshot of the first window and exit")
     a = ap.parse_known_args()[0]                            # (vml html has options of its own, read below)
+    if a.vml == "apk-key":                                  # vml apk-key [save file | restore file [--replace]]
+        from . import apk
+        rest = [x for x in sys.argv[2:] if not x.startswith("-")]
+        try:
+            if rest[:1] == ["save"] and len(rest) == 2:
+                print("a copy of your signing key: " + apk.save_key(rest[1]) + "\nKeep it somewhere safe and private.")
+            elif rest[:1] == ["restore"] and len(rest) == 2:
+                print("signing key restored: " + apk.restore_key(rest[1], replace="--replace" in sys.argv))
+            else:
+                info = apk.key_info()
+                print(info["problem"] or (f"signing key {info['id']}, made {info['made']}, at {info['path']}\n"
+                      + ("a copy was saved on " + info["saved"] if info["saved"] else "NO COPY HAS BEEN SAVED: vml apk-key save FILE")
+                      if info["exists"] else "no signing key yet: one is made the first time you export an Android app"))
+        except apk.ApkError as exc:
+            raise SystemExit(str(exc) + (" (To replace it: add --replace.)" if "already a different" in str(exc) else ""))
+        return
     if a.vml == "apk":                                      # vml apk form.vml [out.apk]
         import tempfile
         from . import apk, licence
@@ -32,14 +49,19 @@ def main():
         with tempfile.TemporaryDirectory() as folder:
             page = export_html(rest[0], os.path.join(folder, "index.html"))
             try:
-                made = apk.from_page(page, rest[1] if len(rest) > 1 else str(Path(rest[0]).with_suffix(".apk")), owner=licence.current().get("name", ""))
+                fresh = {"package": "", "signed_with": ""} if "--new-app" in sys.argv else {}
+                made = apk.from_page(page, rest[1] if len(rest) > 1 else str(Path(rest[0]).with_suffix(".apk")), owner=licence.current().get("name", ""), **fresh)
+            except apk.OtherKey as exc:
+                raise SystemExit(str(exc) + "\n(To export it as a new app from here: add --new-app.)")
             except apk.ApkError as exc:
                 raise SystemExit(str(exc))
+        apk.remember(rest[0], made["package"], made["key_id"])     # so the next export is an update to this same app
         print(f"{made['path']}\n  {made['package']}, version {made['version']}, {made['size'] // 1024} KB\n  asks the phone for: "
               + ", ".join(p for p in made["permissions"]))
-        if made["new_key"]:
-            print(f"\nIMPORTANT: your signing key was made just now. Keep a copy of both files, somewhere safe and private:\n  {made['key']}\n  "
-                  f"{made['key'][:-4]}.cert\nAndroid only accepts an update to an app if it is signed with the same key.")
+        if not apk.key_info()["saved"]:
+            print("\nIMPORTANT: keep a copy of your signing key" + (", which was made just now" if made["new_key"] else "") + ". Android only accepts an update\n"
+                  "to an app if it is signed with the same key, and it exists only on this computer. To save a copy as one file:\n"
+                  "  vml apk-key save ~/visualised-android-key.pem        (and on another computer: vml apk-key restore that-file)")
         return
     if a.vml == "html":                                     # vml html form.vml [out.html]
         from .html import export_html

@@ -569,6 +569,10 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
           Prop("FormModal", "bool", "Form", default="false"),
           Prop("FormMinWidth", "number", "Form"), Prop("FormMinHeight", "number", "Form"),
           Prop("FormMaxWidth", "number", "Form"), Prop("FormMaxHeight", "number", "Form"),
+          # about the app the form is: kept in its @Window, used when it goes to the web, a phone or an Android app
+          Prop("FormVersion", "text", "App"), Prop("FormIcon", "text", "App"), Prop("FormWebAddress", "text", "App"),
+          Prop("FormPhoneFit", "choice", "App", options=("", "Fit", "None")),
+          Prop("FormAndroidPackage", "text", "App"), Prop("FormAndroidKey", "text", "App"),
           Prop("GridSize", "number", "Behaviour", default="8", apply=set_grid),
           Prop("ShowGrid", "bool", "Behaviour", default="true", apply=set_show_grid),
           Prop("SnapToGrid", "bool", "Behaviour", default="true", apply=set_snap),

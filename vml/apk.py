@@ -66,7 +66,7 @@ def package_name(app_name, certificate):
     safe = re.sub(r"[^a-z0-9]+", "", app_name.lower()) or "app"
     if not safe[0].isalpha():
         safe = "a" + safe
-    return f"io.visualised.made.{safe[:40]}.k{hashlib.sha256(certificate).hexdigest()[:8]}"
+    return f"io.visualised.made.{safe[:40]}.k{key_id(certificate)}"
 
 
 def good_package(name):
@@ -281,6 +281,106 @@ def signing_key(folder=None, name="", make=True):
     return key, cert.public_bytes(serialization.Encoding.DER), True
 
 
+def key_id(certificate):
+    """A short name for a key, from its certificate: the eight characters that also end the package names of the
+    apps signed with it. A form remembers which key it was last exported with by this."""
+    return hashlib.sha256(certificate).hexdigest()[:8]
+
+
+def key_info(folder=None):
+    """About this developer's signing key, for showing: exists, id, path, made (YYYY-MM-DD), saved (the day a copy
+    was last saved with save_key, or "")."""
+    from . import licence
+    key_file, _ = key_files(folder)
+    try:
+        key, certificate, _ = signing_key(folder, make=False)
+    except ApkError as exc:
+        return {"exists": False, "id": "", "path": str(key_file), "made": "", "saved": "", "problem": str(exc)}
+    if key is None:
+        return {"exists": False, "id": "", "path": str(key_file), "made": "", "saved": "", "problem": ""}
+    from cryptography import x509
+    made = x509.load_der_x509_certificate(certificate).not_valid_before_utc.strftime("%Y-%m-%d")
+    kept = licence.load_prefs().get("android_key_saved", "")
+    saved = kept.split(" ", 1)[1] if isinstance(kept, str) and kept.startswith(key_id(certificate) + " ") else ""
+    return {"exists": True, "id": key_id(certificate), "path": str(key_file), "made": made, "saved": saved, "problem": ""}
+
+
+def save_key(to, folder=None):
+    """Write a copy of the signing key as one file (the key and its certificate together), for its owner to keep
+    somewhere safe. Notes that a copy was made, so Visualised can stop reminding."""
+    import time
+    from . import licence
+    key_file, cert_file = key_files(folder)
+    key, certificate, _ = signing_key(folder, make=False)
+    if key is None:
+        raise ApkError("There is no signing key on this computer yet. One is made the first time you export an Android app.")
+    to = Path(os.path.expanduser(str(to)))
+    old = os.umask(0o077)
+    try:
+        to.write_bytes(b"# Visualised: the key your Android apps are signed with. Keep this file safe and private.\n"
+                       b"# To use it on another computer: Settings, Android Signing Key, Restore from a copy.\n"
+                       + key_file.read_bytes() + cert_file.read_bytes())
+    except OSError:
+        raise ApkError(f"The copy couldn't be written to {to}.") from None
+    finally:
+        os.umask(old)
+    if folder is None:
+        prefs = licence.load_prefs()
+        prefs["android_key_saved"] = f"{key_id(certificate)} {time.strftime('%Y-%m-%d')}"
+        licence.save_prefs(prefs)
+    return str(to)
+
+
+def restore_key(copy, folder=None, replace=False):
+    """Put a signing key back from a copy made by save_key. With a different key already here it refuses, unless
+    replace is true (the key that was here is then kept beside it, renamed, not thrown away). Returns the key's id."""
+    import time
+    from cryptography import x509
+    from cryptography.hazmat.primitives import serialization
+    from . import licence
+    try:
+        text = Path(os.path.expanduser(str(copy))).read_bytes()
+    except OSError:
+        raise ApkError("That file couldn't be read.") from None
+    key_pem = re.search(rb"-----BEGIN PRIVATE KEY-----.*?-----END PRIVATE KEY-----\n?", text, re.S)
+    cert_pem = re.search(rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----\n?", text, re.S)
+    try:
+        key = serialization.load_pem_private_key(key_pem.group(0), password=None)
+        cert = x509.load_pem_x509_certificate(cert_pem.group(0))
+        same = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo) == \
+            cert.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    except Exception:
+        same = False
+    if not same:
+        raise ApkError("That file isn't a copy of a Visualised signing key.")
+    certificate = cert.public_bytes(serialization.Encoding.DER)
+    key_file, cert_file = key_files(folder)
+    try:
+        _, here, _ = signing_key(folder, make=False)
+    except ApkError:
+        here = b"damaged"
+    if here is not None and here != certificate:
+        if not replace:
+            raise ApkError("There is already a different signing key on this computer. Replacing it means apps signed with it "
+                           "can no longer be updated from here.")
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for f in (key_file, cert_file):
+            if f.exists():
+                f.rename(f.with_name(f.name + ".replaced-" + stamp))
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    old = os.umask(0o077)
+    try:
+        key_file.write_bytes(key_pem.group(0).rstrip(b"\n") + b"\n")
+        cert_file.write_bytes(cert_pem.group(0).rstrip(b"\n") + b"\n")
+    finally:
+        os.umask(old)
+    if folder is None:                                  # it came from a copy, so a copy exists
+        prefs = licence.load_prefs()
+        prefs["android_key_saved"] = f"{key_id(certificate)} {time.strftime('%Y-%m-%d')}"
+        licence.save_prefs(prefs)
+    return key_id(certificate)
+
+
 # ---------------------------------------------------------------- the zip, and its signature
 def _lp(data):
     return struct.pack("<I", len(data)) + data
@@ -356,15 +456,29 @@ def _icon_at(picture, size):
     return bytes(raw)
 
 
-def build(page, name, out, version="", package="", icon=None, permissions=None, template=None, key_folder=None, owner=""):
+class OtherKey(ApkError):
+    """The app was last exported with a different signing key from the one on this computer."""
+
+
+def build(page, name, out, version="", package="", icon=None, permissions=None, template=None, key_folder=None, owner="", signed_with=""):
     """Make the Android app. page: the app as a web page (bytes, as export makes). name: what it is called on the
-    phone. out: where to write the .apk. Returns {"path", "package", "version", "code", "permissions", "size",
-    "key", "new_key"}: new_key is True when the signing key was made just now and its owner has yet to be told."""
+    phone. out: where to write the .apk. signed_with: the id of the key the app was last exported with, if it has
+    been before: with a different key here, nothing is made (OtherKey), since phones would refuse it as an update.
+    Returns {"path", "package", "version", "code", "permissions", "size", "key", "key_id", "new_key"}: new_key is
+    True when the signing key was made just now and its owner has yet to be told."""
     template = Path(template or os.environ.get("VML_APK_TEMPLATE") or TEMPLATE)
     if not template.exists():
         raise ApkError(f"The Android template isn't here ({template}). It comes with Visualised; if you run from the source, "
                        "build it with android/make-template.sh.")
     name = str(name).strip() or "App"
+    signed_with = str(signed_with or "").strip()
+    if signed_with:
+        _, has, _ = signing_key(key_folder, make=False)
+        if has is None or key_id(has) != signed_with:
+            raise OtherKey("This app was last exported with a different signing key (" + signed_with + ") from the one on this computer"
+                           + (" (" + key_id(has) + ")" if has is not None else ": there is none here yet")
+                           + ". Phones that have the app would refuse this as an update. Restore your key from its copy "
+                           "(Settings, Android Signing Key), or export this as a new app.")
     key, certificate, new_key = signing_key(key_folder, owner)
     package = str(package or "").strip() or package_name(name, certificate)
     if not good_package(package):
@@ -405,7 +519,7 @@ def build(page, name, out, version="", package="", icon=None, permissions=None, 
     out = Path(os.path.expanduser(str(out)))
     out.write_bytes(sign(made.getvalue(), key, certificate))
     return {"path": str(out), "package": package, "version": str(version or "1.0"), "code": code, "permissions": permissions,
-            "size": out.stat().st_size, "key": str(key_files(key_folder)[0]), "new_key": new_key}
+            "size": out.stat().st_size, "key": str(key_files(key_folder)[0]), "key_id": key_id(certificate), "new_key": new_key}
 
 
 def from_page(page, out, owner="", **more):
@@ -435,7 +549,24 @@ def from_page(page, out, owner="", **more):
         picture = base64.b64decode(icon.split(",", 1)[1]) if ";base64" in icon.split(",", 1)[0] else None
     else:
         picture = str(page.parent / icon) if icon and (page.parent / icon).is_file() else None
-    return build(text.encode("utf-8"), head(r"<title>(.*?)</title>") or "App", out,
-                 version=head(r'<meta name="app-version" content="([^"]*)"'),
-                 package=head(r'<meta name="android-package" content="([^"]*)"'), icon=picture,
-                 permissions=permissions_for(code), owner=owner, **more)
+    how = {"version": head(r'<meta name="app-version" content="([^"]*)"'), "icon": picture, "permissions": permissions_for(code),
+           "package": head(r'<meta name="android-package" content="([^"]*)"'), "owner": owner,
+           "signed_with": head(r'<meta name="android-key" content="([^"]*)"')}
+    how.update(more)                                     # (to export as a new app: package="" and signed_with="")
+    return build(text.encode("utf-8"), head(r"<title>(.*?)</title>") or "App", out, **how)
+
+
+def remember(form, package, key):
+    """Write into a form's file (its @Window) the package name and key it has just been exported with, so that the
+    next export, here or on another computer, makes an update to the same app or says why it can't."""
+    path = Path(form)
+    lines = path.read_text(encoding="utf-8").split("\n")
+    start = next((i for i, line in enumerate(lines) if line.startswith("@Window ")), None)
+    if start is None:
+        return False
+    end = next((i for i in range(start + 1, len(lines)) if not lines[i].strip() or lines[i].startswith("@")), len(lines))
+    block = [l for l in lines[start + 1:end] if not re.match(r"Android(Package|Key)=", l)]
+    new = lines[:start + 1] + block + [f"AndroidPackage={package}", f"AndroidKey={key}"] + lines[end:]
+    if new != lines:
+        path.write_text("\n".join(new), encoding="utf-8")
+    return True

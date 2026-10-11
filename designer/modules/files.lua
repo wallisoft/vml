@@ -279,32 +279,137 @@ function ExportWindows(...)
     if out ~= "" then Vml("InfoDialog", "Exported " .. name .. " for Windows:\n" .. out .. "\n\nUnzip it anywhere and double-click " .. name .. ".exe.", "Export") end
 end
 
--- File > Export > Android app: the form as an .apk anyone with an Android phone can install
+-- File > Export > Android app: the form as an .apk anyone with an Android phone can install.
+-- An Android app is signed with its maker's key, and can only ever be updated with that same key, so the key is
+-- looked after here: explained before it is first made, offered as a copy to keep, and checked against the key
+-- the form was last exported with.
+local function AndroidKeyOf()
+    return require("dkjson").decode(Vml("AndroidKey"))
+end
+
+-- Save a copy of the key where the user chooses. true if one was written.
+function AndroidKeyCopy(...)
+    local path = Vml("FileSaveDialog", "Save a copy of your signing key", "visualised-android-key", "pem")
+    if path == "" then return false end
+    local problem = Vml("AndroidKeySave", path)
+    if problem ~= "" then
+        Vml("InfoDialog", problem, "Android signing key")
+        return false
+    end
+    Vml("InfoDialog", "A copy of your signing key is in:\n" .. path .. "\n\nPut it somewhere that isn't this computer (a memory stick, "
+        .. "a password manager) and keep it private: whoever has it can sign apps as you.", "Android signing key")
+    return true
+end
+
+-- Put the key back from a copy. true if it is now the key on this computer.
+function AndroidKeyBack(...)
+    local path = Vml("FileOpenDialog", "Restore your signing key from its copy", "pem")
+    if path == "" then return false end
+    local problem = Vml("AndroidKeyRestore", path)
+    if problem:find("already a different", 1, true) then
+        if Vml("ChoiceDialog", problem .. "\n\nThe key that is here now would be kept beside the restored one, renamed, not thrown away.",
+               "Android signing key", "Cancel|Replace it") ~= "Replace it" then return false end
+        problem = Vml("AndroidKeyRestore", path, "true")
+    end
+    if problem ~= "" then
+        Vml("InfoDialog", problem, "Android signing key")
+        return false
+    end
+    Vml("SetStatusText", "Signing key restored: " .. AndroidKeyOf().id)
+    return true
+end
+
+-- Settings > Android Signing Key
+function AndroidKeyShow(...)
+    local key = AndroidKeyOf()
+    if key.problem ~= "" then
+        if Vml("ChoiceDialog", key.problem, "Android signing key", "Restore from a copy...|Close") == "Restore from a copy..." then AndroidKeyBack() end
+        return
+    end
+    if not key.exists then
+        local said = Vml("ChoiceDialog", "There is no signing key on this computer yet.\n\nAndroid apps are signed with their maker's key, and an "
+            .. "app can only be updated with the key it was first signed with. Yours is made the first time you export an Android app "
+            .. "(File, Export, Android app).\n\nIf you have exported apps from another computer, restore that key here first.",
+            "Android signing key", "Close|Restore from a copy...")
+        if said == "Restore from a copy..." then AndroidKeyBack() end
+        return
+    end
+    local said = Vml("ChoiceDialog", "Your Android apps are signed with key " .. key.id .. ", made on " .. key.made .. ".\n\n" .. key.path
+        .. "\n\n" .. (key.saved ~= "" and ("A copy was saved on " .. key.saved .. ".")
+            or "NO COPY HAS BEEN SAVED. If this computer is lost, nobody can update the apps you have given out.")
+        .. "\n\nAn app can only be updated with the key it was first signed with.",
+        "Android signing key", key.saved ~= "" and "Close|Save a copy...|Restore from a copy..." or "Save a copy...|Restore from a copy...|Close")
+    if said == "Save a copy..." then AndroidKeyCopy() elseif said == "Restore from a copy..." then AndroidKeyBack() end
+end
+
 function ExportAndroid(...)
+    if Vml("LicenceAllows", "export") ~= "true" then return Vml("ExportApk", "Surface", "") end      -- (it says why not)
     local name = Vml("GetProperty", "Surface", "FormName")
+    local key, was = AndroidKeyOf(), Vml("GetProperty", "Surface", "FormAndroidKey")
+    if key.problem ~= "" then
+        if Vml("ChoiceDialog", key.problem, "Export", "Restore from a copy...|Cancel") ~= "Restore from a copy..." or not AndroidKeyBack() then return end
+        key = AndroidKeyOf()
+    end
+    if was ~= "" and key.id ~= was then
+        -- exported before, with a key that isn't the one here: an update signed with another key is refused by every phone that has the app
+        local said = Vml("ChoiceDialog", name .. " was last exported with signing key " .. was .. ", and "
+            .. (key.exists and ("the key on this computer is a different one (" .. key.id .. ").") or "there is no signing key on this computer.")
+            .. "\n\nPhones that already have " .. name .. " would refuse an export from here as an update."
+            .. "\n\nRestore your key from its copy to carry on with the same app. Or export it as a new app: it installs beside the old one, "
+            .. "and people start afresh.", "Export", "Restore my key...|Export as a new app|Cancel")
+        if said == "Restore my key..." then
+            if not AndroidKeyBack() then return end
+            if AndroidKeyOf().id ~= was then
+                return Vml("InfoDialog", "That is not the key " .. name .. " was exported with (" .. was .. "). Nothing was exported.", "Export")
+            end
+        elseif said == "Export as a new app" then
+            Vml("SetProperty", "Surface", "FormAndroidPackage", "")
+            Vml("SetProperty", "Surface", "FormAndroidKey", "")
+        else
+            return
+        end
+        key = AndroidKeyOf()
+    end
+    if not key.exists then
+        local said = Vml("ChoiceDialog", "Before your first Android app: its signing key.\n\nEvery Android app is signed by its maker, and a phone "
+            .. "will only take an update to an app if it is signed with the same key. Visualised will make your key now and keep it on this "
+            .. "computer. You will be offered a copy to keep safe: without one, losing this computer means never being able to update your apps."
+            .. "\n\nIf you have already exported apps on another computer, restore that key instead.",
+            "Export", "Make my key and export|Restore a key I have...|Cancel")
+        if said == "Restore a key I have..." then
+            if not AndroidKeyBack() then return end
+        elseif said ~= "Make my key and export" then
+            return
+        end
+    end
     local path = Vml("FileSaveDialog", "Export as an Android app", name, "apk")
     if path == "" then return end
     Vml("SetStatusText", "Making the Android app...")
     local out = Vml("ExportApk", "Surface", path)
     if out == "" then return Vml("SetStatusText", "") end
     local made = require("dkjson").decode(out)
+    if made.other_key then
+        Vml("SetStatusText", "")
+        return Vml("InfoDialog", made.message, "Export")
+    end
+    if made.remembered then Vml("SetSetting", "dirty", "true"); Vml("RunScript", "UpdateTitle") end
     Vml("SetStatusText", "Android app written: " .. made.path)
     local uses = {}
     for _, p in ipairs(made.permissions) do
-        if p ~= "INTERNET" and p ~= "ACCESS_NETWORK_STATE" then uses[#uses + 1] = p:lower():gsub("_", " ") end
+        if p ~= "INTERNET" and p ~= "ACCESS_NETWORK_STATE" then uses[#uses + 1] = (p:lower():gsub("_", " ")) end
     end
     local text = "Exported " .. name .. " for Android:\n" .. made.path .. "\n\nVersion " .. made.version .. ", "
         .. math.floor(made.size / 1024 + 0.5) .. " KB. It will ask the phone for: "
         .. (#uses > 0 and table.concat(uses, ", ") or "nothing beyond the internet") .. "."
         .. "\n\nSend the file to an Android phone and open it there. The phone will ask to allow the install, because it "
         .. "hasn't come from a store. For Google Play a different kind of file is needed, which Visualised doesn't make yet."
-    Vml("InfoDialog", text, "Export")
-    if made.new_key then
-        Vml("InfoDialog", "IMPORTANT: keep a copy of your signing key.\n\nYour Android apps are signed with a key that was made just now "
-            .. "and is kept on this computer:\n\n" .. made.key .. "\n" .. made.key:gsub("%.pem$", ".cert")
-            .. "\n\nAndroid will only accept an update to an app if it is signed with the same key. If these two files are lost, "
-            .. "nobody can ever update the apps you have given out: people would have to remove them and install afresh."
-            .. "\n\nCopy both files somewhere safe now, and keep them private: whoever has them can sign apps as you.", "Your signing key")
+        .. (made.remembered and ("\n\nSave the form: it now remembers the app it has become (" .. made.package .. "), so the next export is an update to it.") or "")
+    if AndroidKeyOf().saved ~= "" then
+        return Vml("InfoDialog", text, "Export")
+    end
+    if Vml("ChoiceDialog", text .. "\n\nYOUR SIGNING KEY HAS NO COPY YET. It exists only on this computer, and " .. name
+           .. " can only ever be updated with it.", "Export", "Save a copy of my key...|Later") == "Save a copy of my key..." then
+        AndroidKeyCopy()
     end
 end
 

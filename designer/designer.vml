@@ -444,6 +444,11 @@ Parent=Settings
 Text=Upgrade Licence...
 OnClick=LicenceUpgrade
 
+@MenuItem SetAndroidKey
+Parent=Settings
+Text=Android Signing Key...
+OnClick=AndroidKeyShow
+
 @MenuItem SetSep3
 Parent=Settings
 IsSeparator=true

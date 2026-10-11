@@ -1368,7 +1368,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         surf.export_names, surf.carried = {}, []
         for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
             surf.props.pop(ev, None)
-        for prop in ("FormBorder", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight"):
+        for prop in ("FormBorder", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight",
+                     *(p for _, p in self.APP_KEYS)):
             if surf.props.get(prop):                         # the last form's window options don't carry over
                 self.cmd_SetProperty(surf.name, prop, "")
         surf.widget.menu_settings = {}
@@ -1377,6 +1378,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         for k, v in (("FormName", "Form1"), ("FormTitle", "Form1"), ("FormWidth", "640"), ("FormHeight", "480"),
                      ("FormBackground", "#ffffff")):
             self.cmd_SetProperty(surf.name, k, v)
+
+    # What a form says about the app it is, in its @Window, and the designer's name for each: read when a form is
+    # opened and written back when it is saved, so a form keeps its version, picture and the rest through the designer.
+    APP_KEYS = (("Version", "FormVersion"), ("Icon", "FormIcon"), ("WebAddress", "FormWebAddress"), ("PhoneFit", "FormPhoneFit"),
+                ("AndroidPackage", "FormAndroidPackage"), ("AndroidKey", "FormAndroidKey"))
 
     def cmd_ExportVml(self, surface, path):
         """Write the designed form as VML: a Window holding a Canvas holding the controls."""
@@ -1400,7 +1406,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
-                          ("BorderBrush", "FormBorder"),
+                          ("BorderBrush", "FormBorder"), *self.APP_KEYS,
                           ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp")):
             v = str(surf.props.get(prop, "") or "")
             if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false"):
@@ -1549,7 +1555,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             self.cmd_SetProperty(surf.name, k, v)
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
-                          ("BorderBrush", "FormBorder")):
+                          ("BorderBrush", "FormBorder"), *self.APP_KEYS):
             if wp.get(key):
                 self.cmd_SetProperty(surf.name, prop, wp[key])
         count, placed = 0, {canvas[0]: surf.name}
@@ -1910,13 +1916,40 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         """Write a form as one self-contained web page. source: a design surface, or a .vml file."""
         return self._export_html(source, out)
 
+    def cmd_AndroidKey(self):
+        """About the key this user's Android apps are signed with, as JSON: exists, id (a short name for it), path,
+        made (the day), saved (the day a copy was last saved, or ""), problem (if it is there but can't be read)."""
+        from . import apk
+        return json.dumps(apk.key_info())
+
+    def cmd_AndroidKeySave(self, path):
+        """Write a copy of the signing key to a file, to be kept somewhere safe. "" if done, otherwise why not."""
+        from . import apk
+        try:
+            apk.save_key(path)
+            return ""
+        except apk.ApkError as exc:
+            return str(exc)
+
+    def cmd_AndroidKeyRestore(self, path, replace=""):
+        """Put the signing key back from a copy. With a different key already here it refuses unless replace is
+        "true" (the one that was here is kept beside it, renamed). "" if done, otherwise why not."""
+        from . import apk
+        try:
+            apk.restore_key(path, replace=str(replace).strip().lower() in ("true", "1", "yes"))
+            return ""
+        except apk.ApkError as exc:
+            return str(exc)
+
     def cmd_ExportApk(self, source="Surface", out=""):
         """Write a form as an Android app of its own: one .apk, with the app's name, picture and version, asking
         only for what its scripts use, and signed with this user's key (made the first time, and kept beside
         their Visualised settings: it must be backed up, since an app can only be updated with the key it was
         first signed with). source: a design surface, or a .vml file. Returns what was made as JSON: path,
-        package, version, permissions, size, key (where the key is) and new_key (true when the key was made just
-        now). "" if it couldn't be done, having said why. (Pro.)"""
+        package, version, permissions, size, key (where the key is), key_id and new_key (true when the key was made
+        just now); or other_key and a message, when the form was last exported with a different key from the one
+        here. The form is told its package and key, to make an update of the same app next time. "" if it couldn't
+        be done, having said why. (Pro.)"""
         if not self.needs("export", "Exporting a form as an Android app"):
             return ""
         from . import apk
@@ -1925,6 +1958,16 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             page = Path(self._export_html(source, str(folder / "index.html")))
             out = str(out or Path(self.store.get_setting("current_file") or "App").with_suffix(".apk"))
             made = apk.from_page(page, out, owner=self.licence().get("name", ""))
+            # the form remembers the app it has become: the same package and key next time make an update to it
+            node = self.find(source) if source and not str(source).lower().endswith(".vml") else None
+            if node is not None and node.type.name == "DesignSurface":
+                made["remembered"] = (node.props.get("FormAndroidPackage") or "", node.props.get("FormAndroidKey") or "") != (made["package"], made["key_id"])
+                self.cmd_SetProperty(node.name, "FormAndroidPackage", made["package"])
+                self.cmd_SetProperty(node.name, "FormAndroidKey", made["key_id"])
+            else:
+                made["remembered"] = apk.remember(self._form_path(source), made["package"], made["key_id"])
+        except apk.OtherKey as exc:
+            return json.dumps({"other_key": True, "message": str(exc)})
         except apk.ApkError as exc:
             self.cmd_InfoDialog(str(exc), "Export")
             return ""
