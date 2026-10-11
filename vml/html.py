@@ -9,6 +9,7 @@ WebAssembly, via Wasmoon) against a JavaScript Vml() that speaks the same comman
 """
 import html
 import json
+import os
 import re
 from pathlib import Path
 
@@ -76,7 +77,7 @@ class Page:
         stamped = str(wp.get("LinkPass") or "")
         if stamped.startswith("VP1-"):
             return stamped
-        if not any(re.search(r"""["']Link(Pair)?["']""", s["code"]) for s in scripts.values()):
+        if os.environ.get("VML_NO_LINK_PASS") or not any(re.search(r"""["']Link(Pair)?["']""", s["code"]) for s in scripts.values()):
             return ""
         try:
             from . import licence
@@ -427,7 +428,7 @@ class Page:
         self.bar_colour = colour(theme.get("Background") or wp.get("Background") or "#ffffff")
         data = {"form": win[3], "names": self.names, "scripts": scripts, "onOpened": wp.get("OnOpened", ""),
                 "design": [int(num(wp.get("Width"), 0)), int(num(wp.get("Height"), 0))],     # the size it was drawn at
-                "fit": str(wp.get("PhoneFit") or "Fit"), "linkPass": self.link_pass(wp, scripts),
+                "fit": str(wp.get("PhoneFit") or "Fit"), "linkPass": self.link_pass(wp, scripts), "webAddress": str(wp.get("WebAddress") or ""),
                 "modules": self.modules, "project": self.project_name, "sources": self.sources(),
                 "data": self.with_data, "databases": self.databases() if self.with_data else {}, "mainDb": main,
                 "sqljs": SQLJS, "named": list(self.project.databases) if self.project is not None else [],
@@ -1020,7 +1021,7 @@ const commands = {
     commands.LinkClose();
     const tell = (what, text = "") => setTimeout(() => run(handler, [what, text]), 0);
     if (!window.crypto || !crypto.subtle) { tell("error", "A link needs a secure page: the Visualised app, or an https address."); return ""; }
-    code = String(code).trim();
+    code = linkCodeIn(code);
     if (!code) { const r = crypto.getRandomValues(new Uint8Array(32)); code = "VL1" + btoa(String.fromCharCode(...r)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
     let secret;
     try {
@@ -1065,6 +1066,18 @@ const commands = {
     return "true";
   },
   LinkCode: () => link && !link.pairing ? link.code : "",
+  // What to show as a QR code so any phone's camera can join this link: an address that opens this app with the
+  // code after the #, where no web server sees it. The app has to be on the web: this page's own address if it
+  // is, or the Window's WebAddress. Otherwise the code itself.
+  LinkAddress(code = "") {
+    code = String(code || "") || commands.LinkCode();
+    if (!code) return "";
+    const here = /^https:$/.test(location.protocol) && !/\.invalid$/.test(location.hostname) ? location.origin + location.pathname : "";
+    const app = String(VML.webAddress || "").startsWith("https://") ? VML.webAddress.split("#")[0] : here;
+    return app ? "https://visualised.io/open.html#" + encodeURIComponent(app + "#" + code) : code;
+  },
+  // The link code this app was opened with (from an address made by LinkAddress), once; "" otherwise.
+  LinkInvite() { const code = linkInvite; linkInvite = ""; return code; },
   LinkClose() {
     const mine = link;
     if (!mine) return "";
@@ -1302,6 +1315,14 @@ function qrMatrix(text) {
 }
 // ---- Link (the same as vml/link.py does on a computer: see there for how a message is put together)
 let link = null;
+// a code may arrive inside an address (what a QR code made with LinkAddress says)
+const linkCodeIn = text => { const m = /VL1[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/.exec(String(text)); return m ? m[0] : String(text).trim(); };
+// opened with a link's code after the # : kept for LinkInvite, and taken out of the address so it isn't left on show
+let linkInvite = "";
+try {
+  const m = /VL1[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/.exec(decodeURIComponent(location.hash));
+  if (m) { linkInvite = m[0]; history.replaceState(null, "", location.pathname + location.search); }
+} catch (err) {}
 const linkBytes = t => new TextEncoder().encode(t);
 async function linkKeys(secret) {
   const base = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits", "deriveKey"]);

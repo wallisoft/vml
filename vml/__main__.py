@@ -2,6 +2,7 @@
    vml setup-csharp                                         (optional: build the C# script host)
    vml html form.vml [out.html] [--open] [--cdn]            (a web page, Lua engine inside it; --cdn: load it online instead)"""
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -22,6 +23,8 @@ def main():
         rest = [x for x in sys.argv[2:] if not x.startswith("-")]
         if not rest:
             raise SystemExit("usage: vml html form.vml [out.html]")
+        if "--no-pass" in sys.argv:                         # for a page anyone may copy, such as an example: its links go on the free allowance
+            os.environ["VML_NO_LINK_PASS"] = "1"
         out = export_html(rest[0], rest[1] if len(rest) > 1 else None, offline="--cdn" not in sys.argv)
         print(out)
         if "--open" in sys.argv:                            # serve it locally and open it in the browser

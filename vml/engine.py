@@ -2542,6 +2542,24 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             made.events.put(("error", str(exc)))
             return ""
 
+    def cmd_LinkAddress(self, code=""):
+        """What to show as a QR code (QrCode) so any phone's camera can join this app's link, not only the
+        scanner inside the app: an address that opens this app with the link's code. It needs the app to be on
+        the web, and its Window to say where (WebAddress=https://...); without that, the code itself is given
+        back, which another copy of the app can still scan or have pasted in. code: the link's code (the one
+        open now if left out)."""
+        from . import link
+        code = str(code or "") or self.cmd_LinkCode()
+        if not code:
+            return ""
+        win = next((n for n in self.nodes.values() if n.type.name == "Window" and n.parent is None), None)
+        return link.address(code, win.props.get("WebAddress", "") if win is not None else "")
+
+    def cmd_LinkInvite(self):
+        """The link code this app was opened with, when it was opened from an address made by LinkAddress (a QR
+        code pointed at by a phone's camera): give it to Link to join. "" otherwise, and always on a computer."""
+        return ""
+
     def cmd_LinkCode(self):
         """The code of the link this app has open, or ""."""
         from . import link

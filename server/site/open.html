@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open an app in Visualised</title>
+<meta name="description" content="Someone has shared an app made with Visualised. Open it on your phone, or run it in your browser.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<style>
+  :root { --blue: #1E3A8A; --bright: #2563EB; --ink: #111827; --muted: #4B5563; --soft: #F3F4F6; --line: #E5E7EB; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif; color: var(--ink); background: #fff; }
+  header { background: var(--blue); color: #fff; padding: 16px 20px; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; }
+  header img { width: 30px; height: 30px; }
+  main { max-width: 520px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1 { font-size: 24px; line-height: 1.25; margin: 0 0 6px; }
+  .from { color: var(--muted); margin: 0 0 22px; overflow-wrap: anywhere; }
+  .from strong { color: var(--ink); }
+  .step { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .step h2 { font-size: 17px; margin: 0 0 4px; }
+  .step p { margin: 0 0 12px; color: var(--muted); font-size: 15px; }
+  .step.now { border-color: var(--bright); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
+  a.btn { display: block; text-align: center; background: var(--bright); color: #fff; text-decoration: none; padding: 13px 16px; border-radius: 10px; font-weight: 600; }
+  a.btn.quiet { background: #fff; color: var(--bright); border: 1.5px solid var(--bright); padding: 11.5px 16px; }
+  .small { font-size: 14px; color: var(--muted); margin-top: 18px; }
+  .small a { color: var(--bright); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header><img src="/vml-128.png" alt="">Visualised</header>
+<main>
+  <div id="shared" hidden>
+    <h1>Someone has shared an app with you</h1>
+    <p class="from">It comes from <strong id="host"></strong><br><span id="address"></span></p>
+
+    <div id="android" hidden>
+      <div class="step" id="step1">
+        <h2>1. Get Visualised, once</h2>
+        <p>It runs apps like this one and lets them use your phone's camera, location and more. 100 KB. It isn't on Google Play yet, so your phone will ask you to allow the install, and Play Protect will say it doesn't recognise it: that's expected.</p>
+        <a class="btn" href="/downloads/Visualised.apk">Download Visualised.apk</a>
+      </div>
+      <div class="step" id="step2">
+        <h2>2. Open the app</h2>
+        <p>Come back to this page when Visualised is installed, and tap here. Then choose Keep on this phone, and it's yours with no connection needed.</p>
+        <a class="btn" id="open" href="#">Open in Visualised</a>
+      </div>
+      <p class="small">Or <a id="browser1" href="#">run it in this browser</a> without installing anything.</p>
+    </div>
+
+    <div id="other" hidden>
+      <div class="step now">
+        <h2>Run it</h2>
+        <p>Apps made with Visualised run in any browser.</p>
+        <a class="btn" id="browser2" href="#">Run it in your browser</a>
+      </div>
+      <p class="small">On an Android phone, the Visualised app also lets it use the camera, location and notifications, and keeps it for when you're offline. Open this page on the phone to get it.</p>
+    </div>
+
+    <p class="small">Only open apps from people you know. An app can ask to use your camera or location, and you can always say no.</p>
+  </div>
+
+  <div id="nothing" hidden>
+    <h1>Nothing to open</h1>
+    <p class="from">This page opens an app someone has shared with you, and the link that brought you here doesn't name one. Ask them to share it again.</p>
+    <a class="btn quiet" href="/">About Visualised</a>
+  </div>
+</main>
+<script>
+  // The app's address comes after the # : https://visualised.io/open.html#https://example.org/app.html
+  // Nothing here is trusted: it must be a plain https address, and it is only ever shown as text or used as a link.
+  (function () {
+    var show = function (id) { document.getElementById(id).hidden = false; };
+    var given = decodeURIComponent(location.hash.slice(1)), where = null;
+    try { where = new URL(given); } catch (err) { where = null; }
+    if (!where || where.protocol !== "https:" || !where.hostname || where.username || where.password) { show("nothing"); return; }
+    var rest = where.host + where.pathname + where.search;
+    // an app's address may end with a link's code (#VL1...): it is handed to Visualised beside the address, never inside
+    // it, so it is not sent to the web server the app comes from
+    var code = /^#VL1[A-Za-z0-9_-]{43}$/.test(where.hash) ? where.hash.slice(1) : "";
+    if (code) document.querySelector("#shared h1").textContent = "Someone is inviting you to link";
+    document.getElementById("host").textContent = where.hostname;
+    document.getElementById("address").textContent = where.origin + where.pathname + where.search;
+    document.getElementById("browser1").href = where.href;
+    document.getElementById("browser2").href = where.href;
+    show("shared");
+    if (!/Android/.test(navigator.userAgent)) { show("other"); return; }
+    show("android");
+    // Chrome goes to the page named after "browser_fallback_url" when Visualised isn't installed: this one, marked ?get
+    var back = location.origin + location.pathname + "?get=1" + location.hash;
+    document.getElementById("open").href = "intent://" + rest + "#Intent;scheme=visualised;package=io.visualised.app;" + (code ? "S.link=" + code + ";" : "") + "S.browser_fallback_url=" + encodeURIComponent(back) + ";end";
+    document.getElementById(/[?&]get=1/.test(location.search) ? "step1" : "step2").classList.add("now");
+    if (/[?&]get=1/.test(location.search)) document.querySelector("#step1 h2").textContent = "1. Get Visualised first";
+  })();
+</script>
+</body>
+</html>

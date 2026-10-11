@@ -11,6 +11,8 @@
 #     Link      start one (and be given its code), or join one with a code
 #     LinkSend  say something to the other end
 #     QrCode    the code as a picture       ScanCode   read one with the camera
+#     LinkAddress  an address for the picture, so any phone's camera can join
+#     LinkInvite   the code this app was opened with, when it was opened that way
 #     LinkPair  agree a link by pressing together, then LinkAccept to open it
 #   The messages are locked with a key made from the code before they leave,
 #   and pass through a relay that sees only what it cannot read.
@@ -20,9 +22,11 @@
 
 @Window LinkChat
 Title=Link Chat
-Version=1.1
+Version=1.2
 Width=360
 Height=640
+WebAddress=https://visualised.io/apps/linkchat.html
+OnOpened=Opened
 
 @Canvas c
 Parent=LinkChat
@@ -131,12 +135,23 @@ Interpreter=lua
 local code = Vml("Link", "Got")
 if code == "" then return end
 Linked, Said = false, ""
-Vml("SetProperty", "imgCode", "Source", Vml("QrCode", code, "5"))
+-- the picture holds an address, so a phone's ordinary camera can open this app and join; the app's own scanner reads it too
+Vml("SetProperty", "imgCode", "Source", Vml("QrCode", Vml("LinkAddress", code), "4"))
 Vml("SetProperty", "txtCode", "Text", code)
 Vml("SetProperty", "imgCode", "IsVisible", "true")
 Vml("SetProperty", "txtCode", "IsVisible", "true")
 Vml("SetProperty", "lblLog", "IsVisible", "false")
-Vml("SetProperty", "lblState", "Text", "Waiting. On the other app press Join one and scan this, or copy the code across.")
+Vml("SetProperty", "lblState", "Text", "Waiting. Point the other phone's camera at this, or press Join one in the other app.")
+LUA
+
+@Script Opened
+Interpreter=lua
+<<LUA
+-- Opened from another app's code by a phone's camera: join that link straight away.
+local code = Vml("LinkInvite")
+if code == "" then return end
+Linked, Said = false, ""
+if Vml("Link", "Got", code) ~= "" then Vml("SetProperty", "lblState", "Text", "Joining...") end
 LUA
 
 @Script DoPair

@@ -72,6 +72,28 @@ def new_code():
     return "VL1" + base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
 
 
+OPEN_PAGE = "https://visualised.io/open.html"
+
+
+def code_in(text):
+    """The link code in some text: the code itself, or an address that ends with one (what a QR code made with
+    LinkAddress says). The text as it came if there is none."""
+    import re
+    found = re.search(r"VL1[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])", str(text))
+    return found.group(0) if found else str(text).strip()
+
+
+def address(code, app_address=""):
+    """What to show as a QR code so that any phone's camera can join a link: an address that opens the app (which
+    must be on the web, at app_address) with the code after the #, where no web server ever sees it. With no
+    app_address, the code alone: another copy of the app can still scan or paste that."""
+    app_address = str(app_address or "").strip()
+    if not app_address.startswith("https://"):
+        return code
+    from urllib.parse import quote
+    return f"{OPEN_PAGE}#{quote(app_address.split('#')[0] + '#' + code, safe='')}"
+
+
 def keys(code):
     """A code -> (channel, key). Raises LinkError for something that isn't a code."""
     try:
@@ -79,7 +101,7 @@ def keys(code):
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     except ImportError as exc:
         raise LinkError("Link needs the 'cryptography' package (pip install cryptography).") from exc
-    code = str(code).strip()
+    code = code_in(code)
     try:
         if not code.startswith("VL1"):
             raise ValueError
@@ -221,7 +243,7 @@ class Link:
 
     def __init__(self, code="", relay=None, start="", carry=""):
         self.carry = str(carry or "")   # the pass of whoever made this app, if they have one: the link is then carried in full
-        self.code = str(code).strip() or new_code()
+        self.code = code_in(code) or new_code()
         self.channel, self.key = keys(self.code)
         self.relay = (relay or os.environ.get("VML_LINK_URL") or RELAY)
         self.sender = os.urandom(8).hex()

@@ -174,10 +174,22 @@ public class MainActivity extends Activity {
             return;
         }
         final String where = Apps.address(link.getEncodedAuthority(), link.getEncodedPath());
+        // A link's code may come with it (someone's Link code, pointed at with the camera): it is given to the app
+        // after a #, which is never sent to the server the app comes from.
+        String code = intent.getStringExtra("link");
+        final String invite = code != null && code.matches("VL1[A-Za-z0-9_-]{43}") ? "#" + code : "";
+        if (!invite.isEmpty()) {
+            for (Apps.Kept app : apps.all()) {          // already kept on this phone: no need to ask, or to fetch it
+                if (app.source.equals(where)) {
+                    openKept(app, invite);
+                    return;
+                }
+            }
+        }
         new AlertDialog.Builder(this)
-                .setTitle("Open this app?")
+                .setTitle(invite.isEmpty() ? "Open this app?" : "Open this app and join the link?")
                 .setMessage("From " + link.getEncodedAuthority() + ".\n\nOnly open apps from a computer you know.")
-                .setPositiveButton("Open", (d, w) -> openLive(where))
+                .setPositiveButton("Open", (d, w) -> openLive(where, invite))
                 .setNegativeButton("Cancel", null)
                 .show();
     }
@@ -659,6 +671,10 @@ public class MainActivity extends Activity {
 
     /** Run the app a computer is serving, fetched afresh each time. */
     private void openLive(String where) {
+        openLive(where, "");
+    }
+
+    private void openLive(String where, String invite) {
         Uri u = Uri.parse(where);
         String base = u.getScheme() + "://" + u.getEncodedAuthority();
         String name = "live-" + Apps.safe(u.getEncodedAuthority().replace('.', '-').replace(':', '-')) + SUFFIX;
@@ -667,13 +683,17 @@ public class MainActivity extends Activity {
         liveText.setText("Live from " + u.getEncodedAuthority());
         liveBar.setVisibility(View.VISIBLE);
         String path = u.getEncodedPath() == null || u.getEncodedPath().isEmpty() ? "/" : u.getEncodedPath();
-        show(name, u.getEncodedAuthority(), path);
+        show(name, u.getEncodedAuthority(), path + invite);
     }
 
     private void openKept(Apps.Kept app) {
+        openKept(app, "");
+    }
+
+    private void openKept(Apps.Kept app, String invite) {
         liveSource = "";
         liveBar.setVisibility(View.GONE);
-        show(app.id + SUFFIX, app.name, "/");
+        show(app.id + SUFFIX, app.name, "/" + invite);
     }
 
     private void show(String name, String called, String path) {
