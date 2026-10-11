@@ -70,6 +70,20 @@ class Page:
                 except OSError:
                     pass
 
+    def link_pass(self, wp, scripts):
+        """The pass a page that uses Link goes out with: the one saved in the form, or else this computer's own
+        if it has a Pro licence. "" otherwise: its links are then on the relay's free allowance. (vml/link.py)"""
+        stamped = str(wp.get("LinkPass") or "")
+        if stamped.startswith("VP1-"):
+            return stamped
+        if not any(re.search(r"""["']Link(Pair)?["']""", s["code"]) for s in scripts.values()):
+            return ""
+        try:
+            from . import licence
+            return licence.link_pass()
+        except Exception:
+            return ""
+
     def sources(self):
         """The controls that fill themselves: [{name, src, db}]."""
         return [{"name": self.by_id[c][3], "src": self.props[c]["ItemsSource"], "db": self.props[c].get("Database", "")}
@@ -413,7 +427,7 @@ class Page:
         self.bar_colour = colour(theme.get("Background") or wp.get("Background") or "#ffffff")
         data = {"form": win[3], "names": self.names, "scripts": scripts, "onOpened": wp.get("OnOpened", ""),
                 "design": [int(num(wp.get("Width"), 0)), int(num(wp.get("Height"), 0))],     # the size it was drawn at
-                "fit": str(wp.get("PhoneFit") or "Fit"),
+                "fit": str(wp.get("PhoneFit") or "Fit"), "linkPass": self.link_pass(wp, scripts),
                 "modules": self.modules, "project": self.project_name, "sources": self.sources(),
                 "data": self.with_data, "databases": self.databases() if self.with_data else {}, "mainDb": main,
                 "sqljs": SQLJS, "named": list(self.project.databases) if self.project is not None else [],
@@ -1027,13 +1041,30 @@ const commands = {
     }).catch(() => tell("error", "This page can't make a link."));
     return code;
   },
+  // Agree a link with another app by pressing together: both run this within a few seconds of each other. The
+  // handler is run with "words" and three words, which the other app shows too; when they are the same,
+  // LinkAccept opens the link. Or with "error" and what went wrong.
+  LinkPair(handler) {
+    commands.LinkClose();
+    const tell = (what, text = "") => setTimeout(() => run(handler, [what, text]), 0);
+    if (!window.crypto || !crypto.subtle) { tell("error", "A link needs a secure page: the Visualised app, or an https address."); return ""; }
+    const mine = link = { pairing: true, handler, code: "", tell, relay: window.VML_LINK_URL || "https://visualised.io/link/", closed: false };
+    linkPair(mine).then(words => { if (!mine.closed) tell("words", words); })
+      .catch(err => { if (!mine.closed) tell("error", err && err.told ? err.message : "The pairing went wrong. Press together again."); });
+    return "true";
+  },
+  LinkAccept() {
+    const mine = link;
+    if (!mine || !mine.pairing || !mine.code) return "";
+    return commands.Link(mine.handler, mine.code);
+  },
   LinkSend(text = "") {
     const mine = link;
-    if (!mine) return "";
+    if (!mine || mine.pairing) return "";
     mine.queue = mine.queue.then(() => mine.ready).then(() => linkPost(mine, "msg", String(text))).catch(err => mine.tell("error", err.message || "The relay couldn't be reached."));
     return "true";
   },
-  LinkCode: () => link ? link.code : "",
+  LinkCode: () => link && !link.pairing ? link.code : "",
   LinkClose() {
     const mine = link;
     if (!mine) return "";
@@ -1278,7 +1309,74 @@ async function linkKeys(secret) {
   const channel = [...new Uint8Array(await crypto.subtle.deriveBits(how("channel"), base, 128))].map(b => b.toString(16).padStart(2, "0")).join("");
   return [channel, await crypto.subtle.deriveKey(how("key"), base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"])];
 }
+// Pairing by pressing together (vml/link.py says how, and why three words are enough). The same words, in the same order.
+const LINK_WORDS = ("apple arrow badge baker beach berry bison blade bread brick bridge broom brush bucket butter button cabin camel " +
+  "candle canoe carpet carrot castle chair chalk cheese cherry circus clock cloud clover coast cobra comet coral " +
+  "cotton cradle crane crayon cricket crown daisy dancer desert diamond dinner dolphin donkey dragon drum eagle " +
+  "elbow engine falcon farmer feather fence ferry fiddle finger forest fossil fountain fox garden garlic ginger " +
+  "giraffe glove goblin goose grape guitar hammer harbour hazel hedge helmet heron honey hornet house island ivory " +
+  "jacket jelly jigsaw jungle kettle kitten ladder lagoon lantern lemon lentil lilac lizard lobster locket magnet " +
+  "mango maple marble market meadow melon mirror monkey moon mountain muffin mustard napkin needle nettle noodle " +
+  "nutmeg oak ocean olive onion orange orchid otter owl oyster paddle panda parrot pasta peach pebble pencil pepper " +
+  "piano pickle pigeon pillow pirate planet plum pocket pony poppy potato puddle puffin pumpkin puppet quilt rabbit " +
+  "radio raven ribbon river robin rocket saddle sailor salmon sandal satin scarf shadow shell shovel silver skate " +
+  "sled snail sofa spider spoon sprout squid stable statue stone storm sugar summer sunset swan table teapot " +
+  "thimble thunder ticket tiger timber toast tomato torch tower tractor trumpet tulip tunnel turkey turtle umbrella " +
+  "valley velvet violin wagon walnut walrus water whale wheat whistle willow window winter wizard wolf yogurt zebra " +
+  "anchor acorn badger banjo basket beetle biscuit blanket bottle cactus candy copper dagger emerald flute gravel " +
+  "hamster igloo jaguar kayak koala lemur mitten nugget ostrich parsnip quiver radish sparrow tadpole unicorn " +
+  "vulture waffle yacht zipper pelican compass lighthouse").split(" ");
+const linkTold = text => Object.assign(new Error(text), { told: true });
+async function linkAsk(url, body) {
+  let r, answer;
+  try {
+    r = await fetch(url, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
+    answer = await r.json().catch(() => ({}));
+  } catch (err) { throw linkTold("The relay couldn't be reached."); }
+  if (!r.ok || !answer.ok) throw linkTold(answer.error ? `The relay refused that: ${answer.error}.` : "The relay couldn't be reached.");
+  return answer;
+}
+async function linkPair(mine) {
+  const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
+  const url64 = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+  const pub = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+  const promise = hex(await crypto.subtle.digest("SHA-256", pub));
+  const me = String((await linkAsk(`${mine.relay}?p=go`, { c: promise })).id);
+  const nobody = "Nobody else pressed in time. Press together, within a few seconds of each other.";
+  let shown = false;
+  for (const end = Date.now() + 40000; !mine.closed && Date.now() < end;) {
+    const answer = await linkAsk(`${mine.relay}?p=wait&id=${me}`);
+    if (answer.state === "busy") throw linkTold("Someone else was pairing at the same moment. Press together again.");
+    if (answer.state === "gone") throw linkTold(nobody);
+    if (answer.state === "paired") {
+      const theirs = String(answer.c || "");
+      if (theirs.length !== 64 || theirs === promise) throw linkTold("The pairing went wrong. Press together again.");
+      if (!shown) { await linkAsk(`${mine.relay}?p=key&id=${me}`, { k: url64(pub) }); shown = true; }      // we hold their promise: now ours may be seen
+      if (answer.k) {
+        const meddled = linkTold("The pairing was interfered with. Don't go on.");
+        let raw, shared;
+        try { raw = Uint8Array.from(atob(String(answer.k).replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0)); } catch (err) { throw meddled; }
+        if (hex(await crypto.subtle.digest("SHA-256", raw)) !== theirs) throw meddled;
+        try {
+          const key = await crypto.subtle.importKey("raw", raw, { name: "ECDH", namedCurve: "P-256" }, false, []);
+          shared = await crypto.subtle.deriveBits({ name: "ECDH", public: key }, pair.privateKey, 256);
+        } catch (err) { throw meddled; }
+        let low = pub, high = raw;
+        for (let i = 0; i < pub.length; i++) if (pub[i] !== raw[i]) { if (pub[i] > raw[i]) { low = raw; high = pub; } break; }
+        const info = new Uint8Array(low.length + high.length); info.set(low); info.set(high, low.length);
+        const base = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveBits"]);
+        const out = new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: linkBytes("visualised-link-pair-v1"), info }, base, 280));
+        mine.code = "VL1" + url64(out.subarray(0, 32));
+        return [...out.subarray(32)].map(b => LINK_WORDS[b]).join(" ");
+      }
+    }
+    await new Promise(done => setTimeout(done, 400));
+  }
+  throw linkTold(nobody);
+}
 async function linkCall(mine, query, body) {
+  if (body !== undefined && VML.linkPass) query += "&v=" + encodeURIComponent(VML.linkPass);      // its maker's pass: the link is carried in full
   const r = await fetch(`${mine.relay}?c=${mine.channel}${query}`, body === undefined ? { cache: "no-store" }
     : { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });      // (text/plain: no asking first)
   const answer = await r.json().catch(() => ({}));
@@ -1323,7 +1421,8 @@ async function linkPoll(mine) {
   }
   if (mine.closed) return;
   const quiet = Date.now() - mine.active;
-  mine.timer = setTimeout(() => linkPoll(mine), mine.failing ? Math.min(30000, 2000 * mine.failing) : quiet < 15000 ? 400 : quiet < 300000 ? 1500 : 4000);
+  mine.timer = setTimeout(() => linkPoll(mine), mine.failing ? Math.min(30000, 2000 * mine.failing)
+    : quiet < 15000 ? 400 : quiet < 120000 ? 1500 : quiet < 600000 ? 5000 : quiet < 3600000 ? 15000 : 60000);      // (unused, it asks less and less often)
 }
 function stopFlash() {
   if (!flashing) return;

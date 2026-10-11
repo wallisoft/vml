@@ -654,6 +654,13 @@ def make_label(node):
     return w
 
 
+def place_label_text(w, across=None):
+    """Where a TextBlock's words sit in its box. One line sits in the middle of its height; words that wrap
+    start at the top and run down, as they do on a page and on a phone."""
+    across = (w.alignment() & Qt.AlignHorizontal_Mask) if across is None else across
+    w.setAlignment(across | (Qt.AlignTop if w.wordWrap() else Qt.AlignVCenter))
+
+
 def make_textbox(node):
     w = QPlainTextEdit() if truthy(node.props.get("AcceptsReturn")) else QLineEdit()
     w.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
@@ -750,6 +757,7 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
          COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or ""))),
                   Prop("Version", "text", "Common"),                             # the app's own version; a phone shows it beside the app
                   Prop("Icon", "text", "Common"),                                # a picture for the app: its icon on a phone
+                  Prop("LinkPass", "text", "Behaviour"),                         # put in by Visualised Pro when it saves an app that uses Link: see vml/link.py
                   Prop("PhoneFit", "choice", "Behaviour", options=("Fit", "None")),  # as a web page on a phone: scale to the screen's width, or leave alone
                   Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window
                   Prop("BorderThickness", "thickness", "Appearance", apply=window_edge),
@@ -795,10 +803,10 @@ register(ControlType("ScrollViewer", make_scroll, container=True, add_child=scro
 register(ControlType("TextBlock", make_label, events=dict(POINTER_EVENTS)),
          COMMON, ATTACHED, PADDING_STYLE,
          [Prop("Text", "text", "Common", apply=lambda n, v: n.widget.setText(str(v or ""))),
-          Prop("TextWrapping", "choice", "Text", options=("NoWrap", "Wrap"), apply=lambda n, v: n.widget.setWordWrap(v == "Wrap")),
+          Prop("TextWrapping", "choice", "Text", options=("NoWrap", "Wrap"),
+               apply=lambda n, v: (n.widget.setWordWrap(v == "Wrap"), place_label_text(n.widget))),
           Prop("TextAlignment", "choice", "Text", options=("Left", "Center", "Right"),
-               apply=lambda n, v: n.widget.setAlignment({"Center": Qt.AlignHCenter, "Right": Qt.AlignRight}.get(v, Qt.AlignLeft)
-                                                        | Qt.AlignVCenter))])
+               apply=lambda n, v: place_label_text(n.widget, {"Center": Qt.AlignHCenter, "Right": Qt.AlignRight}.get(v, Qt.AlignLeft)))])
 
 register(ControlType("TextBox", make_textbox,
                      events={"TextChanged": on_signal("textChanged"), **KEY_EVENTS, **POINTER_EVENTS}),

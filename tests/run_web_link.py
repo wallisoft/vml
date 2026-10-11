@@ -106,7 +106,7 @@ with sync_playwright() as p:
 
     two = open_page()
     V(two, "Link", "Got", code)
-    check("a third app can join the same link, and all are told", (events(desk, 1), "joined:|" in until(two, "joined:|"), heard(one).count("joined:|")), ([("joined", "")], True, 2))
+    check("a third app can join the same link, and all are told", (events(desk, 1), "joined:|" in until(two, "joined:|"), (one.wait_for_timeout(1200), heard(one).count("joined:|"))[1]), ([("joined", "")], True, 2))
     V(two, "LinkSend", "to you both")
     check("what one sends, every other end gets", (events(desk, 1), until(one, "to you both").endswith("message:to you both|"), "to you both" in heard(two)), ([("message", "to you both")], True, False))
 

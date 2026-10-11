@@ -4,11 +4,14 @@
 #   One presses "Start a link" and shows the code that appears. The other
 #   presses "Join one" and points its camera at it (or pastes the code). Then
 #   whatever either types reaches the other, wherever in the world they are.
+#   Or, with nothing to show or scan, both press "Press together" within a
+#   few seconds of each other, and check that both show the same three words.
 #
 #   It is here to show Link, in as little as will do it:
 #     Link      start one (and be given its code), or join one with a code
 #     LinkSend  say something to the other end
 #     QrCode    the code as a picture       ScanCode   read one with the camera
+#     LinkPair  agree a link by pressing together, then LinkAccept to open it
 #   The messages are locked with a key made from the code before they leave,
 #   and pass through a relay that sees only what it cannot read.
 #
@@ -17,7 +20,7 @@
 
 @Window LinkChat
 Title=Link Chat
-Version=1.0
+Version=1.1
 Width=360
 Height=640
 
@@ -53,21 +56,30 @@ Height=44
 Content=Join one
 OnClick=DoJoin
 
+@Button btnPair
+Parent=c
+Canvas.Left=12
+Canvas.Top=98
+Width=336
+Height=44
+Content=Press together
+OnClick=DoPair
+
 @TextBlock lblState
 Parent=c
 Canvas.Left=12
-Canvas.Top=100
+Canvas.Top=150
 Width=336
 Height=44
 TextWrapping=Wrap
 Foreground=#4B5563
-Text=Start a link here, or join one started on another phone or computer.
+Text=Start a link here, join one started elsewhere, or both press Press together at the same moment.
 
 # the code, as a picture to scan and as text to copy: shown while waiting for the other end
 @Image imgCode
 Parent=c
 Canvas.Left=70
-Canvas.Top=150
+Canvas.Top=200
 Width=220
 Height=220
 IsVisible=false
@@ -75,7 +87,7 @@ IsVisible=false
 @TextBox txtCode
 Parent=c
 Canvas.Left=12
-Canvas.Top=376
+Canvas.Top=426
 Width=336
 Height=34
 IsReadOnly=true
@@ -85,9 +97,9 @@ IsVisible=false
 @TextBlock lblLog
 Parent=c
 Canvas.Left=12
-Canvas.Top=150
+Canvas.Top=200
 Width=336
-Height=396
+Height=346
 FontSize=16
 TextWrapping=Wrap
 Text=
@@ -127,6 +139,16 @@ Vml("SetProperty", "lblLog", "IsVisible", "false")
 Vml("SetProperty", "lblState", "Text", "Waiting. On the other app press Join one and scan this, or copy the code across.")
 LUA
 
+@Script DoPair
+Interpreter=lua
+<<LUA
+-- Both apps press this within a few seconds of each other: no code to show or scan.
+Linked, Said = false, ""
+Vml("SetProperty", "imgCode", "IsVisible", "false")
+Vml("SetProperty", "txtCode", "IsVisible", "false")
+if Vml("LinkPair", "Got") ~= "" then Vml("SetProperty", "lblState", "Text", "Looking for the other app. Press on it now.") end
+LUA
+
 @Script DoJoin
 Interpreter=lua
 <<LUA
@@ -156,7 +178,18 @@ local function log(line)
   Said = (Said or "") .. line .. "\n"
   Vml("SetProperty", "lblLog", "Text", Said)
 end
-if what == "joined" then
+if what == "words" then
+  -- paired by pressing together: the link opens only if both people see the same three words
+  state("Paired. Check the words.")
+  local same = Vml("ConfirmDialog", "Does the other app show these three words?\n\n" .. text .. "\n\nIf it shows different words, or none, answer no.", "Press together")
+  if same == true or same == "true" then
+    Vml("LinkAccept")
+    state("Opening the link...")
+  else
+    Vml("LinkClose")
+    state("Not linked. Press together again.")
+  end
+elseif what == "joined" then
   Linked = true
   Vml("SetProperty", "imgCode", "IsVisible", "false")
   Vml("SetProperty", "txtCode", "IsVisible", "false")

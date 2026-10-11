@@ -3,7 +3,7 @@
 #
 #   ./install.sh /etc/nginx/sites-available/visualised.io
 #
-# It copies link.php to /var/www/shared/vml-link, makes /var/lib/vml-link for its small database, and adds
+# It copies link.php, pair.php and pass.php to /var/www/shared/vml-link, makes /var/lib/vml-link for its small database, and adds
 #   location = /link/ { ... }
 # to the site, in front of each "location /downloads/" already there. The site's file is copied first, nginx
 # is asked whether it is happy, and if it isn't the copy is put back. Then the relay is tried.
@@ -14,10 +14,13 @@ site=${1:-}
 here=$(cd "$(dirname "$0")" && pwd)
 sock=$(ls /run/php/php*-fpm.sock 2>/dev/null | sort -V | tail -1)
 [ -n "$sock" ] || { echo "PHP-FPM isn't running here (no /run/php/php*-fpm.sock)"; exit 1; }
+php -m 2>/dev/null | grep -qi sodium || { echo "PHP has no sodium, which checks licences (apt install php-sodium, or it comes with php 7.2 and later)"; exit 1; }
 php -m 2>/dev/null | grep -qi pdo_sqlite || { echo "PHP has no SQLite (apt install php-sqlite3)"; exit 1; }
 
 install -d -m 755 /var/www/shared/vml-link
 install -m 644 "$here/link.php" /var/www/shared/vml-link/link.php
+install -m 644 "$here/pair.php" /var/www/shared/vml-link/pair.php
+install -m 644 "$here/pass.php" /var/www/shared/vml-link/pass.php
 install -d -m 700 -o www-data -g www-data /var/lib/vml-link
 
 if grep -q "location = /link/" "$site"; then

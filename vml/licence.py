@@ -151,6 +151,30 @@ def current():
     return info
 
 
+def link_pass(fetch=True):
+    """This licence's pass for the Link relay ("" for Community): what Visualised puts into the apps a Pro user
+    saves and exports, so their links are carried in full. Asked of the relay once and then remembered; with
+    fetch False only what is remembered is given, so nothing waits on the network."""
+    info, prefs = current(), load_prefs()
+    if info["tier"] == "community":
+        return ""
+    kept = prefs.get("link_pass", "")
+    if isinstance(kept, str) and kept.startswith(f"VP1-{info['id']}-"):
+        return kept
+    if not fetch:
+        return ""
+    try:
+        from . import link
+        got = link.fetch_pass(info["key"])
+    except Exception:
+        return ""
+    if got.startswith("VP1-"):
+        prefs = load_prefs()
+        prefs["link_pass"] = got
+        save_prefs(prefs)
+    return got
+
+
 def allows(feature, tier=None):
     tier = tier or current()["tier"]
     return TIERS.index(tier) >= TIERS.index(FEATURES.get(feature, "community"))

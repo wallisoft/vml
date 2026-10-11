@@ -9,10 +9,14 @@
 //   POST ?c=CHANNEL          body {"s": SENDER, "b": MESSAGE}       -> {"ok": true, "seq": 12}
 //   GET  ?c=CHANNEL&since=N                                         -> {"ok": true, "seq": 12, "m": [{"q": 11, "s": "...", "b": "...", "t": 1791...}, ...]}
 //   GET  ?c=CHANNEL&since=-1    just where the channel has got to   -> {"ok": true, "seq": 12, "m": []}
+//   ?p=go, ?p=wait, ?p=key      two apps agreeing their secret by pressing together: pair.php
+//
+// Add &v=PASS to either and the link is carried in full; without one it is on the free allowance: pass.php.
 //
 // CHANNEL is 32 hex digits, SENDER 16, MESSAGE up to 24,000 characters of base64. Limits keep it from being
 // used as anything else: 200 messages and one day kept per channel, 120 messages a minute into a channel, and
-// from one address 1,200 requests a minute and 60 new channels an hour.
+// from one address 1,200 requests a minute and 60 new channels an hour. With no pass: 100 messages an hour into
+// a channel, kept for an hour.
 //
 // Settings come from the environment (or the defaults): LINK_DB, the SQLite file.
 
@@ -38,8 +42,9 @@ function answer(int $code, array $what): never {
 }
 function refuse(int $code, string $why): never { answer($code, ['ok' => false, 'error' => $why]); }
 
+$pairing = isset($_GET['p']);                        // pairing by pressing together: see pair.php
 $channel = $_GET['c'] ?? '';
-if (!preg_match('/^[0-9a-f]{32}$/', $channel)) refuse(400, 'no such channel');
+if (!$pairing && !isset($_GET['pass']) && !preg_match('/^[0-9a-f]{32}$/', $channel)) refuse(400, 'no such channel');
 
 try {
     $path = ($_SERVER['LINK_DB'] ?? '') ?: (getenv('LINK_DB') ?: '/var/lib/vml-link/link.db');
@@ -53,20 +58,43 @@ try {
 }
 
 $now = time();
+// The first value of an answer, with the question then closed. (Left open, it holds the database as it was when
+// asked, and whatever this request writes next is refused outright if another request has written since.)
+function one(PDOStatement $q): mixed {
+    $value = $q->fetchColumn();
+    $q->closeCursor();
+    return $value;
+}
 // One more of something in this minute (or hour): how many that makes. Addresses are counted by a hash, not kept.
 function count_one(PDO $db, string $what, int $slot): int {
     $db->prepare('INSERT INTO counts (what, slot, n) VALUES (?, ?, 1) ON CONFLICT (what, slot) DO UPDATE SET n = n + 1')->execute([$what, $slot]);
     $q = $db->prepare('SELECT n FROM counts WHERE what = ? AND slot = ?');
     $q->execute([$what, $slot]);
-    return (int) $q->fetchColumn();
+    return (int) one($q);
 }
 $who = substr(hash('sha256', 'link' . ($_SERVER['REMOTE_ADDR'] ?? '')), 0, 16);
 if (count_one($db, "a:$who", intdiv($now, 60)) > PER_ADDRESS_A_MINUTE) refuse(429, 'too many requests: slow down');
 
 if (random_int(1, 50) === 1) {                        // now and then, clear out what is old
     $db->prepare('DELETE FROM messages WHERE at < ?')->execute([$now - KEEP_SECONDS]);
+    $db->prepare('DELETE FROM carried WHERE at < ?')->execute([$now - KEEP_SECONDS]);
+    $db->prepare('DELETE FROM used WHERE day < ?')->execute([intdiv($now, 86400) - 400]);
     $db->prepare("DELETE FROM counts WHERE (what LIKE 'h:%' AND slot < ?) OR (what NOT LIKE 'h:%' AND slot < ?)")->execute([intdiv($now, 3600) - 2, intdiv($now, 60) - 5]);
 }
+
+require __DIR__ . '/pass.php';                       // who links are carried for (and it answers ?pass itself)
+if ($pairing) require __DIR__ . '/pair.php';         // (it answers, and does not come back)
+
+// Is this link carried in full? Yes once either end has shown a pass; that is remembered while the link is in use.
+$holder = pass_holder($db, $path, is_string($_GET['v'] ?? null) ? $_GET['v'] : '');
+if ($holder !== '') {
+    $db->prepare('INSERT INTO carried (channel, id, at) VALUES (?, ?, ?) ON CONFLICT (channel) DO UPDATE SET id = excluded.id, at = excluded.at')->execute([$channel, $holder, $now]);
+} else {
+    $q = $db->prepare('SELECT id FROM carried WHERE channel = ? AND at >= ?');
+    $q->execute([$channel, $now - KEEP_SECONDS]);
+    $holder = (string) one($q);
+}
+$keep = $holder !== '' ? KEEP_SECONDS : FREE_KEEP_SECONDS;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $raw = file_get_contents('php://input', false, null, 0, MAX_BODY + 2000);
@@ -76,9 +104,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!is_string($sender) || !preg_match('/^[0-9a-f]{16}$/', $sender)) refuse(400, 'who is sending?');
     if (!is_string($body) || $body === '' || strlen($body) > MAX_BODY || !preg_match('/^[A-Za-z0-9+\/_-]+=*$/', $body)) refuse(400, 'that is not a message');
     if (count_one($db, "c:$channel", intdiv($now, 60)) > PER_CHANNEL_A_MINUTE) refuse(429, 'too many messages: slow down');
+    if ($holder === '' && count_one($db, "h:f$channel", intdiv($now, 3600)) > FREE_MESSAGES_AN_HOUR)
+        refuse(402, 'this app is on the free allowance of ' . FREE_MESSAGES_AN_HOUR . ' messages an hour for a link. Apps made with Visualised Pro have no such limit');
+    if ($holder !== '') $db->prepare('INSERT INTO used (id, day, n) VALUES (?, ?, 1) ON CONFLICT (id, day) DO UPDATE SET n = n + 1')->execute([$holder, intdiv($now, 86400)]);
     $q = $db->prepare('SELECT 1 FROM messages WHERE channel = ? LIMIT 1');
     $q->execute([$channel]);
-    if (!$q->fetchColumn() && count_one($db, "h:$who", intdiv($now, 3600)) > NEW_CHANNELS_AN_HOUR) refuse(429, 'too many new links from here: try again later');
+    if (!one($q) && count_one($db, "h:$who", intdiv($now, 3600)) > NEW_CHANNELS_AN_HOUR) refuse(429, 'too many new links from here: try again later');
     $db->prepare('INSERT INTO messages (channel, sender, body, at) VALUES (?, ?, ?, ?)')->execute([$channel, $sender, $body, $now]);
     $seq = (int) $db->lastInsertId();
     // only the newest are kept
@@ -90,11 +121,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $since = (int) ($_GET['since'] ?? 0);
     $q = $db->prepare('SELECT COALESCE(MAX(seq), 0) FROM messages WHERE channel = ?');
     $q->execute([$channel]);
-    $latest = (int) $q->fetchColumn();
+    $latest = (int) one($q);
     $out = [];
     if ($since >= 0 && $latest > $since) {
         $q = $db->prepare('SELECT seq, sender, body, at FROM messages WHERE channel = ? AND seq > ? AND at >= ? ORDER BY seq LIMIT 100');
-        $q->execute([$channel, $since, $now - KEEP_SECONDS]);
+        $q->execute([$channel, $since, $now - $keep]);
         foreach ($q as $r) $out[] = ['q' => (int) $r['seq'], 's' => $r['sender'], 'b' => $r['body'], 't' => (int) $r['at']];
     }
     answer(200, ['ok' => true, 'seq' => $latest, 'm' => $out]);

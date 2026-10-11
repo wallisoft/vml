@@ -895,6 +895,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             return f"That licence ran out on {info['expires'][6:8]}/{info['expires'][4:6]}/{info['expires'][0:4]}."
         self.cmd_SetPreference("licence_key", info["key"])
         log(f"licence accepted: {info['tier']}")
+        threading.Thread(target=licences.link_pass, daemon=True).start()       # its pass for the Link relay, for the apps it saves
         return ""
 
     def cmd_RemoveLicenceKey(self):
@@ -1455,6 +1456,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             if name not in written:
                 term = "END_" + re.sub(r"\W", "_", name).upper()
                 out += ["", f"@Script {name}", f"Interpreter={interp}", f"<<{term}", *code.rstrip("\n").split("\n"), term]
+        if re.search(r"""["']Link(Pair)?["']""", "\n".join(out)):               # an app that uses Link goes out with its maker's pass
+            carry = licences.link_pass()
+            if carry:
+                out.insert(out.index("", out.index(f"@Window {form}")), f"LinkPass={carry}")
         Path(os.path.expanduser(path)).write_text("\n".join(out) + "\n", encoding="utf-8")
         log(f"saved {len(everything)} controls to {path}")
         return True
@@ -2456,17 +2461,58 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         origin = self._script_stack[-1] if self._script_stack else None
         self.cmd_LinkClose()
         try:
-            made = link.Link(code, start=str(start))
+            made = link.Link(code, start=str(start), carry=self._link_carry(origin))
         except link.LinkError as exc:
             QTimer.singleShot(0, lambda why=str(exc): self.run_script(str(handler), "error", why, origin=origin))
             return ""
         self._link, self._link_handler, self._link_origin = made, str(handler), origin
+        self._link_listen()
+        return made.code
+
+    def cmd_LinkPair(self, handler):
+        """Agree a link with another app by pressing together: both run this within a few seconds of each
+        other, with nothing to show or scan. handler is run with "words" and three words, which the other app
+        shows too; when the two people see they are the same, LinkAccept opens the link (and the handler then
+        hears "joined", "message" and the rest, as with Link). Or with "error" and what went wrong: nobody
+        else pressed, or too many did."""
+        from . import link
+        origin = self._script_stack[-1] if self._script_stack else None
+        self.cmd_LinkClose()
+        self._link, self._link_handler, self._link_origin = link.Pairing(), str(handler), origin
+        self._link_listen()
+        return "true"
+
+    def cmd_LinkAccept(self):
+        """The three words LinkPair gave are the same on both: open the link. Its code, or "" if there is no
+        pairing waiting to be accepted."""
+        from . import link
+        made = getattr(self, "_link", None)
+        if not isinstance(made, link.Pairing) or not made.code:
+            return ""
+        try:
+            self._link = link.Link(made.code, carry=self._link_carry(self._link_origin))
+        except link.LinkError as exc:
+            made.events.put(("error", str(exc)))
+            return ""
+        return self._link.code
+
+    def _link_carry(self, origin=None):
+        """The pass this app's links go out with: the one its maker's Visualised Pro put in the form, or failing
+        that this computer's own, if it has a Pro licence (so a form is carried in full while it is being made)."""
+        win = origin
+        while win is not None and win.parent is not None:
+            win = win.parent
+        if win is None or win.type.name != "Window":
+            win = next((n for n in self.nodes.values() if n.type.name == "Window" and n.parent is None), None)
+        stamped = str(win.props.get("LinkPass", "") or "") if win is not None else ""
+        return stamped if stamped.startswith("VP1-") else licences.link_pass(fetch=False)
+
+    def _link_listen(self):
         if getattr(self, "_link_timer", None) is None:
             self._link_timer = QTimer()
             self._link_timer.setInterval(100)
             self._link_timer.timeout.connect(self._link_events)
         self._link_timer.start()
-        return made.code
 
     def _link_events(self):
         made = getattr(self, "_link", None)
@@ -2498,8 +2544,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
 
     def cmd_LinkCode(self):
         """The code of the link this app has open, or ""."""
+        from . import link
         made = getattr(self, "_link", None)
-        return made.code if made is not None else ""
+        return made.code if isinstance(made, link.Link) else ""
 
     def cmd_LinkClose(self):
         """Close the link. The other end is told."""
