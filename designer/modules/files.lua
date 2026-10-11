@@ -279,6 +279,35 @@ function ExportWindows(...)
     if out ~= "" then Vml("InfoDialog", "Exported " .. name .. " for Windows:\n" .. out .. "\n\nUnzip it anywhere and double-click " .. name .. ".exe.", "Export") end
 end
 
+-- File > Export > Android app: the form as an .apk anyone with an Android phone can install
+function ExportAndroid(...)
+    local name = Vml("GetProperty", "Surface", "FormName")
+    local path = Vml("FileSaveDialog", "Export as an Android app", name, "apk")
+    if path == "" then return end
+    Vml("SetStatusText", "Making the Android app...")
+    local out = Vml("ExportApk", "Surface", path)
+    if out == "" then return Vml("SetStatusText", "") end
+    local made = require("dkjson").decode(out)
+    Vml("SetStatusText", "Android app written: " .. made.path)
+    local uses = {}
+    for _, p in ipairs(made.permissions) do
+        if p ~= "INTERNET" and p ~= "ACCESS_NETWORK_STATE" then uses[#uses + 1] = p:lower():gsub("_", " ") end
+    end
+    local text = "Exported " .. name .. " for Android:\n" .. made.path .. "\n\nVersion " .. made.version .. ", "
+        .. math.floor(made.size / 1024 + 0.5) .. " KB. It will ask the phone for: "
+        .. (#uses > 0 and table.concat(uses, ", ") or "nothing beyond the internet") .. "."
+        .. "\n\nSend the file to an Android phone and open it there. The phone will ask to allow the install, because it "
+        .. "hasn't come from a store. For Google Play a different kind of file is needed, which Visualised doesn't make yet."
+    Vml("InfoDialog", text, "Export")
+    if made.new_key then
+        Vml("InfoDialog", "IMPORTANT: keep a copy of your signing key.\n\nYour Android apps are signed with a key that was made just now "
+            .. "and is kept on this computer:\n\n" .. made.key .. "\n" .. made.key:gsub("%.pem$", ".cert")
+            .. "\n\nAndroid will only accept an update to an app if it is signed with the same key. If these two files are lost, "
+            .. "nobody can ever update the apps you have given out: people would have to remove them and install afresh."
+            .. "\n\nCopy both files somewhere safe now, and keep them private: whoever has them can sign apps as you.", "Your signing key")
+    end
+end
+
 function ExportLinux(...)
     local name = Vml("GetProperty", "Surface", "FormName")
     local path = Vml("FileSaveDialog", "Export as a Linux app", name .. "-linux", "tar.gz")

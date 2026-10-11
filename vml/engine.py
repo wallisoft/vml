@@ -9,6 +9,7 @@ The VML engine.
   in its own form first.
 """
 import json
+from html import unescape as html_unescape
 import os
 import re
 import shutil
@@ -1906,10 +1907,35 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         return script_name
 
     def cmd_ExportHtml(self, source="Surface", out=""):
-        """Write a form as one self-contained web page. source: a design surface, or a .vml file. (Pro.)"""
-        if not self.needs("export", "Exporting a form as a web page"):
-            return ""
+        """Write a form as one self-contained web page. source: a design surface, or a .vml file."""
         return self._export_html(source, out)
+
+    def cmd_ExportApk(self, source="Surface", out=""):
+        """Write a form as an Android app of its own: one .apk, with the app's name, picture and version, asking
+        only for what its scripts use, and signed with this user's key (made the first time, and kept beside
+        their Visualised settings: it must be backed up, since an app can only be updated with the key it was
+        first signed with). source: a design surface, or a .vml file. Returns what was made as JSON: path,
+        package, version, permissions, size, key (where the key is) and new_key (true when the key was made just
+        now). "" if it couldn't be done, having said why. (Pro.)"""
+        if not self.needs("export", "Exporting a form as an Android app"):
+            return ""
+        from . import apk
+        folder = Path(tempfile.mkdtemp(prefix="vml-apk-"))
+        try:
+            page = Path(self._export_html(source, str(folder / "index.html")))
+            out = str(out or Path(self.store.get_setting("current_file") or "App").with_suffix(".apk"))
+            made = apk.from_page(page, out, owner=self.licence().get("name", ""))
+        except apk.ApkError as exc:
+            self.cmd_InfoDialog(str(exc), "Export")
+            return ""
+        except Exception as exc:
+            log(f"ExportApk: {exc!r}")
+            self.cmd_InfoDialog("The Android app couldn't be made. The form itself is untouched.", "Export")
+            return ""
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        log(f"Android app written: {made['path']} ({made['package']})")
+        return json.dumps(made)
 
     def _export_html(self, source="Surface", out=""):
         from .html import export_html

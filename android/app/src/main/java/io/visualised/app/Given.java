@@ -21,7 +21,7 @@ import java.util.List;
  *   content://io.visualised.app.given/visualised/Visualised.apk
  */
 public final class Given extends ContentProvider {
-    static final String AUTHORITY = "io.visualised.app.given";
+    static String AUTHORITY = "io.visualised.app.given";        // (an app exported on its own has its own name, and so its own: set as it starts)
 
     static Uri app(Apps.Kept app) {
         String name = app.name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", " ").trim();
@@ -49,6 +49,7 @@ public final class Given extends ContentProvider {
 
     @Override
     public boolean onCreate() {
+        AUTHORITY = getContext().getPackageName() + ".given";
         return true;
     }
 

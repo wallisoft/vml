@@ -83,6 +83,7 @@ jobs:
           foreach ($f in "winforms.vml", "vb6.vml", "lib\importkit.lua") { if (-not (Test-Path "build\vml.dist\designer\importers\$f")) { throw "an importer is missing from the build: $f" } }
           # the designer is a project: its project file, forms and modules have to be in the build
           foreach ($f in "Designer.vmlproj", "designer.vml", "databases.vml", "modules\files.lua", "modules\project.lua", "modules\app.lua") { if (-not (Test-Path "build\vml.dist\designer\$f")) { throw "part of the designer is missing from the build: $f" } }
+          if (-not (Test-Path "build\vml.dist\web\android-template.apk")) { throw "the Android template is missing from the build (File, Export, Android app needs it)" }
       - name: Build Visualised-Setup.exe
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ needs.check.outputs.version }}" packaging\vml.iss
@@ -168,6 +169,7 @@ jobs:
           for f in winforms.vml vb6.vml lib/importkit.lua; do test -f "dist-vml/designer/importers/$f"; done
           # the designer is a project: its project file, forms and modules have to be in the build
           for f in Designer.vmlproj designer.vml databases.vml modules/files.lua modules/project.lua modules/app.lua; do test -f "dist-vml/designer/$f"; done
+          test -f dist-vml/web/android-template.apk || { echo "the Android template is missing from the build (File, Export, Android app needs it)"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: linux

@@ -2,13 +2,15 @@
 -- One of the modules of designer/Designer.vmlproj. Each function here is a handler: a control or menu item of the
 -- designer names it (OnClick=FileSave), or another handler runs it with Vml("RunScript", "FileSave").
 
--- Community designs, runs, saves and shares forms. Pro and Enterprise add the exports, and the imports as they arrive.
+-- Community designs, runs, saves and shares forms, and exports one as a web page. Pro and Enterprise add exporting
+-- one as an app of its own (Windows, Linux, Android), and the imports as they arrive.
 function ApplyLicence(...)
     local raw = Vml("GetLicence")
     if raw == "" then return end
     local lic = require("dkjson").decode(raw)
     local paid = lic.tier ~= "community"
-    local exports = {FileExportWeb = "Web page...", FileExportWin = "Windows app...", FileExportLinux = "Linux app..."}
+    -- (a web page is free: it is the app turned into a program of its own that is Pro)
+    local exports = {FileExportWin = "Windows app...", FileExportLinux = "Linux app...", FileExportAndroid = "Android app..."}
     for item, text in pairs(exports) do
         Vml("SetMenuItemEnabled", item, paid and "true" or "false")
         Vml("SetMenuItemText", item, text .. (paid and "" or "   (Pro)"))
@@ -35,10 +37,10 @@ function LicenceShow(...)
     local text
     if lic.expired then
         text = "Your Visualised " .. (lic.was == "enterprise" and "Enterprise" or "Pro") .. " licence ran out on " .. day(lic.expires)
-            .. ", so Visualised is running as Community.\n\nYour forms are untouched. Renew to get the exports back."
+            .. ", so Visualised is running as Community.\n\nYour forms are untouched. Renew to get the app exports back."
     elseif lic.tier == "community" then
-        text = "Visualised Community\n\nDesign, run, save and share forms, free.\n\nVisualised Pro adds exporting a form as a web page "
-            .. "or as a Windows or Linux app, and importing forms from other tools as those arrive."
+        text = "Visualised Community\n\nDesign, run, save and share forms, and put them on the web, free.\n\nVisualised Pro adds exporting a form "
+            .. "as an app of its own for Windows, Linux or Android, importing forms from other tools, and Link without limits."
     else
         text = "Visualised " .. lic.label .. (lic.name ~= "" and ("\nLicensed to " .. lic.name) or "") .. "\nLicence " .. lic.id
             .. ", issued " .. day(lic.issued) .. (lic.expires ~= "" and ("\nValid until " .. day(lic.expires)) or "")

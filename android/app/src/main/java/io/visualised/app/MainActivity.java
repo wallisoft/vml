@@ -83,6 +83,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class MainActivity extends Activity {
     private static final String SUFFIX = ".app.visualised.invalid";
+    private static final String OWN = "app";            // the name of the one app, in an APK exported for it alone
+    private boolean alone;
     private static final int BRAND = 0xFF1E3A8A;
     private static final int PICK = 71;
     private static final int LISTEN = 72;
@@ -127,8 +129,14 @@ public class MainActivity extends Activity {
         root.addView(running, new FrameLayout.LayoutParams(-1, -1));
         root.addView(home, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
-        showHome();
-        opened(getIntent());
+        alone = ownApp();
+        if (alone) {
+            liveBar.setVisibility(View.GONE);
+            show(OWN + SUFFIX, String.valueOf(getApplicationInfo().loadLabel(getPackageManager())), "/");
+        } else {
+            showHome();
+            opened(getIntent());
+        }
         if (!prefs.getBoolean("asked", false)) {        // once, the first time: everything an app might use, so apps aren't interrupted later
             prefs.edit().putBoolean("asked", true).apply();
             List<String> all = new ArrayList<>();
@@ -139,14 +147,42 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 33) {
                 all.add("android.permission.POST_NOTIFICATIONS");
             }
-            requestPermissions(all.toArray(new String[0]), 99);
+            if (alone) {                                // an app on its own asks only for what it was made to use
+                List<String> declared = new ArrayList<>();
+                try {
+                    String[] has = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_PERMISSIONS).requestedPermissions;
+                    if (has != null) {
+                        declared = java.util.Arrays.asList(has);
+                    }
+                } catch (Exception e) {
+                    // then none
+                }
+                all.retainAll(declared);
+            }
+            if (!all.isEmpty()) {
+                requestPermissions(all.toArray(new String[0]), 99);
+            }
+        }
+    }
+
+    /**
+     * Is this an app made with Visualised and exported on its own? Then its page is inside this APK
+     * (assets/app/index.html), and it is all this shows: no list of apps, nothing to fetch or keep.
+     */
+    private boolean ownApp() {
+        try (InputStream in = getAssets().open("app/index.html")) {
+            return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        opened(intent);
+        if (!alone) {
+            opened(intent);
+        }
     }
 
     /** Opened from a link (visualised://computer:number/), as the page the designer serves offers. Always asks first. */
@@ -255,7 +291,7 @@ public class MainActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (home.getVisibility() != View.VISIBLE) {
+        if (!alone && home.getVisibility() != View.VISIBLE) {
             showHome();
         } else {
             super.onBackPressed();
@@ -809,6 +845,12 @@ public class MainActivity extends Activity {
             String path = u.getEncodedPath() == null || u.getEncodedPath().isEmpty() ? "/" : u.getEncodedPath();
             String base = live.get(name);
             try {
+                if (base == null && alone) {
+                    if (("/".equals(path) || "/index.html".equals(path)) && name.equals(OWN + SUFFIX)) {
+                        return answer(200, "text/html", "utf-8", getAssets().open("app/index.html"));
+                    }
+                    return said(404, "That isn't part of this app.");
+                }
                 if (base == null) {
                     File page = apps.page(name.substring(0, name.length() - SUFFIX.length()));
                     if (("/".equals(path) || "/index.html".equals(path)) && page.isFile()) {

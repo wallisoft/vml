@@ -24,8 +24,8 @@ PREFS_FILE = Path(os.environ.get("VML_PREFS") or Path.home() / ".vml" / "prefs.j
 
 TIERS = ("community", "pro", "enterprise")
 TIER_NAMES = {"community": "Community", "pro": "Pro", "enterprise": "Enterprise"}
-# What each feature needs. Community designs, runs, saves and shares VML; everything that turns a form into
-# something else, or brings one in from elsewhere, is Pro.
+# What each feature needs. Community designs, runs, saves and shares VML, and puts a form on the web as a page;
+# turning one into a program of its own (a Windows, Linux or Android app), or bringing one in from elsewhere, is Pro.
 FEATURES = {"export": "pro", "import": "pro"}
 
 # ---------------------------------------------------------------- Ed25519 signature check (RFC 8032), nothing else

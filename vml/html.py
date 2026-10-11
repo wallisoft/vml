@@ -123,6 +123,8 @@ class Page:
         out = ""
         if str(wp.get("Version") or "").strip():
             out += f'<meta name="app-version" content="{esc(str(wp["Version"]).strip())}">\n'
+        if str(wp.get("AndroidPackage") or "").strip():              # its own name as an Android app, if its maker chose one (vml/apk.py)
+            out += f'<meta name="android-package" content="{esc(str(wp["AndroidPackage"]).strip())}">\n'
         icon = self.picture(wp.get("Icon"))
         if icon:
             out += f'<link rel="icon" href="{esc(icon)}">\n<link rel="apple-touch-icon" href="{esc(icon)}">\n'

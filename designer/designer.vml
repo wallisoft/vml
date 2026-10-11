@@ -230,6 +230,11 @@ Parent=FileExport
 Text=Linux app...
 OnClick=ExportLinux
 
+@MenuItem FileExportAndroid
+Parent=FileExport
+Text=Android app...
+OnClick=ExportAndroid
+
 @MenuItem FileSep
 Parent=File
 IsSeparator=true
