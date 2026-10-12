@@ -36,6 +36,8 @@ Background=#0F766E
 
 @Canvas c
 Parent=TinySMS
+Width=360
+Height=640
 Background=#FFFFFF
 
 @TextBlock lblTitle
@@ -60,44 +62,40 @@ Text=
 
 # --- signing in: once, with the tiny-web account -----------------------------
 
-@Canvas pgSignIn
-Parent=c
-Canvas.Left=0
-Canvas.Top=104
-Width=360
-Height=520
-IsVisible=false
-
 @TextBox txtUser
-Parent=pgSignIn
+Parent=c
 Canvas.Left=12
-Canvas.Top=0
+Canvas.Top=104
+IsVisible=false
 Width=336
 Height=40
 Watermark=Username or email
 
 @TextBox txtPass
-Parent=pgSignIn
+Parent=c
 Canvas.Left=12
-Canvas.Top=48
+Canvas.Top=152
+IsVisible=false
 Width=336
 Height=40
 IsPassword=true
 Watermark=Password
 
 @Button btnSignIn
-Parent=pgSignIn
+Parent=c
 Canvas.Left=12
-Canvas.Top=98
+Canvas.Top=202
+IsVisible=false
 Width=336
 Height=44
 Content=Sign in and start
 OnClick=DoSignIn
 
 @TextBlock lblHelp
-Parent=pgSignIn
+Parent=c
 Canvas.Left=12
-Canvas.Top=154
+Canvas.Top=258
+IsVisible=false
 Width=336
 Height=200
 TextWrapping=Wrap
@@ -106,18 +104,11 @@ Text=Your tiny-web account: no account yet? Sign up at tiny-web.uk, then come ba
 
 # --- working: what it has done, and the buttons to stop it ------------------
 
-@Canvas pgWork
-Parent=c
-Canvas.Left=0
-Canvas.Top=104
-Width=360
-Height=520
-IsVisible=false
-
 @TextBlock lblCounts
-Parent=pgWork
+Parent=c
 Canvas.Left=12
-Canvas.Top=0
+Canvas.Top=104
+IsVisible=false
 Width=336
 Height=24
 Foreground=#0F766E
@@ -125,9 +116,10 @@ FontWeight=Bold
 Text=
 
 @TextBlock lblLog
-Parent=pgWork
+Parent=c
 Canvas.Left=12
-Canvas.Top=30
+Canvas.Top=134
+IsVisible=false
 Width=336
 Height=380
 TextWrapping=Wrap
@@ -136,18 +128,20 @@ Foreground=#374151
 Text=
 
 @Button btnPause
-Parent=pgWork
+Parent=c
 Canvas.Left=12
-Canvas.Top=420
+Canvas.Top=524
+IsVisible=false
 Width=164
 Height=44
 Content=Pause sending
 OnClick=DoPause
 
 @Button btnSignOut
-Parent=pgWork
+Parent=c
 Canvas.Left=184
-Canvas.Top=420
+Canvas.Top=524
+IsVisible=false
 Width=164
 Height=44
 Content=Sign out
@@ -171,7 +165,7 @@ Interpreter=lua
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
 -- TinySMS's Firebase project: public values (they are in every Firebase app), not secrets.
-FIREBASE = json.encode({ project = "@FB_PROJECT@", app = "@FB_APP@", key = "@FB_KEY@", sender = "@FB_SENDER@" })
+FIREBASE = json.encode({ project = "tinysms-2929e", app = "1:36897486791:android:65271ea33d3c08b9da4be2", key = "AIzaSyAuXb7Q0K9qaLc1T2TIqkl8YgzRmXYzSbc", sender = "36897486791" })
 Busy = false            -- a question to the server, or a text, is on its way: don't start another
 Paused = false
 Sending = nil           -- the message being sent: { id, to, text, more }
@@ -199,9 +193,12 @@ function Masked(number)
   return "***" .. digits:sub(-4)
 end
 
+-- The two pages: the sign-in fields, and the working log with its buttons. Shown by turning their controls on or off.
+PAGES = { signin = { "txtUser", "txtPass", "btnSignIn", "lblHelp" }, work = { "lblCounts", "lblLog", "btnPause", "btnSignOut" } }
 function Page(name)
-  Vml("SetProperty", "pgSignIn", "IsVisible", tostring(name == "signin"))
-  Vml("SetProperty", "pgWork", "IsVisible", tostring(name == "work"))
+  for page, controls in pairs(PAGES) do
+    for _, c in ipairs(controls) do Vml("SetProperty", c, "IsVisible", tostring(page == name)) end
+  end
 end
 
 -- One question to the server: the device's own fields go with every one.

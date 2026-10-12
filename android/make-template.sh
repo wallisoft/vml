@@ -16,7 +16,7 @@ for kind in plain push; do
     made=$(ls -t app/build/outputs/apk/$kind/release/*.apk | head -1)
     [ -f "$made" ] || { echo "no $kind APK was built"; exit 1; }
     unzip -l "$made" | grep -q "classes.dex" || { echo "$made doesn't look like an app"; exit 1; }
-    out="$here/../vml/web/android-template$([ $kind = push ] && echo -push).apk"
+    out="$here/../vml/web/android-template$([ $kind = push ] && echo -push || true).apk"
     cp "$made" "$out"
     echo "template: vml/web/$(basename "$out") ($(du -h "$out" | cut -f1), from $(basename "$made"))"
 done

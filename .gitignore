@@ -8,3 +8,4 @@ dist/
 csharp/bin/
 csharp/VmlCSharpHost/bin/
 csharp/VmlCSharpHost/obj/
+*.apk
