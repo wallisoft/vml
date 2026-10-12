@@ -181,6 +181,8 @@ with sync_playwright() as p:
     bob.wait_for_function("document.querySelector('#v_lblLog').innerText.includes('tea?')", timeout=8000)
     bob.fill("#v_txtSay", "two sugars"); bob.click("#v_btnSend")
     ann.wait_for_function("document.querySelector('#v_lblLog').innerText.includes('two sugars')", timeout=8000)
+    check("Link Chat: each line of the conversation is a line of its own on the page, as on the desktop",
+          (ann.inner_text("#v_lblLog").strip().split("\n"), ann.eval_on_selector("#v_lblLog", "e => getComputedStyle(e).whiteSpace")), (["You: tea?", "Them: two sugars"], "pre-wrap"))
     check("Link Chat: what each says, the other sees", (ann.inner_text("#v_lblLog").split(), bob.inner_text("#v_lblLog").split()), (["You:", "tea?", "Them:", "two", "sugars"], ["Them:", "tea?", "You:", "two", "sugars"]))
     bob.once("dialog", lambda d: d.dismiss())
     carl = open_chat(); carl.once("dialog", lambda d: d.dismiss()); carl.click("#v_btnJoin")

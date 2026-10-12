@@ -234,7 +234,7 @@ class Page:
         if ctype == "Button":
             return f'<button {attrs} style="{";".join(css)}"{disabled}>{esc(p.get("Content", name))}</button>'
         if ctype == "TextBlock":
-            wrap = "normal" if p.get("TextWrapping") == "Wrap" else "nowrap"
+            wrap = "pre-wrap" if p.get("TextWrapping") == "Wrap" else "pre"            # (line breaks in the text are kept, as on the desktop)
             align = {"Center": "center", "Right": "right"}.get(p.get("TextAlignment"), "left")
             css += [f"white-space:{wrap}", f"text-align:{align}"]
             return f'<div {attrs} class="tb" style="{";".join(css)}">{esc(p.get("Text", ""))}</div>'
