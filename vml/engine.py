@@ -2570,6 +2570,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "Texts arrive only in an app exported for an Android phone.", origin=origin))
         return ""
 
+    def cmd_OnPush(self, handler="", firebase=""):
+        """Hear push messages from the app's own server, through Firebase (firebase: the project's public values as
+        JSON). Handler gets ("token", the phone's push address), ("message", the push's data as JSON), or a blank
+        and what went wrong (as here: an app exported for an Android phone only). "" stops."""
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "Pushes arrive only in an app exported for an Android phone.", origin=origin))
+        return ""
+
     def cmd_Log(self, text=""):
         """Write a line where the app's maker can see it: the terminal Visualised was started from. From an app
         being previewed on a phone, the line comes back to that same terminal."""

@@ -990,6 +990,16 @@ const commands = {
     else if (onSms) setTimeout(() => run(onSms, ["", "Texts arrive only in an app exported for an Android phone."]), 0);
     return "";
   },
+  // Hear push messages from the app's own server, through Firebase. firebase is the app's Firebase project as JSON
+  // {"project", "app", "key", "sender"} (its public values: no google-services.json). The handler gets ("token",
+  // this phone's push address, to give to the server), ("message", the push's data as JSON), or a blank and what
+  // went wrong. OnPush("") stops. An app exported on its own for Android only (it is built from the push template).
+  OnPush(handler = "", firebase = "") {
+    onPush = String(handler || "");
+    if (DEV && DEV.pushWatch) DEV.pushWatch(onPush ? String(firebase || "") : "");
+    else if (onPush) setTimeout(() => run(onPush, ["", "Pushes arrive only in an app exported for an Android phone."]), 0);
+    return "";
+  },
   // A QR code for some text (an address, or a link's code), as a picture: a data: address to give an Image as
   // its Source. Up to 213 characters. "" if it is too long.
   QrCode(text = "", scale = "6") {
@@ -1239,7 +1249,7 @@ const commands = {
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
-let asked = 0, onSms = "";
+let asked = 0, onSms = "", onPush = "";
 const waitingFor = {};                              // Fetch and SmsSend handlers, until their answer comes
 window.vmlAway = () => {                                   // the app has left the screen: let go of the camera and its light
   stopFlash();
@@ -1250,6 +1260,7 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "bluetooth" && paired) { const h = paired; paired = ""; run(h, [a, b]); }
   if (what === "watching" && watched_) { const h = watched_; watched_ = ""; run(h, [a, b]); }
   if (what === "sms" && onSms) run(onSms, [a, b]);
+  if (what === "push" && onPush) run(onPush, [a, b]);
   if (what.startsWith("fetch:") || what.startsWith("sms-sent:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];
     if (h) run(h, [a, b]);
