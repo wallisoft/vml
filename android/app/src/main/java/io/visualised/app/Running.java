@@ -42,7 +42,10 @@ public class Running extends Service {
         PowerManager power = getSystemService(PowerManager.class);
         if (awake == null && power != null) {
             awake = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "visualised:running");
-            awake.acquire(6 * 60 * 60 * 1000L);         // never for ever: six hours, then the phone may sleep
+            awake.setReferenceCounted(false);
+        }
+        if (awake != null) {
+            awake.acquire(6 * 60 * 60 * 1000L);         // never for ever: six hours from the app's last asking, then the phone may sleep
         }
         return START_NOT_STICKY;
     }

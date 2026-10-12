@@ -148,6 +148,8 @@ public class MainActivity extends Activity {
                 all.add("android.permission.POST_NOTIFICATIONS");
             }
             if (alone) {                                // an app on its own asks only for what it was made to use
+                all.add("android.permission.SEND_SMS");  // (texts: only ever an app on its own, made to use them)
+                all.add("android.permission.RECEIVE_SMS");
                 List<String> declared = new ArrayList<>();
                 try {
                     String[] has = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_PERMISSIONS).requestedPermissions;
@@ -169,6 +171,11 @@ public class MainActivity extends Activity {
      * Is this an app made with Visualised and exported on its own? Then its page is inside this APK
      * (assets/app/index.html), and it is all this shows: no list of apps, nothing to fetch or keep.
      */
+    /** Is this an app exported on its own (see ownApp)? */
+    boolean isOwnApp() {
+        return alone;
+    }
+
     private boolean ownApp() {
         try (InputStream in = getAssets().open("app/index.html")) {
             return true;
@@ -1225,7 +1232,7 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- running in the background
     /** Keep the app on screen going while the phone is used for something else (or stop doing so). */
     void runInBackground(boolean on) {
-        if (on == background || (on && host.isEmpty())) {
+        if ((!on && !background) || (on && host.isEmpty())) {
             return;
         }
         background = on;

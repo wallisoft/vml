@@ -55,8 +55,78 @@ final class Device {
     private SensorEventListener air;
     private volatile float pressureNow;
 
+    private final Texts texts;
+
     Device(MainActivity activity) {
         this.activity = activity;
+        this.texts = new Texts(activity);
+    }
+
+    /**
+     * Ask a web address for something, away from the page (so no CORS, and it carries on with the screen off):
+     * with no body a GET, with one a POST, as JSON when it looks like JSON. The page hears back through
+     * vmlFromPhone("fetch:" + id, what came back, "") or (what came back or "", what went wrong).
+     */
+    @JavascriptInterface
+    public void fetch(final String id, final String url, final String body) {
+        new Thread(() -> {
+            String answer = "", problem = "";
+            java.net.HttpURLConnection c = null;
+            try {
+                if (url == null || !url.matches("(?i)https?://.+")) {
+                    throw new IOException("Only http:// and https:// addresses can be fetched.");
+                }
+                c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                c.setRequestProperty("User-Agent", "Visualised");
+                if (body != null && !body.isEmpty()) {
+                    c.setRequestMethod("POST");
+                    c.setDoOutput(true);
+                    String t = body.trim();
+                    c.setRequestProperty("Content-Type", t.startsWith("{") || t.startsWith("[") ? "application/json" : "text/plain; charset=utf-8");
+                    try (OutputStream out = c.getOutputStream()) {
+                        out.write(body.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+                int code = c.getResponseCode();
+                java.io.InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                if (in != null) {
+                    try (java.io.InputStream src = in; java.io.ByteArrayOutputStream got = new java.io.ByteArrayOutputStream()) {
+                        byte[] buf = new byte[8192];
+                        for (int n; (n = src.read(buf)) > 0; ) {
+                            if (got.size() + n > 2 * 1024 * 1024) {
+                                throw new IOException("The answer was over 2 MB.");
+                            }
+                            got.write(buf, 0, n);
+                        }
+                        answer = got.toString("UTF-8");
+                    }
+                }
+                if (code >= 400) {
+                    problem = "The server said " + code + ".";
+                }
+            } catch (IOException | RuntimeException e) {
+                problem = e.getMessage() == null ? "It couldn't be reached." : e.getMessage();
+            } finally {
+                if (c != null) {
+                    c.disconnect();
+                }
+            }
+            activity.tell("fetch:" + id, answer, problem);
+        }).start();
+    }
+
+    /** Send a text message (an app exported on its own only). See Texts.send. */
+    @JavascriptInterface
+    public void smsSend(String id, String number, String text) {
+        texts.send(id, number, text);
+    }
+
+    /** Hear texts as they arrive, or stop (an app exported on its own only). See Texts.watch. */
+    @JavascriptInterface
+    public void smsWatch(boolean on) {
+        texts.watch(on);
     }
 
     /** JSON: what is running the page. */
@@ -414,6 +484,7 @@ final class Device {
 
     /** The app on screen has been left: put back whatever it switched on. */
     void reset() {
+        texts.stop();
         if (air != null) {
             SensorManager sensors = activity.getSystemService(SensorManager.class);
             if (sensors != null) {

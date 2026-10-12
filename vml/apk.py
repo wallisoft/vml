@@ -46,6 +46,8 @@ NEEDS = {
     "BLUETOOTH": ("BluetoothDevices", "WatchBluetooth", "BluetoothLog"),
     "BLUETOOTH_CONNECT": ("BluetoothDevices", "WatchBluetooth", "BluetoothLog"),
     "ACCESS_BACKGROUND_LOCATION": ("WatchBluetooth",),
+    "SEND_SMS": ("SmsSend",),
+    "RECEIVE_SMS": ("OnSms",),
 }
 ALWAYS = ("INTERNET", "ACCESS_NETWORK_STATE")
 

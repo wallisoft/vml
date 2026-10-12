@@ -42,6 +42,9 @@ check("what can and can't be a package name", [apk.good_package(p) for p in ("co
 check("the permissions asked for are those the scripts use, and no more",
       (apk.permissions_for('Vml("SetProperty", "a", "Text", "Torch")\nVml("InfoDialog", "hello")'), apk.permissions_for('Vml("ScanCode", "Got")\nVml("GetLocation", "Here")\nVml("Notify", "a", "b")'), apk.permissions_for("")),
       (["ACCESS_NETWORK_STATE", "CAMERA", "INTERNET", "VIBRATE"][0:0] or sorted({"ACCESS_NETWORK_STATE", "INTERNET", "CAMERA"}), sorted(["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "ACCESS_NETWORK_STATE", "CAMERA", "INTERNET", "POST_NOTIFICATIONS"]), ["ACCESS_NETWORK_STATE", "INTERNET"]))
+check("texts: only an app that sends or hears them asks for SMS, and Fetch needs nothing more",
+      (apk.permissions_for('Vml("SmsSend", n, t, "Sent")\nVml("OnSms", "Heard")'), apk.permissions_for('Vml("Fetch", "https://x", "", "Got")')),
+      (["ACCESS_NETWORK_STATE", "INTERNET", "RECEIVE_SMS", "SEND_SMS"], ["ACCESS_NETWORK_STATE", "INTERNET"]))
 
 # ---- an app, exported
 page = Path(export_html(os.path.join(HERE, "apps", "MorseTorch.vml"), os.path.join(WORK, "mt.html"))).read_bytes()

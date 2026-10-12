@@ -2453,7 +2453,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         return ""
 
     def cmd_RunInBackground(self, on="true"):
-        """Keep the app going on a phone while the phone is used for something else. A computer does that anyway."""
+        """Keep the app going on a phone while the phone is used for something else, for six hours from the last
+        time it was asked (so an app that must keep going asks again now and then). A computer does that anyway."""
         return ""
 
     def cmd_Brightness(self, percent=""):
@@ -2506,6 +2507,67 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
 
     def cmd_Pressure(self):
         """The air pressure in hectopascals from a phone's barometer (it tells one floor from the next). "" here."""
+        return ""
+
+    def cmd_Fetch(self, url, body="", handler=""):
+        """Ask a web address for something: with no body it is fetched, with one it is sent (POST; as JSON when
+        it looks like JSON). handler is then run with what came back and a blank, or what came back (if
+        anything) and what went wrong. The app carries on meanwhile."""
+        import queue
+        import urllib.error
+        import urllib.request
+        origin = self._script_stack[-1] if self._script_stack else None
+        url, body, handler = str(url), str(body or ""), str(handler or "")
+        if getattr(self, "_fetched", None) is None:
+            self._fetched = queue.Queue()
+            self._fetch_timer = QTimer()
+            self._fetch_timer.setInterval(50)
+            self._fetch_timer.timeout.connect(self._fetch_events)
+        self._fetch_timer.start()
+
+        def go():
+            answer, problem = "", ""
+            try:
+                if not re.match(r"(?i)https?://", url):
+                    raise ValueError("Only http:// and https:// addresses can be fetched.")
+                data = body.encode("utf-8") if body else None
+                kind = "application/json" if body.lstrip()[:1] in ("{", "[") else "text/plain; charset=utf-8"
+                req = urllib.request.Request(url, data=data, headers={"User-Agent": "Visualised", **({"Content-Type": kind} if data else {})})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    answer = r.read(2 * 1024 * 1024 + 1).decode("utf-8", "replace")
+                if len(answer) > 2 * 1024 * 1024:
+                    answer, problem = "", "The answer was over 2 MB."
+            except urllib.error.HTTPError as exc:
+                answer, problem = exc.read().decode("utf-8", "replace"), f"The server said {exc.code}."
+            except Exception as exc:
+                problem = str(getattr(exc, "reason", "") or exc) or "It couldn't be reached."
+            self._fetched.put((handler, answer, problem, origin))
+        threading.Thread(target=go, daemon=True).start()
+        return ""
+
+    def _fetch_events(self):
+        while True:
+            try:
+                handler, answer, problem, origin = self._fetched.get_nowait()
+            except Exception:
+                break
+            if handler:
+                self.run_script(handler, answer, problem, origin=origin)
+
+    def cmd_SmsSend(self, number, text="", handler=""):
+        """Send a text message from the phone, then run handler with "sent", or a blank and what went wrong.
+        Only an app exported on its own for Android can (vml apk); here the handler hears why not."""
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "Sending texts needs the app exported for an Android phone.", origin=origin))
+        return ""
+
+    def cmd_OnSms(self, handler=""):
+        """Hear text messages as they arrive: handler gets who from and what they said, for each. A blank "from"
+        means it couldn't, and the text says why (as here: an app exported for an Android phone only). "" stops."""
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "Texts arrive only in an app exported for an Android phone.", origin=origin))
         return ""
 
     def cmd_Log(self, text=""):

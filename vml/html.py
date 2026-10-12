@@ -865,6 +865,7 @@ const commands = {
     if (DEV) return JSON.stringify(Object.assign(JSON.parse(DEV.info()), screen));
     return JSON.stringify(Object.assign({ platform: /Android/.test(ua) ? "android-browser" : /iPhone|iPad/.test(ua) ? "ios-browser" : "browser", app: false, online: navigator.onLine }, screen));
   },
+  // Asked again while running, it keeps going another six hours (the phone may sleep six hours after the last ask).
   RunInBackground(on = "true") { if (DEV && DEV.background) DEV.background(!/^(false|0|no|)$/i.test(on)); return ""; },
   // The screen's own brightness on a phone, 0 to 100, for an app that is a light or shows a code to scan. ""
   // hands it back to the phone's setting. A browser can't, so nothing happens there.
@@ -960,6 +961,35 @@ const commands = {
   // The air pressure in hectopascals: about 0.12 less for every metre climbed, so it tells one floor from the
   // next. "" where there is no barometer, and for the first moment after asking.
   Pressure() { return DEV && DEV.pressure ? DEV.pressure() : ""; },
+  // Ask a web address for something: with no body it is fetched, with one it is sent (POST; as JSON when it looks
+  // like JSON). The handler gets what came back and a blank, or what came back (if anything) and what went wrong.
+  // In the phone app it goes from the phone itself; in a browser the server has to allow the page (CORS).
+  Fetch(url, body = "", handler = "") {
+    const id = String(++asked);
+    if (DEV && DEV.fetch) { if (handler) waitingFor[id] = handler; DEV.fetch(id, String(url), String(body)); return ""; }
+    const json = /^\s*[{[]/.test(String(body));
+    const init = body === "" ? {} : { method: "POST", body: String(body), headers: { "Content-Type": json ? "application/json" : "text/plain;charset=UTF-8" } };
+    fetch(String(url), init)
+      .then(r => r.text().then(t => { if (handler) run(handler, [t, r.ok ? "" : "The server said " + r.status + "."]); }))
+      .catch(() => { if (handler) run(handler, ["", "It couldn't be reached (or the server doesn't allow this page)."]); });
+    return "";
+  },
+  // Send a text message from the phone. The handler gets "sent", or a blank and what went wrong. Only an app
+  // exported on its own for Android can (vml apk): its phone will ask the user's leave the first time.
+  SmsSend(number, text = "", handler = "") {
+    const id = String(++asked);
+    if (DEV && DEV.smsSend) { if (handler) waitingFor[id] = handler; DEV.smsSend(id, String(number), String(text)); }
+    else if (handler) setTimeout(() => run(handler, ["", "Sending texts needs the app exported for an Android phone."]), 0);
+    return "";
+  },
+  // Hear text messages as they arrive: the handler gets who from and what they said, for each one. A blank
+  // "from" means it couldn't, and the text says why. OnSms("") stops. An app exported on its own for Android only.
+  OnSms(handler = "") {
+    onSms = String(handler || "");
+    if (DEV && DEV.smsWatch) DEV.smsWatch(onSms !== "");
+    else if (onSms) setTimeout(() => run(onSms, ["", "Texts arrive only in an app exported for an Android phone."]), 0);
+    return "";
+  },
   // A QR code for some text (an address, or a link's code), as a picture: a data: address to give an Image as
   // its Source. Up to 213 characters. "" if it is too long.
   QrCode(text = "", scale = "6") {
@@ -1209,6 +1239,8 @@ const commands = {
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
+let asked = 0, onSms = "";
+const waitingFor = {};                              // Fetch and SmsSend handlers, until their answer comes
 window.vmlAway = () => {                                   // the app has left the screen: let go of the camera and its light
   stopFlash();
   if (watching) { const [handler] = watching.asked; stopWatching(); run(handler, ["error", "0", "Watching stopped while the app was away."]); }
@@ -1217,6 +1249,11 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "listen" && heard) { const h = heard; heard = ""; run(h, [a, b]); }
   if (what === "bluetooth" && paired) { const h = paired; paired = ""; run(h, [a, b]); }
   if (what === "watching" && watched_) { const h = watched_; watched_ = ""; run(h, [a, b]); }
+  if (what === "sms" && onSms) run(onSms, [a, b]);
+  if (what.startsWith("fetch:") || what.startsWith("sms-sent:")) {
+    const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];
+    if (h) run(h, [a, b]);
+  }
   if (what === "flash") {
     if (resume) { const r = resume; resume = null; commands.WatchLight(...r); }
     if (flashed) { const h = flashed; flashed = ""; run(h, []); }
