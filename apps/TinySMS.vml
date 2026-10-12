@@ -1,0 +1,384 @@
+# ============================================================================
+# TinySMS: this phone becomes your email-to-text gateway.
+#
+#   Email your tinymail address with "sms: 07700 900123" in the subject and
+#   the message in the body: this phone texts it. When they text back, the
+#   reply is emailed to whoever sent the message, and replying to that email
+#   texts them again.
+#
+#   Sign in once with your tiny-web account. From then on the phone asks the
+#   server every minute for anything waiting, sends it, and says how it went.
+#   Texts that arrive are passed to the server as they come. It keeps going
+#   with the screen off, with a notice in the phone's list saying so.
+#
+#   What it uses, all through Vml(...):
+#     Fetch            the TinySMS server (tiny-web.uk), as JSON
+#     SmsSend, OnSms   texts out and in: an app exported for Android only
+#     RunInBackground  keep going while the phone is in a pocket
+#   On a computer or in a browser it opens and explains itself, but can't text.
+#
+#   Made with Visualised. The scripts are at the bottom; "Start" runs first.
+# ============================================================================
+
+@Window TinySMS
+Title=TinySMS
+Version=2.0
+Width=360
+Height=640
+OnOpened=Start
+
+@MenuTheme theme
+Parent=TinySMS
+Background=#0F766E
+
+@Canvas c
+Parent=TinySMS
+Background=#FFFFFF
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=12
+Canvas.Top=8
+Width=336
+Height=30
+FontSize=22
+FontWeight=Bold
+Text=TinySMS
+
+@TextBlock lblState
+Parent=c
+Canvas.Left=12
+Canvas.Top=42
+Width=336
+Height=56
+FontSize=17
+TextWrapping=Wrap
+Text=
+
+# --- signing in: once, with the tiny-web account -----------------------------
+
+@Canvas pgSignIn
+Parent=c
+Canvas.Left=0
+Canvas.Top=104
+Width=360
+Height=520
+IsVisible=false
+
+@TextBox txtUser
+Parent=pgSignIn
+Canvas.Left=12
+Canvas.Top=0
+Width=336
+Height=40
+Watermark=Username or email
+
+@TextBox txtPass
+Parent=pgSignIn
+Canvas.Left=12
+Canvas.Top=48
+Width=336
+Height=40
+IsPassword=true
+Watermark=Password
+
+@Button btnSignIn
+Parent=pgSignIn
+Canvas.Left=12
+Canvas.Top=98
+Width=336
+Height=44
+Content=Sign in and start
+OnClick=DoSignIn
+
+@TextBlock lblHelp
+Parent=pgSignIn
+Canvas.Left=12
+Canvas.Top=154
+Width=336
+Height=200
+TextWrapping=Wrap
+Foreground=#4B5563
+Text=Your tiny-web account: no account yet? Sign up at tiny-web.uk, then come back. The phone will ask to send and receive texts: say yes to both, or it can't do its job. Your password goes to tiny-web.uk once and isn't kept on the phone.
+
+# --- working: what it has done, and the buttons to stop it ------------------
+
+@Canvas pgWork
+Parent=c
+Canvas.Left=0
+Canvas.Top=104
+Width=360
+Height=520
+IsVisible=false
+
+@TextBlock lblCounts
+Parent=pgWork
+Canvas.Left=12
+Canvas.Top=0
+Width=336
+Height=24
+Foreground=#0F766E
+FontWeight=Bold
+Text=
+
+@TextBlock lblLog
+Parent=pgWork
+Canvas.Left=12
+Canvas.Top=30
+Width=336
+Height=380
+TextWrapping=Wrap
+FontSize=14
+Foreground=#374151
+Text=
+
+@Button btnPause
+Parent=pgWork
+Canvas.Left=12
+Canvas.Top=420
+Width=164
+Height=44
+Content=Pause sending
+OnClick=DoPause
+
+@Button btnSignOut
+Parent=pgWork
+Canvas.Left=184
+Canvas.Top=420
+Width=164
+Height=44
+Content=Sign out
+OnClick=DoSignOut
+
+# --- every minute (or what the server says) it asks for anything waiting -----
+
+@Timer tmr
+Parent=c
+Interval=60000
+IsEnabled=false
+OnTick=Poll
+
+# ============================================================================
+# Scripts. Start runs when the form opens and holds everything the others share.
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+API = "https://tiny-web.uk/api/device.php"
+Busy = false            -- a question to the server, or a text, is on its way: don't start another
+Paused = false
+Sending = nil           -- the message being sent: { id, to, text, more }
+Lines = {}              -- what it has done, newest first
+Sent, Replies, Failed = 0, 0, 0
+Asked = 0               -- when RunInBackground was last asked (it lasts six hours from then)
+
+function Kept(key) return Vml("GetSetting", key) end
+function State(text) Vml("SetProperty", "lblState", "Text", text) end
+function Now() return os.date("%H:%M") end
+
+function Note(text)
+  table.insert(Lines, 1, Now() .. "  " .. text)
+  while #Lines > 14 do table.remove(Lines) end
+  Vml("SetProperty", "lblLog", "Text", table.concat(Lines, "\n"))
+end
+
+function Counts()
+  Vml("SetProperty", "lblCounts", "Text", "Sent " .. Sent .. "  ·  replies " .. Replies .. (Failed > 0 and ("  ·  failed " .. Failed) or ""))
+end
+
+-- 07700 900123 -> ***0123: the log shows enough to recognise a number, not the whole of it
+function Masked(number)
+  local digits = tostring(number or ""):gsub("%D", "")
+  return "***" .. digits:sub(-4)
+end
+
+function Page(name)
+  Vml("SetProperty", "pgSignIn", "IsVisible", tostring(name == "signin"))
+  Vml("SetProperty", "pgWork", "IsVisible", tostring(name == "work"))
+end
+
+-- One question to the server: the device's own fields go with every one.
+function Server(event, extra, handler)
+  local q = { event = event, android_id = Kept("device_id"), device_key = Kept("device_key"), version = "vml-2.0" }
+  local info = json.decode(Vml("DeviceInfo")) or {}
+  q.battery = info.battery
+  for k, v in pairs(extra or {}) do q[k] = v end
+  Vml("Fetch", API, json.encode(q), handler or "")
+end
+
+-- What the server said: the decoded answer, or nil and why not.
+function Answer(text, problem)
+  local d = json.decode(text or "")
+  if type(d) ~= "table" then return nil, problem ~= "" and problem or "The server's answer didn't make sense." end
+  if d.ok == false or (problem ~= "" and not d.ok) then return nil, d.error or problem, d end
+  return d
+end
+
+function Begin()
+  Page("work")
+  Counts()
+  local poll = tonumber(Kept("poll")) or 60
+  Vml("SetProperty", "tmr", "Interval", tostring(math.max(15, poll) * 1000))
+  Vml("SetProperty", "tmr", "IsEnabled", "true")
+  Vml("OnSms", "Heard")
+  Vml("RunInBackground", "true")
+  Asked = os.time()
+  State("Working: texts sent by email go out from this phone.")
+  Note("Started, asking every " .. math.max(15, poll) .. " seconds.")
+  Vml("RunScript", "Poll")
+end
+
+-- The first time: a name for this phone that stays the same (the server knows it by this).
+if Kept("device_id") == "" then
+  math.randomseed(os.time() + math.floor((os.clock() * 1000000) % 1000000))
+  local id = {}
+  for i = 1, 16 do id[i] = string.format("%x", math.random(0, 15)) end
+  Vml("SetSetting", "device_id", table.concat(id))
+end
+
+local info = json.decode(Vml("DeviceInfo")) or {}
+if info.platform ~= "android-app" then
+  Page("signin")
+  State("This is the TinySMS gateway: it runs on an Android phone, as an app of its own. Here it can only show itself.")
+elseif Kept("device_key") ~= "" then
+  Begin()
+else
+  Page("signin")
+  State("Sign in to make this phone your TinySMS gateway.")
+end
+LUA
+
+# --- signing in --------------------------------------------------------------
+
+@Script DoSignIn
+Interpreter=lua
+<<LUA
+local user = Vml("GetProperty", "txtUser", "Text")
+local pass = Vml("GetProperty", "txtPass", "Text")
+if user == "" or pass == "" then return State("Your username (or email) and password, please.") end
+local info = json.decode(Vml("DeviceInfo")) or {}
+State("Signing in...")
+Server("register", { username = user, password = pass, want_key = true, model = info.model, android_ver = info.android }, "SignedIn")
+LUA
+
+@Script SignedIn
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "txtPass", "Text", "")
+local d, why = Answer(args[1], args[2])
+if not d then return State("Not signed in: " .. tostring(why)) end
+if not d.device_key then
+  return State(d.linked == false and "That account wasn't found." or "Signed in, but the server gave this phone no key. Try again.")
+end
+Vml("SetSetting", "device_key", d.device_key)
+Vml("SetSetting", "poll", tostring(d.poll or 60))
+Vml("SetSetting", "who", d.username or "")
+Note("Signed in as " .. (d.username or "you") .. " (" .. (d.plan or "free") .. ").")
+Begin()
+LUA
+
+@Script DoSignOut
+Interpreter=lua
+<<LUA
+Server("unregister")
+Vml("SetProperty", "tmr", "IsEnabled", "false")
+Vml("OnSms", "")
+Vml("RunInBackground", "false")
+Vml("SetSetting", "device_key", "")
+Lines = {}
+Vml("SetProperty", "lblLog", "Text", "")
+Page("signin")
+State("Signed out. Texts emailed to you will wait until a phone signs in.")
+LUA
+
+@Script DoPause
+Interpreter=lua
+<<LUA
+Paused = not Paused
+Vml("SetProperty", "btnPause", "Content", Paused and "Carry on sending" or "Pause sending")
+State(Paused and "Paused: texts wait on the server. Replies still come through." or "Working: texts sent by email go out from this phone.")
+Note(Paused and "Paused." or "Carrying on.")
+if not Paused then Vml("RunScript", "Poll") end
+LUA
+
+# --- the round: ask, send, say how it went, and again if more are waiting ----
+
+@Script Poll
+Interpreter=lua
+<<LUA
+if Busy or Paused or Kept("device_key") == "" then return end
+if os.time() - Asked > 3600 then Vml("RunInBackground", "true"); Asked = os.time() end   -- six more hours
+Busy = true
+Server("next", nil, "Got")
+LUA
+
+@Script Got
+Interpreter=lua
+<<LUA
+local d, why, said = Answer(args[1], args[2])
+if not d then
+  Busy = false
+  if said and tostring(said.error or ""):find("device key") then
+    Vml("RunScript", "DoSignOut")
+    return State("The server doesn't know this phone any more: sign in again.")
+  end
+  return State("Can't reach the server just now (" .. tostring(why) .. "). Trying again shortly.")
+end
+if not d.id or d.id == 0 then
+  Busy = false
+  return State(Paused and "Paused." or ("Working: nothing waiting (" .. Now() .. ")."))
+end
+Sending = { id = d.id, to = d.to, text = d.text, more = d.more or 0 }
+State("Sending to " .. Masked(d.to) .. "...")
+Vml("SmsSend", d.to, d.text, "Sent")
+LUA
+
+@Script Sent
+Interpreter=lua
+<<LUA
+local m = Sending
+Sending = nil
+if not m then Busy = false; return end
+local ok = args[1] == "sent"
+if ok then Sent = Sent + 1; Note("Sent to " .. Masked(m.to) .. ".")
+else Failed = Failed + 1; Note("Not sent to " .. Masked(m.to) .. ": " .. tostring(args[2])) end
+Counts()
+Server("sms_status", { message_id = m.id, status = ok and "sent" or "failed", error = ok and "" or args[2] },
+    m.more > 0 and "Again" or "Done")
+LUA
+
+@Script Again
+Interpreter=lua
+<<LUA
+Busy = false
+Vml("RunScript", "Poll")
+LUA
+
+@Script Done
+Interpreter=lua
+<<LUA
+Busy = false
+State(Paused and "Paused." or ("Working: all sent (" .. Now() .. ")."))
+LUA
+
+# --- texts that arrive: passed to the server, which emails them on ----------
+
+@Script Heard
+Interpreter=lua
+<<LUA
+local from, text = args[1], args[2]
+if from == "" then return Note(text) end                  -- it couldn't listen: text says why
+Replies = Replies + 1
+Counts()
+Note("Text from " .. Masked(from) .. ".")
+Server("sms_received", { from_number = from, body = text }, "Forwarded")
+LUA
+
+@Script Forwarded
+Interpreter=lua
+<<LUA
+local d, why = Answer(args[1], args[2])
+if not d then Note("That text didn't reach the server: " .. tostring(why)) end
+LUA
