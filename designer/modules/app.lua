@@ -41,7 +41,7 @@ end
 
 function About(...)
     local lic = require("dkjson").decode(Vml("GetLicence"))
-    Vml("InfoDialog", "Visualised " .. Vml("VmlVersion") .. " (" .. lic.label .. ")\n\nDesign apps for the desktop, the web and Android.\nThe designer is itself a Visualised project: designer/Designer.vmlproj.\n\nhttps://visualised.io\nMade by Steve Wallis and Claude, at Wallisoft.", "About Visualised")
+    Vml("InfoDialog", "Visualised™ " .. Vml("VmlVersion") .. " (" .. lic.label .. ")\n\nDesign apps for the desktop, the web and Android.\nThe designer is itself a Visualised project: designer/Designer.vmlproj.\n\nhttps://visualised.io\nMade by Steve Wallis and Claude, at Wallisoft.\nVisualised is a trade mark of Steve Wallis, trading as Wallisoft.", "About Visualised")
 end
 
 function CheckUpdates(...)
