@@ -5,6 +5,7 @@
     ./vml.py myform.vml            run a form
     ./vml.py myapp.vmlproj         run a project (several forms and modules) from its start-up form
     ./vml.py html form.vml         write the form as a web page (form.html); add --open to view it
+    ./vml.py apk form.vml          make the form an Android app of its own (Pro); apk-key: its signing key
     ./vml.py parse form.vml        print the SQL the parser makes
     ./vml.py --version             which Visualised this is
     ./vml.py setup-csharp          (optional) build the C# script host
@@ -15,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-APP_VERBS = ("setup-csharp", "html", "parse")
+APP_VERBS = ("setup-csharp", "html", "parse", "apk", "apk-key")
 first = sys.argv[1] if len(sys.argv) > 1 else ""
 if first in ("--version", "-V", "version"):                    # before anything heavy is loaded: just the number
     from vml import __version__
