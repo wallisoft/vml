@@ -6,14 +6,17 @@
 #   reply is emailed to whoever sent the message, and replying to that email
 #   texts them again.
 #
-#   Sign in once with your tiny-web account. From then on the phone asks the
-#   server every minute for anything waiting, sends it, and says how it went.
+#   Sign in once with your tiny-web account. From then on the server pushes
+#   this phone the moment a text is waiting (Firebase), and the phone asks
+#   every few seconds as well in case a push goes astray.
 #   Texts that arrive are passed to the server as they come. It keeps going
 #   with the screen off, with a notice in the phone's list saying so.
 #
 #   What it uses, all through Vml(...):
 #     Fetch            the TinySMS server (tiny-web.uk), as JSON
 #     SmsSend, OnSms   texts out and in: an app exported for Android only
+#     OnPush           woken by the server when a text is waiting (no text goes through Google: the
+#                      push only says "ask now")
 #     RunInBackground  keep going while the phone is in a pocket
 #   On a computer or in a browser it opens and explains itself, but can't text.
 #
@@ -167,6 +170,8 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
+-- TinySMS's Firebase project: public values (they are in every Firebase app), not secrets.
+FIREBASE = json.encode({ project = "@FB_PROJECT@", app = "@FB_APP@", key = "@FB_KEY@", sender = "@FB_SENDER@" })
 Busy = false            -- a question to the server, or a text, is on its way: don't start another
 Paused = false
 Sending = nil           -- the message being sent: { id, to, text, more }
@@ -219,14 +224,15 @@ end
 function Begin()
   Page("work")
   Counts()
-  local poll = tonumber(Kept("poll")) or 60
-  Vml("SetProperty", "tmr", "Interval", tostring(math.max(15, poll) * 1000))
+  local poll = math.max(10, tonumber(Kept("poll")) or 10)
+  Vml("SetProperty", "tmr", "Interval", tostring(poll * 1000))
   Vml("SetProperty", "tmr", "IsEnabled", "true")
   Vml("OnSms", "Heard")
+  Vml("OnPush", "Pushed", FIREBASE)
   Vml("RunInBackground", "true")
   Asked = os.time()
   State("Working: texts sent by email go out from this phone.")
-  Note("Started, asking every " .. math.max(15, poll) .. " seconds.")
+  Note("Started, asking every " .. poll .. " seconds.")
   Vml("RunScript", "Poll")
 end
 
@@ -273,7 +279,7 @@ if not d.device_key then
   return State(d.linked == false and "That account wasn't found." or "Signed in, but the server gave this phone no key. Try again.")
 end
 Vml("SetSetting", "device_key", d.device_key)
-Vml("SetSetting", "poll", tostring(d.poll or 60))
+Vml("SetSetting", "poll", tostring(d.poll or 10))
 Vml("SetSetting", "who", d.username or "")
 Note("Signed in as " .. (d.username or "you") .. " (" .. (d.plan or "free") .. ").")
 Begin()
@@ -285,6 +291,7 @@ Interpreter=lua
 Server("unregister")
 Vml("SetProperty", "tmr", "IsEnabled", "false")
 Vml("OnSms", "")
+Vml("OnPush", "")
 Vml("RunInBackground", "false")
 Vml("SetSetting", "device_key", "")
 Lines = {}
@@ -381,4 +388,27 @@ Interpreter=lua
 <<LUA
 local d, why = Answer(args[1], args[2])
 if not d then Note("That text didn't reach the server: " .. tostring(why)) end
+LUA
+
+# --- pushes: the server's "a text is waiting", so it goes now, not at the next ask ---
+
+@Script Pushed
+Interpreter=lua
+<<LUA
+local kind, what = args[1], args[2]
+if kind == "token" then                                  -- this phone's push address: the server keeps it
+  Server("push_token", { push_token = what }, "PushNoted")
+elseif kind == "message" then
+  Vml("RunScript", "Poll")
+else
+  Note("Pushes aren't working (" .. tostring(what) .. "): asking every few seconds instead.")
+end
+LUA
+
+@Script PushNoted
+Interpreter=lua
+<<LUA
+local d, why = Answer(args[1], args[2])
+if d then Note("Pushes on: the server can wake this phone.")
+else Note("The server didn't take this phone's push address: " .. tostring(why)) end
 LUA

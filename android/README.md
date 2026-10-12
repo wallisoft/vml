@@ -4,17 +4,25 @@ Runs the apps the designer makes, on a phone, with the phone's location, camera,
 vibration behind the same `Vml(...)` commands a script uses everywhere else.
 
 ~~~
-./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew assemblePlainDebug
+adb install -r app/build/outputs/apk/plain/debug/app-plain-debug.apk
 ~~~
 
 For the APK people download, signed with the release key (see `app/build.gradle` for where that lives):
 
 ~~~
-./gradlew assembleRelease
+./gradlew assemblePlainRelease
 ~~~
 
-It needs the Android SDK (platform 34) and Java 17 or later; nothing else. It is plain Java with no libraries.
+(The APK is then `app/build/outputs/apk/plain/release/app-plain-release.apk`.)
+
+It needs the Android SDK (platform 34) and Java 17 or later; nothing else. It is plain Java, with ZXing's core to
+read QR codes.
+
+There are two flavours from the one source. **plain** is Visualised itself and the template for exported apps.
+**push** (`src/push`) adds Firebase Cloud Messaging, and is the template only for apps whose scripts use `OnPush`;
+`vml/apk.py` picks it for them. `make-template.sh` builds both. Release builds are trimmed by R8 (`app/keep.pro`
+keeps Visualised's own classes whole), which is what keeps the push template under 1 MB.
 
 How it works: an app is one web page. The phone app shows it in a web view at an address that exists only
 inside the app (`https://NAME.app.visualised.invalid/`) and answers every request for that address itself,

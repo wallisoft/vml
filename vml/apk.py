@@ -28,9 +28,12 @@ from pathlib import Path
 # Beside Visualised's other web files, from source and in a compiled build alike (see WEB_DIR in vml/html.py).
 TEMPLATE = next((d / "android-template.apk" for d in (Path(__file__).resolve().parent / "web", Path(__file__).resolve().parent.parent / "web")
                  if (d / "android-template.apk").is_file()), Path(__file__).resolve().parent / "web" / "android-template.apk")
+# The push template: the same app with Firebase Cloud Messaging, for apps whose scripts use OnPush.
+PUSH_TEMPLATE = TEMPLATE.with_name("android-template-push.apk")
+PUSH = "com.google.android.c2dm.permission.RECEIVE"   # what an app that hears pushes must declare (and the sign of one)
 ANDROID = "http://schemas.android.com/apk/res/android"
 
-# What each thing a script can ask of a phone needs the app to declare. (Commands are named in scripts as
+# What each thing a script can ask of a phone needs the app to declare (a name with no dots is android.permission.NAME). (Commands are named in scripts as
 # Vml("Torch", ...); see the commands in vml/html.py.) INTERNET and the network's state are always kept.
 NEEDS = {
     "CAMERA": ("Torch", "ScanCode", "Flash", "WatchLight"),
@@ -38,16 +41,17 @@ NEEDS = {
     "ACCESS_COARSE_LOCATION": ("GetLocation",),
     "RECORD_AUDIO": ("Listen",),
     "MODIFY_AUDIO_SETTINGS": ("Listen",),
-    "POST_NOTIFICATIONS": ("Notify", "RunInBackground", "WatchBluetooth"),
+    "POST_NOTIFICATIONS": ("Notify", "RunInBackground", "WatchBluetooth", "OnPush"),
     "VIBRATE": ("Vibrate", "Flash"),
     "FOREGROUND_SERVICE": ("RunInBackground",),
     "FOREGROUND_SERVICE_SPECIAL_USE": ("RunInBackground",),
-    "WAKE_LOCK": ("RunInBackground", "KeepAwake"),
+    "WAKE_LOCK": ("RunInBackground", "KeepAwake", "OnPush"),
     "BLUETOOTH": ("BluetoothDevices", "WatchBluetooth", "BluetoothLog"),
     "BLUETOOTH_CONNECT": ("BluetoothDevices", "WatchBluetooth", "BluetoothLog"),
     "ACCESS_BACKGROUND_LOCATION": ("WatchBluetooth",),
     "SEND_SMS": ("SmsSend",),
     "RECEIVE_SMS": ("OnSms",),
+    PUSH: ("OnPush",),
 }
 ALWAYS = ("INTERNET", "ACCESS_NETWORK_STATE")
 
@@ -194,7 +198,7 @@ class Manifest:
 def rewrite_manifest(data, package, label, version, code, permissions):
     """The template's manifest, made the app's own."""
     m = Manifest(data)
-    keep = {"android.permission." + p for p in permissions}
+    keep = {p if "." in p else "android.permission." + p for p in permissions}
     done = set()
     while True:                                     # (removing moves what follows, so look again after each)
         for place, name, depth, attrs in m.elements():
@@ -472,7 +476,12 @@ def build(page, name, out, version="", package="", icon=None, permissions=None, 
     been before: with a different key here, nothing is made (OtherKey), since phones would refuse it as an update.
     Returns {"path", "package", "version", "code", "permissions", "size", "key", "key_id", "new_key"}: new_key is
     True when the signing key was made just now and its owner has yet to be told."""
-    template = Path(template or os.environ.get("VML_APK_TEMPLATE") or TEMPLATE)
+    permissions = sorted(set(permissions if permissions is not None else ALWAYS) | set(ALWAYS))
+    push = PUSH in permissions
+    template = Path(template or os.environ.get("VML_APK_TEMPLATE" + ("_PUSH" if push else "")) or (PUSH_TEMPLATE if push else TEMPLATE))
+    if push and not template.exists():
+        raise ApkError(f"This app hears pushes (OnPush), which needs the push template ({template}). It comes with Visualised; "
+                       "if you run from the source, build it with android/make-template.sh.")
     if not template.exists():
         raise ApkError(f"The Android template isn't here ({template}). It comes with Visualised; if you run from the source, "
                        "build it with android/make-template.sh.")
@@ -490,7 +499,6 @@ def build(page, name, out, version="", package="", icon=None, permissions=None, 
     if not good_package(package):
         raise ApkError(f"'{package}' can't be an Android app's package name. It is lower-case words joined by dots, each "
                        "starting with a letter: com.example.myapp.")
-    permissions = sorted(set(permissions if permissions is not None else ALWAYS) | set(ALWAYS))
     code = version_code(version)
     made = io.BytesIO()
     try:

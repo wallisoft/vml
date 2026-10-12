@@ -1,5 +1,6 @@
 // Visualised for Android: runs apps drawn in Visualised, and lets them use the phone.
 // Plain Java on the Android framework, and one library: ZXing's core, to read QR codes (a phone's own web view can't).
+// The push template (flavour "push") adds Firebase Messaging, and only that template.
 plugins {
     id "com.android.application"
 }
@@ -38,13 +39,25 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            // R8 trims the libraries (Firebase in the push template brings far more than a push needs). Visualised's
+            // own classes are kept whole and nothing is renamed: see keep.pro.
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "keep.pro"
             if (signed) {
                 signingConfig signingConfigs.release
             } else {
                 logger.warn("Visualised: no signing key at ${keyFile}: the release APK will be unsigned and won't install.")
             }
         }
+    }
+
+    // Two templates from one source: "plain" is Visualised itself, and what every exported app is made from unless its
+    // scripts use OnPush; "push" adds Firebase Cloud Messaging (src/push) for those that do. Kept apart so the
+    // Visualised app and ordinary exports stay small and carry nothing of Google's.
+    flavorDimensions = ["kind"]
+    productFlavors {
+        plain { dimension "kind" }
+        push { dimension "kind" }
     }
 
     compileOptions {
@@ -60,4 +73,5 @@ android {
 
 dependencies {
     implementation "com.google.zxing:core:3.5.3"      // reads QR codes; plain Java, nothing else comes with it
+    pushImplementation "com.google.firebase:firebase-messaging:24.1.0"   // the push template only
 }

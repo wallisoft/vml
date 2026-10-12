@@ -129,6 +129,19 @@ final class Device {
         texts.watch(on);
     }
 
+    /**
+     * Hear push messages sent to this phone through Firebase, with the app's Firebase values as JSON; "" stops.
+     * Only in an app exported on its own whose scripts use OnPush (the push template). See Push.
+     */
+    @JavascriptInterface
+    public void pushWatch(String options) {
+        if (options != null && !options.isEmpty() && !activity.isOwnApp()) {
+            activity.tell("push", "", "Pushes can only reach an app exported on its own (vml apk).");
+            return;
+        }
+        activity.runOnUiThread(() -> Push.watch(activity, options));
+    }
+
     /** JSON: what is running the page. */
     @JavascriptInterface
     public String info() {
@@ -485,6 +498,7 @@ final class Device {
     /** The app on screen has been left: put back whatever it switched on. */
     void reset() {
         texts.stop();
+        Push.stop();
         if (air != null) {
             SensorManager sensors = activity.getSystemService(SensorManager.class);
             if (sensors != null) {

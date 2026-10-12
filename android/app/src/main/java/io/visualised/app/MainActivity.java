@@ -109,6 +109,8 @@ public class MainActivity extends Activity {
     private WebView web;
     private final List<String> logged = Collections.synchronizedList(new ArrayList<String>());   // what the app on screen has logged
     private String loggedBy = "";           // and which app that was
+    /** The one on screen (or kept going in the background), for what arrives from outside it: a push (Push). */
+    static volatile MainActivity onScreen;
     private String host = "";               // the address (in here) of the app on screen
     private String title = "Visualised";    // and its name
     private String liveSource = "";         // where it is being fetched from, when it is not one kept on the phone
@@ -121,6 +123,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        onScreen = this;
         apps = new Apps(this);
         prefs = getSharedPreferences("visualised", MODE_PRIVATE);
         FrameLayout root = new FrameLayout(this);
@@ -289,6 +292,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (onScreen == this) {
+            onScreen = null;
+        }
         runInBackground(false);
         device.close();
         web.destroy();
