@@ -33,8 +33,6 @@ Icon=MorseTorch.png
 Width=360
 Height=640
 OnOpened=Start
-AndroidPackage=io.visualised.made.morsetorch.k7b1ce6cd
-AndroidKey=7b1ce6cd
 
 @MenuTheme theme
 Parent=MorseTorch

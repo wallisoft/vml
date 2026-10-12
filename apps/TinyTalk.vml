@@ -27,8 +27,6 @@ Width=360
 Height=640
 WebAddress=https://tiny-talk.world/chat.html
 OnOpened=Opened
-AndroidPackage=io.visualised.made.tinytalk.k7b1ce6cd
-AndroidKey=7b1ce6cd
 
 @Canvas c
 Parent=TinyTalk

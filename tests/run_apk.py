@@ -171,7 +171,7 @@ if tools:
     check("Android's apksigner verifies the signature", (said.returncode, "Verified using v2 scheme (APK Signature Scheme v2): true" in said.stdout), (0, True))
     badge = run(os.path.join(tools[-1], "aapt2"), "dump", "badging", out).stdout
     check("Android's aapt2 reads it as the app it should be",
-          (f"package: name='{made['package']}' versionCode='10402' versionName='1.4.2'" in badge, "application-label:'Morse Torch'" in badge, "launchable-activity: name='io.visualised.app.MainActivity'" in badge, "sdkVersion:'29'" in badge),
+          (f"package: name='{made['package']}' versionCode='10402' versionName='1.4.2'" in badge, "application-label:'Morse Torch'" in badge, "launchable-activity: name='io.visualised.app.MainActivity'" in badge, ("sdkVersion:'29'" in badge or "minSdkVersion:'29'" in badge)),
           (True, True, True, True))
 else:
     print("      (Android's build tools aren't installed here, so zipalign, apksigner and aapt2 were not asked)")
