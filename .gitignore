@@ -10,3 +10,4 @@ csharp/VmlCSharpHost/bin/
 csharp/VmlCSharpHost/obj/
 *.apk
 !vml/web/*.apk
+!vml/web/*.apk
