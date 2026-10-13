@@ -168,7 +168,18 @@ def set_margin(node, value):
 
 
 def set_visible(node, value):
-    node.host.setVisible(truthy(value) if value not in (None, "") else True)
+    on = truthy(value) if value not in (None, "") else True
+    if str(getattr(node, "scope", "")).startswith("design:"):  # being designed: still there to see and select, only faded
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        node.host.setVisible(True)
+        if on:
+            node.host.setGraphicsEffect(None)
+        else:
+            fade = QGraphicsOpacityEffect(node.host)
+            fade.setOpacity(0.35)
+            node.host.setGraphicsEffect(fade)
+        return
+    node.host.setVisible(on)
 
 
 def set_alignment(node, _value):
