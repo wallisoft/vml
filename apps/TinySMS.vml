@@ -18,6 +18,7 @@
 #   What it uses, all through Vml(...):
 #     Fetch            the TinySMS server (tiny-web.uk), as JSON
 #     SmsSend, OnSms   texts out and in: an app exported for Android only
+#     OnMessages       replies that came by chat (RCS), read from the messaging app's notices
 #     OnPush           woken by the server when a text is waiting (no text goes through Google: the
 #                      push only says "ask now")
 #     RunInBackground  keep going while the phone is in a pocket
@@ -33,7 +34,7 @@
 
 @Window TinySMS
 Title=TinySMS
-Version=2.0
+Version=2.1
 Width=360
 Height=640
 OnOpened=Start
@@ -233,6 +234,7 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
+VERSION = "2.1"          -- keep with the Window's Version above: shown at the top, and told to the server
 CONSOLE = "https://tiny-web.uk/api/console.php"
 Role = "gateway"         -- or "console": a computer or a browser, which sends through the gateway and never is one
 Current = nil           -- the console: the number whose conversation is showing
@@ -277,7 +279,7 @@ end
 
 -- One question to the server: the device's own fields go with every one.
 function Server(event, extra, handler)
-  local q = { event = event, android_id = Kept("device_id"), device_key = Kept("device_key"), version = "vml-2.0" }
+  local q = { event = event, android_id = Kept("device_id"), device_key = Kept("device_key"), version = "vml-" .. VERSION }
   local info = json.decode(Vml("DeviceInfo")) or {}
   q.battery = info.battery
   for k, v in pairs(extra or {}) do q[k] = v end
@@ -299,6 +301,7 @@ function Begin()
   Vml("SetProperty", "tmr", "Interval", tostring(poll * 1000))
   Vml("SetProperty", "tmr", "IsEnabled", "true")
   Vml("OnSms", "Heard")
+  Vml("OnMessages", "Heard")          -- replies that came by chat (RCS): the phone asks once for notification access
   Vml("OnPush", "Pushed", FIREBASE)
   Vml("RunInBackground", "true")
   Asked = os.time()
@@ -321,6 +324,8 @@ function BeginConsole()
   State("Signed in as " .. (Kept("console_who") ~= "" and Kept("console_who") or "you") .. ". Looking for your gateway phone...")
   Vml("RunScript", "Refresh")
 end
+
+Vml("SetProperty", "lblTitle", "Text", "TinySMS " .. VERSION)
 
 -- The first time: a name for this phone that stays the same (the server knows it by this).
 if Kept("device_id") == "" then
@@ -387,6 +392,7 @@ Interpreter=lua
 Server("unregister")
 Vml("SetProperty", "tmr", "IsEnabled", "false")
 Vml("OnSms", "")
+Vml("OnMessages", "")
 Vml("OnPush", "")
 Vml("RunInBackground", "false")
 Vml("SetSetting", "device_key", "")
@@ -545,7 +551,9 @@ end
 local g = d.gateway
 if not g then return State("No gateway phone yet: install TinySMS on an Android phone and sign in there.") end
 local waiting = (d.waiting or 0) > 0 and ("  ·  " .. d.waiting .. " waiting") or ""
-if g.online then
+if not g.online and g.push then
+  State("Gateway " .. (g.model or "phone") .. " is resting: it wakes for each text" .. waiting)
+elseif g.online then
   State("Gateway " .. (g.model or "phone") .. " is awake" .. (g.battery and ("  ·  " .. g.battery .. "%") or "") .. waiting)
 else
   State("Gateway " .. (g.model or "phone") .. " last seen " .. (g.seen or "a while ago") .. ": texts wait until it's back" .. waiting)
@@ -586,7 +594,10 @@ Interpreter=lua
 local d = Answer(args[1], args[2])
 if not d or d.number ~= Current then return end
 local lines = {}
-for _, m in ipairs(d.items or {}) do
+local items = d.items or {}
+local first = math.max(1, #items - 10)            -- the box shows about eleven lines: the newest, oldest at the top
+for i = first, #items do
+  local m = items[i]
   local mark = m.direction == "inbound" and "←  " or "→  "
   local note = (m.status == "failed" and "  (not sent)") or ((m.status == "pending" or m.status == "sending") and "  (waiting)") or ""
   lines[#lines + 1] = mark .. m.at .. "   " .. m.body .. note
