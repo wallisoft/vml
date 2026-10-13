@@ -20,18 +20,18 @@ Title=TinySMS Web
 Version=2.1
 Width=1000
 Height=640
+WebFit=Fill
 OnOpened=Start
 
 @Canvas c
 Parent=TinySMSWeb
-Width=1000
-Height=640
 Background=#D1D7DB
 
 # --- signing in: a card in the middle of the page ---------------------------
 
 @Canvas pgSignIn
 Parent=c
+Anchor=Top,Bottom,Left,Right
 Canvas.Left=0
 Canvas.Top=0
 Width=1000
@@ -40,6 +40,7 @@ Background=#0F766E
 
 @Canvas card
 Parent=pgSignIn
+Anchor=Center
 Canvas.Left=310
 Canvas.Top=120
 Width=380
@@ -111,6 +112,7 @@ Text=The same tiny-web account as your TinySMS phone. Texts you write here go ou
 
 @Canvas pgMain
 Parent=c
+Anchor=Top,Bottom,Left,Right
 Canvas.Left=0
 Canvas.Top=0
 Width=1000
@@ -119,6 +121,7 @@ IsVisible=false
 
 @Canvas side
 Parent=pgMain
+Anchor=Top,Bottom,Left
 Canvas.Left=0
 Canvas.Top=0
 Width=340
@@ -183,6 +186,7 @@ OnClick=DoNew
 
 @ListBox lstConv
 Parent=side
+Anchor=Top,Bottom,Left
 Canvas.Left=0
 Canvas.Top=122
 Width=340
@@ -191,6 +195,7 @@ SelectionChanged=PickConv
 
 @Canvas chat
 Parent=pgMain
+Anchor=Top,Bottom,Left,Right
 Canvas.Left=340
 Canvas.Top=0
 Width=660
@@ -199,6 +204,7 @@ Background=#EFEAE2
 
 @Canvas chatBar
 Parent=chat
+Anchor=Top,Left,Right
 Canvas.Left=0
 Canvas.Top=0
 Width=660
@@ -207,6 +213,7 @@ Background=#F0F2F5
 
 @TextBlock lblWith
 Parent=chatBar
+Anchor=Top,Left,Right
 Canvas.Left=20
 Canvas.Top=10
 Width=620
@@ -218,6 +225,7 @@ Text=Pick a conversation
 
 @TextBlock lblWithInfo
 Parent=chatBar
+Anchor=Top,Left,Right
 Canvas.Left=20
 Canvas.Top=38
 Width=620
@@ -228,6 +236,7 @@ Text=or start a new one on the left
 
 @TextBlock lblThread
 Parent=chat
+Anchor=Top,Bottom,Left,Right
 Canvas.Left=24
 Canvas.Top=80
 Width=612
@@ -239,6 +248,7 @@ Text=
 
 @Canvas writeBar
 Parent=chat
+Anchor=Bottom,Left,Right
 Canvas.Left=0
 Canvas.Top=568
 Width=660
@@ -247,6 +257,7 @@ Background=#F0F2F5
 
 @TextBox txtMsg
 Parent=writeBar
+Anchor=Top,Left,Right
 Canvas.Left=20
 Canvas.Top=14
 Width=520
@@ -256,6 +267,7 @@ IsEnabled=false
 
 @Button btnSend
 Parent=writeBar
+Anchor=Top,Right
 Canvas.Left=552
 Canvas.Top=14
 Width=88
