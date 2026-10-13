@@ -17,7 +17,7 @@
 
 @Window TinySMSWeb
 Title=TinySMS Web
-Version=2.6
+Version=2.7
 Width=1000
 Height=640
 WebFit=Fill
@@ -341,7 +341,7 @@ OnClick=DoSend
 
 @Timer tmr
 Parent=c
-Interval=5000
+Interval=10000
 IsEnabled=false
 OnTick=Refresh
 
@@ -354,7 +354,7 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 CONSOLE = "https://tiny-web.uk/api/console.php"
-VERSION = "2.6"          -- keep with the Window's Version above
+VERSION = "2.7"          -- keep with the Window's Version above
 Current = nil           -- the number whose conversation is open
 CurrentName = ""        -- and its name, if it has one
 Convs = ""              -- the list as last shown (only redrawn when it changes, so a choice isn't lost)
@@ -435,7 +435,7 @@ Interpreter=lua
 <<LUA
 Console("signout")
 Vml("SetSetting", "web_key", "")
-Current, Convs, Names, NamesPending = nil, "", {}, false
+Current, Convs, Names, NamesPending, LastChanges = nil, "", {}, false, nil
 Set("lstConv", "Items", "")
 Set("lstContacts", "Items", "")
 Set("btnContacts", "Content", "Contacts")
@@ -447,9 +447,7 @@ LUA
 Interpreter=lua
 <<LUA
 if Kept("web_key") == "" then return end
-Console("status", nil, "GotStatus")
-Console("conversations", nil, "GotConvs")
-if Current then Console("thread", { number = Current }, "GotThread") end
+Console("status", nil, "GotStatus")      -- light: the rest is fetched only when it says something changed
 if NamesPending then Console("names_list", nil, "GotNames") end
 LUA
 
@@ -474,6 +472,12 @@ elseif g.push then
   Set("lblGate", "Text", "● Phone resting: wakes for each text" .. waiting)
 else
   Set("lblGate", "Text", "○ Phone last seen " .. (g.seen or "a while ago") .. waiting)
+end
+-- Something new (a text in or out, a status, a name)? Only then the heavier lists are fetched again.
+if d.changes == nil or d.changes ~= LastChanges then
+  LastChanges = d.changes
+  Console("conversations", nil, "GotConvs")
+  if Current then Console("thread", { number = Current }, "GotThread") end
 end
 LUA
 
@@ -592,7 +596,7 @@ local d, why = Answer(args[1], args[2])
 if not d then return Set("lblWithInfo", "Text", "Not saved: " .. tostring(why)) end
 Set("lblWithInfo", "Text", d.woke and "Saved to your phone's contacts" or "Your phone saves it when it next checks in")
 if Current and #Digits(Current) < 6 and Wanted then Current = Wanted; Set("lblWith", "Text", Wanted) end
-Wanted, Convs = nil, ""
+Wanted, Convs, LastChanges = nil, "", nil
 AskNames(true)
 LUA
 
@@ -601,7 +605,7 @@ Interpreter=lua
 <<LUA
 local d, why = Answer(args[1], args[2])
 if not d then return Set("lblWithInfo", "Text", "Not named: " .. tostring(why)) end
-CurrentName, Convs = d.name, ""
+CurrentName, Convs, LastChanges = d.name, "", nil
 Vml("RunScript", "Refresh")
 LUA
 

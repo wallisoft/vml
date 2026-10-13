@@ -39,7 +39,7 @@
 
 @Window TinySMS
 Title=TinySMS
-Version=2.6
+Version=2.7
 Width=360
 Height=640
 OnOpened=Start
@@ -249,7 +249,7 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
-VERSION = "2.6"          -- keep with the Window's Version above: shown at the top, and told to the server
+VERSION = "2.7"          -- keep with the Window's Version above: shown at the top, and told to the server
 CONSOLE = "https://tiny-web.uk/api/console.php"
 Role = "gateway"         -- or "console": a computer or a browser, which sends through the gateway and never is one
 Current = nil           -- the console: the number whose conversation is showing
@@ -313,11 +313,19 @@ function Answer(text, problem)
   return d
 end
 
+-- How often the phone asks the server: rarely when the server can wake it by push (a heartbeat; every text,
+-- name request and contact change wakes it at once), often when it can't.
+function PollEvery()
+  local poll = math.max(10, tonumber(Kept("poll")) or 10)
+  if Kept("push_ok") == "1" then poll = 300 end
+  Vml("SetProperty", "tmr", "Interval", tostring(poll * 1000))
+  return poll
+end
+
 function Begin()
   Page("work")
   Counts()
-  local poll = math.max(10, tonumber(Kept("poll")) or 10)
-  Vml("SetProperty", "tmr", "Interval", tostring(poll * 1000))
+  local poll = PollEvery()
   Vml("SetProperty", "tmr", "IsEnabled", "true")
   Vml("OnSms", "Heard")
   Vml("OnMessages", "Heard")          -- replies that came by chat (RCS): the phone asks once for notification access
@@ -339,8 +347,9 @@ end
 
 function BeginConsole()
   Page("console")
-  Vml("SetProperty", "tmr", "Interval", "5000")
+  Vml("SetProperty", "tmr", "Interval", "10000")
   Vml("SetProperty", "tmr", "IsEnabled", "true")
+  LastChanges = nil
   State("Signed in as " .. (Kept("console_who") ~= "" and Kept("console_who") or "you") .. ". Looking for your gateway phone...")
   Vml("RunScript", "Refresh")
 end
@@ -553,6 +562,8 @@ if kind == "token" then                                  -- this phone's push ad
 elseif kind == "message" then
   Vml("RunScript", "Poll")
 else
+  Vml("SetSetting", "push_ok", "")
+  PollEvery()
   Note("Pushes aren't working (" .. tostring(what) .. "): asking every few seconds instead.")
 end
 LUA
@@ -561,8 +572,14 @@ LUA
 Interpreter=lua
 <<LUA
 local d, why = Answer(args[1], args[2])
-if d then Note("Pushes on: the server can wake this phone.")
-else Note("The server didn't take this phone's push address: " .. tostring(why)) end
+if d then
+  Vml("SetSetting", "push_ok", "1")
+  Note("Pushes on: the server wakes this phone for each text, so it asks only every " .. PollEvery() .. " seconds.")
+else
+  Vml("SetSetting", "push_ok", "")
+  PollEvery()
+  Note("The server didn't take this phone's push address: " .. tostring(why))
+end
 LUA
 
 # ============================================================================
@@ -584,9 +601,7 @@ LUA
 Interpreter=lua
 <<LUA
 if Kept("console_key") == "" then return end
-Console("status", nil, "GotStatus")
-Console("conversations", nil, "GotConvs")
-if Current then Console("thread", { number = Current }, "GotThread") end
+Console("status", nil, "GotStatus")      -- light: the rest is fetched only when it says something changed
 LUA
 
 @Script GotStatus
@@ -606,6 +621,12 @@ elseif g.online then
   State("Gateway " .. (g.model or "phone") .. " is awake" .. (g.battery and ("  ·  " .. g.battery .. "%") or "") .. waiting)
 else
   State("Gateway " .. (g.model or "phone") .. " last seen " .. (g.seen or "a while ago") .. ": texts wait until it's back" .. waiting)
+end
+-- Something new (a text in or out, a status, a name)? Only then the heavier lists are fetched again.
+if d.changes == nil or d.changes ~= LastChanges then
+  LastChanges = d.changes
+  Console("conversations", nil, "GotConvs")
+  if Current then Console("thread", { number = Current }, "GotThread") end
 end
 LUA
 
@@ -726,7 +747,7 @@ Interpreter=lua
 <<LUA
 local d, why = Answer(args[1], args[2])
 if not d then return State("Not named: " .. tostring(why)) end
-CurrentName, Convs = d.name, ""
+CurrentName, Convs, LastChanges = d.name, "", nil
 Vml("RunScript", "Refresh")
 LUA
 
