@@ -996,7 +996,7 @@ const commands = {
     else if (onSms) setTimeout(() => run(onSms, ["", "Texts arrive only in an app exported for an Android phone."]), 0);
     return "";
   },
-  // The phone's address book: the handler gets it as JSON, [{"name": ..., "number": ...}, ...] (one entry per number),
+  // The phone's address book: the handler gets it as JSON, [{"name": ..., "number": ..., "label": "mobile"}, ...] (one entry per number),
   // or a blank and what went wrong. The phone asks the user the first time. An app exported on its own for Android only.
   ReadContacts(handler = "") {
     const id = String(++asked);

@@ -2573,7 +2573,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         return ""
 
     def cmd_ReadContacts(self, handler=""):
-        """The phone's address book, as JSON [{"name", "number"}], to handler; or a blank and why not (as here: an
+        """The phone's address book, as JSON [{"name", "number", "label"}], to handler; or a blank and why not (as here: an
         app exported for an Android phone only)."""
         if handler:
             origin = self._script_stack[-1] if self._script_stack else None
