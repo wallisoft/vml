@@ -2556,6 +2556,65 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             if handler:
                 self.run_script(handler, answer, problem, origin=origin)
 
+    def cmd_PushSend(self, address="", text="", handler=""):
+        """Send a short text to a push address (one an app's phone copy got from OnPush): the phone is woken and its
+        handler gets ("message", text, this computer's push address). Handler gets "sent", or a blank and why not."""
+        import queue
+        import urllib.request
+        origin = self._script_stack[-1] if self._script_stack else None
+        handler = str(handler or "")
+        relay = os.environ.get("VML_PUSH_RELAY", "https://tiny-web.uk/api/push.php")
+        if getattr(self, "_fetched", None) is None:
+            self._fetched = queue.Queue()
+            self._fetch_timer = QTimer()
+            self._fetch_timer.setInterval(50)
+            self._fetch_timer.timeout.connect(self._fetch_events)
+        self._fetch_timer.start()
+        try:
+            carry = licences.link_pass(fetch=False)
+        except Exception:
+            carry = ""
+        win = QApplication.activeWindow()
+        title = win.windowTitle() if win else ""
+        mine = {"address": self.cmd_GetSetting("_push_address"), "secret": self.cmd_GetSetting("_push_secret")}
+        kept = queue.Queue()
+
+        def ask(body):
+            req = urllib.request.Request(relay, data=json.dumps(dict({"app": title, "v": carry}, **body)).encode("utf-8"),
+                                         headers={"User-Agent": "Visualised", "Content-Type": "text/plain; charset=utf-8"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read(65536).decode("utf-8", "replace") or "{}")
+
+        def go():
+            answer, problem = "", ""
+            try:
+                me = dict(mine)
+                if not me["address"]:
+                    d = ask({"action": "register", "token": ""})
+                    if not d.get("ok"):
+                        raise RuntimeError(d.get("error") or "The push service refused.")
+                    me = {"address": d["address"], "secret": d["secret"]}
+                    kept.put(me)
+                d = ask({"action": "send", "from": me["address"], "secret": me["secret"], "to": str(address), "text": str(text)})
+                if not d.get("ok"):
+                    raise RuntimeError(d.get("error") or "Not sent.")
+                answer = "sent"
+            except Exception as exc:
+                problem = str(getattr(exc, "reason", "") or exc) or "The push service couldn't be reached."
+            self._fetched.put((handler, answer, problem, origin))
+
+        def keep():
+            try:
+                me = kept.get_nowait()
+                self.cmd_SetSetting("_push_address", me["address"])
+                self.cmd_SetSetting("_push_secret", me["secret"])
+            except Exception:
+                pass
+        QTimer.singleShot(3000, keep)
+        QTimer.singleShot(15000, keep)
+        threading.Thread(target=go, daemon=True).start()
+        return ""
+
     def cmd_SignIn(self, provider="google", handler=""):
         """Sign in with Google or GitHub: the user's browser opens at the provider's own sign-in, and handler then
         gets JSON {provider, id, name, email, picture, token}, or a blank and why not. The token is signed by
@@ -2682,9 +2741,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         return ""
 
     def cmd_OnPush(self, handler="", firebase=""):
-        """Hear push messages from the app's own server, through Firebase (firebase: the project's public values as
-        JSON). Handler gets ("token", the phone's push address), ("message", the push's data as JSON), or a blank
-        and what went wrong (as here: an app exported for an Android phone only). "" stops."""
+        """Hear push messages, on a phone. With firebase (a project's public values as JSON) they come from the app's
+        own server: handler gets ("token", the phone's Firebase token) and ("message", the push's data). With none,
+        through Visualised's own push service: ("address", this phone's push address) and ("message", text, from)
+        for each PushSend to it. Or a blank and what went wrong (as here: an app exported for Android only)."""
         if handler:
             origin = self._script_stack[-1] if self._script_stack else None
             QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "Pushes arrive only in an app exported for an Android phone.", origin=origin))

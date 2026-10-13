@@ -77,7 +77,7 @@ class Page:
         stamped = str(wp.get("LinkPass") or "")
         if stamped.startswith("VP1-"):
             return stamped
-        if os.environ.get("VML_NO_LINK_PASS") or not any(re.search(r"""["'](Link(Pair)?|SignIn)["']""", s["code"]) for s in scripts.values()):
+        if os.environ.get("VML_NO_LINK_PASS") or not any(re.search(r"""["'](Link(Pair)?|SignIn|PushSend|OnPush)["']""", s["code"]) for s in scripts.values()):
             return ""
         try:
             from . import licence
@@ -1075,10 +1075,28 @@ const commands = {
   // {"project", "app", "key", "sender"} (its public values: no google-services.json). The handler gets ("token",
   // this phone's push address, to give to the server), ("message", the push's data as JSON), or a blank and what
   // went wrong. OnPush("") stops. An app exported on its own for Android only (it is built from the push template).
+  // With no firebase given, the app uses Visualised's own push service: the handler gets ("address", this phone's
+  // push address: give it to whoever should reach it), then ("message", the text, the sender's address) for each
+  // PushSend to it. Google only carries a wake-up; the text waits at tiny-web for the phone to collect.
   OnPush(handler = "", firebase = "") {
     onPush = String(handler || "");
+    pushRelay = onPush !== "" && !String(firebase || "").trim();
+    if (pushRelay) firebase = PUSH_FIREBASE;
     if (DEV && DEV.pushWatch) DEV.pushWatch(onPush ? String(firebase || "") : "");
     else if (onPush) setTimeout(() => run(onPush, ["", "Pushes arrive only in an app exported for an Android phone."]), 0);
+    return "";
+  },
+  // Send a short text to a push address (one an app got from OnPush): the phone is woken and its OnPush handler
+  // gets ("message", text, this app's own push address). Works from a phone, a computer or a web page; only copies
+  // of the same app can reach each other. The handler gets "sent", or a blank and why not.
+  PushSend(address = "", text = "", handler = "") {
+    (async () => {
+      try {
+        const me = await pushAddress();
+        const d = await pushAsk({ action: "send", from: me.address, secret: me.secret, to: String(address), text: String(text) });
+        if (handler) run(handler, d && d.ok ? ["sent", ""] : ["", (d && d.error) || "The push service couldn't be reached."]);
+      } catch (err) { if (handler) run(handler, ["", err.message]); }
+    })();
     return "";
   },
   // A QR code for some text (an address, or a link's code), as a picture: a data: address to give an Image as
@@ -1330,7 +1348,38 @@ const commands = {
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
-let asked = 0, onSms = "", onPush = "", onMessages = "";
+let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false;
+// Visualised's own push service (OnPush with no firebase of the app's own; PushSend). The Firebase values are the
+// public ones every app carries; sending is done by tiny-web, never by the app.
+const PUSH_RELAY = "https://tiny-web.uk/api/push.php";
+const PUSH_FIREBASE = JSON.stringify({ project: "tinysms-2929e", app: "1:36897486791:android:65271ea33d3c08b9da4be2", key: "AIzaSyAuXb7Q0K9qaLc1T2TIqkl8YgzRmXYzSbc", sender: "36897486791" });
+function pushAsk(body) {
+  return new Promise(done => {
+    const text = JSON.stringify(Object.assign({ app: document.title || "", v: VML.linkPass || "" }, body));
+    const read = t => { try { done(JSON.parse(t || "")); } catch (e) { done(null); } };
+    if (DEV && DEV.fetch) { const id = String(++asked); waitingFor[id] = a => read(a); DEV.fetch(id, PUSH_RELAY, text); }
+    else fetch(PUSH_RELAY, { method: "POST", body: text, headers: { "Content-Type": "text/plain;charset=UTF-8" } })
+      .then(r => r.text()).then(read, () => done(null));
+  });
+}
+// This copy of the app's push address (made the first time: a phone's carries its Firebase token, so it can be woken)
+async function pushAddress(token) {
+  const mine = { address: settings._push_address || "", secret: settings._push_secret || "" };
+  if (mine.address && token === undefined) return mine;
+  const d = await pushAsk({ action: "register", address: mine.address, secret: mine.secret, token: token || "" });
+  if (!d || !d.ok) throw new Error((d && d.error) || "The push service couldn't be reached.");
+  commands.SetSetting("_push_address", d.address); commands.SetSetting("_push_secret", d.secret);
+  return { address: d.address, secret: d.secret };
+}
+async function pushHeard(kind, what) {
+  try {
+    if (kind === "token") { const me = await pushAddress(what); return run(onPush, ["address", me.address]); }
+    if (kind !== "message") return run(onPush, [kind, what]);
+    const me = await pushAddress();
+    const d = await pushAsk({ action: "inbox", address: me.address, secret: me.secret });
+    for (const m of (d && d.items) || []) run(onPush, ["message", m.text, m.from]);
+  } catch (err) { run(onPush, ["", err.message]); }
+}
 const SIGN_IN = "https://tiny-web.uk/api/oauth.php";   // SignIn's relay (Google and GitHub)
 const waitingFor = {};                              // Fetch and SmsSend handlers, until their answer comes
 window.vmlAway = () => {                                   // the app has left the screen: let go of the camera and its light
@@ -1342,7 +1391,8 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "bluetooth" && paired) { const h = paired; paired = ""; run(h, [a, b]); }
   if (what === "watching" && watched_) { const h = watched_; watched_ = ""; run(h, [a, b]); }
   if (what === "sms" && onSms) run(onSms, [a, b]);
-  if (what === "push" && onPush) run(onPush, [a, b]);
+  if (what === "push" && onPush && pushRelay) pushHeard(a, b);
+  else if (what === "push" && onPush) run(onPush, [a, b]);
   if (what === "messages" && onMessages) run(onMessages, [a, b]);
   if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:") || what.startsWith("contact:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];

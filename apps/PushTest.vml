@@ -1,0 +1,142 @@
+# ============================================================================
+# Push Test: phones that can be woken, with no Firebase setup of your own.
+#
+#   On a phone, OnPush with no Firebase values uses Visualised's own push
+#   service. The handler first gets ("address", this phone's push address):
+#   share it however you like (it shows here, to copy). From then on any copy
+#   of this app, on a phone, a computer or a web page, can reach this phone
+#   with Vml("PushSend", address, text, handler), even when it's closed.
+#
+#   Google only carries a wake-up: the text waits at tiny-web.uk until this
+#   phone collects it. Apps made with Visualised Pro send without limit;
+#   others have a free allowance a day.
+# ============================================================================
+
+@Window PushTest
+Title=Push Test
+Version=1.0
+Width=380
+Height=600
+OnOpened=Start
+
+@Canvas c
+Parent=PushTest
+Background=#F3F5F4
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=20
+Canvas.Top=18
+Width=340
+Height=32
+FontSize=22
+FontWeight=Bold
+Foreground=#127A68
+Text=Push Test
+
+@TextBlock lblMine
+Parent=c
+Canvas.Left=20
+Canvas.Top=56
+Width=340
+Height=24
+Text=This phone's push address:
+
+@TextBox txtMine
+Parent=c
+Canvas.Left=20
+Canvas.Top=82
+Width=340
+Height=36
+IsReadOnly=true
+Text=(only a phone gets one)
+
+@TextBox txtTo
+Parent=c
+Canvas.Left=20
+Canvas.Top=140
+Width=340
+Height=36
+Watermark=Push address to send to
+
+@TextBox txtText
+Parent=c
+Canvas.Left=20
+Canvas.Top=184
+Width=246
+Height=40
+Watermark=A message
+
+@Button btnSend
+Parent=c
+Canvas.Left=274
+Canvas.Top=184
+Width=86
+Height=40
+Background=#0F766E
+Foreground=#FFFFFF
+Content=Send
+OnClick=DoSend
+
+@TextBlock lblState
+Parent=c
+Canvas.Left=20
+Canvas.Top=232
+Width=340
+Height=24
+Foreground=#4A615D
+Text=
+
+@TextBlock lblGot
+Parent=c
+Canvas.Left=20
+Canvas.Top=264
+Width=340
+Height=310
+TextWrapping=Wrap
+Text=
+
+# ============================================================================
+# Scripts
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+Got = {}
+Vml("OnPush", "Pushed")            -- no Firebase values: Visualised's own push service
+LUA
+
+@Script Pushed
+Interpreter=lua
+<<LUA
+local kind = args[1]
+if kind == "address" then
+  return Vml("SetProperty", "txtMine", "Text", args[2])
+elseif kind == "message" then
+  table.insert(Got, 1, os.date("%H:%M") .. "  " .. args[2])
+  return Vml("SetProperty", "lblGot", "Text", table.concat(Got, "\n"))
+end
+Vml("SetProperty", "lblState", "Text", tostring(args[2]))
+LUA
+
+@Script DoSend
+Interpreter=lua
+<<LUA
+local to = Vml("GetProperty", "txtTo", "Text")
+local text = Vml("GetProperty", "txtText", "Text")
+if to == "" or text == "" then return Vml("SetProperty", "lblState", "Text", "An address and a message, please.") end
+Vml("SetProperty", "lblState", "Text", "Sending...")
+Vml("PushSend", to, text, "Sent")
+LUA
+
+@Script Sent
+Interpreter=lua
+<<LUA
+if args[1] == "sent" then
+  Vml("SetProperty", "txtText", "Text", "")
+  Vml("SetProperty", "lblState", "Text", "Sent: the phone was woken.")
+else
+  Vml("SetProperty", "lblState", "Text", "Not sent: " .. tostring(args[2]))
+end
+LUA
