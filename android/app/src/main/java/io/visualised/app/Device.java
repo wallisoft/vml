@@ -163,7 +163,7 @@ final class Device {
                 org.json.JSONArray out = new org.json.JSONArray();
                 java.util.HashSet<String> seen = new java.util.HashSet<>();
                 String[] cols = {android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                        android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER};
+                        android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER, android.provider.ContactsContract.CommonDataKinds.Phone.TYPE, android.provider.ContactsContract.CommonDataKinds.Phone.LABEL};
                 try (android.database.Cursor c = activity.getContentResolver().query(
                         android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, cols, null, null,
                         android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC")) {
@@ -176,7 +176,9 @@ final class Device {
                         if (digits.length() < 6 || !seen.add(digits)) {
                             continue;
                         }
-                        out.put(new org.json.JSONObject().put("name", name).put("number", digits));
+                        CharSequence kind = android.provider.ContactsContract.CommonDataKinds.Phone.getTypeLabel(activity.getResources(), c.getInt(2), c.getString(3));
+                        out.put(new org.json.JSONObject().put("name", name).put("number", digits)
+                                .put("label", kind == null ? "" : kind.toString().toLowerCase(java.util.Locale.ROOT)));
                     }
                     activity.tell(answer, out.toString(), "");
                 } catch (RuntimeException | org.json.JSONException e) {
