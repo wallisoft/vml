@@ -17,7 +17,7 @@
 
 @Window TinySMSWeb
 Title=TinySMS Web
-Version=2.2
+Version=2.6
 Width=1000
 Height=640
 WebFit=Fill
@@ -173,7 +173,8 @@ Canvas.Left=12
 Canvas.Top=76
 Width=236
 Height=36
-Watermark=New text to: 07700 900123
+Watermark=New text to: a name or 07700 900123
+TextChanged=Suggest
 
 @Button btnNew
 Parent=side
@@ -184,14 +185,63 @@ Height=36
 Content=Open
 OnClick=DoNew
 
+@ListBox lstPick
+Parent=side
+Canvas.Left=12
+Canvas.Top=114
+Width=316
+Height=160
+IsVisible=false
+SelectionChanged=Picked
+
+@Button btnChats
+Parent=side
+Canvas.Left=12
+Canvas.Top=122
+Width=154
+Height=32
+Content=Chats
+OnClick=ShowChats
+
+@Button btnContacts
+Parent=side
+Canvas.Left=174
+Canvas.Top=122
+Width=154
+Height=32
+Content=Contacts
+OnClick=ShowContacts
+
 @ListBox lstConv
 Parent=side
 Anchor=Top,Bottom,Left
 Canvas.Left=0
-Canvas.Top=122
+Canvas.Top=162
 Width=340
-Height=518
+Height=478
 SelectionChanged=PickConv
+
+# The phone's contacts: asked of the phone when the page opens, and kept only while it is open
+@ListBox lstContacts
+Parent=side
+Anchor=Top,Bottom,Left
+Canvas.Left=0
+Canvas.Top=162
+Width=340
+Height=426
+IsVisible=false
+SelectionChanged=PickContact
+
+@Button btnAddContact
+Parent=side
+Anchor=Bottom,Left
+Canvas.Left=12
+Canvas.Top=596
+Width=316
+Height=36
+Content=Add a contact to your phone
+IsVisible=false
+OnClick=DoAddContact
 
 @Canvas chat
 Parent=pgMain
@@ -237,11 +287,11 @@ Text=or start a new one on the left
 @Button btnName
 Parent=chatBar
 Anchor=Top,Right
-Canvas.Left=556
+Canvas.Left=500
 Canvas.Top=16
-Width=84
+Width=140
 Height=32
-Content=Name
+Content=Save to contacts
 IsEnabled=false
 OnClick=DoName
 
@@ -304,10 +354,13 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 CONSOLE = "https://tiny-web.uk/api/console.php"
-VERSION = "2.2"          -- keep with the Window's Version above
+VERSION = "2.6"          -- keep with the Window's Version above
 Current = nil           -- the number whose conversation is open
 CurrentName = ""        -- and its name, if it has one
 Convs = ""              -- the list as last shown (only redrawn when it changes, so a choice isn't lost)
+Names = {}              -- the names in the phone's address book (names only), for texting by name: asked of the
+                        -- phone when the page opens, and kept here only, so they go when the page closes
+NamesPending = false    -- asked for, not here yet: asked again as the page refreshes
 
 function Kept(key) return Vml("GetSetting", key) end
 function Set(name, prop, value) Vml("SetProperty", name, prop, tostring(value)) end
@@ -336,8 +389,18 @@ function MainPage()
   Set("pgSignIn", "IsVisible", false)
   Set("pgMain", "IsVisible", true)
   Set("tmr", "IsEnabled", true)
+  AskNames(false)
   Vml("RunScript", "Refresh")
 end
+
+function AskNames(fresh)
+  NamesPending = true
+  Console("names_list", fresh and { fresh = 1 } or nil, "GotNames")
+end
+
+-- A name as a list shows it (a comma can't be shown), and back
+function Shown(name) return (name:gsub(",%s*", " ")) end
+function Unshown(item) for _, n in ipairs(Names) do if Shown(n) == item then return n end end return item end
 
 -- 07700 900123 or +447700900123: the digits, to compare numbers however they were written
 function Digits(n) return (tostring(n or ""):gsub("%D", "")) end
@@ -372,8 +435,10 @@ Interpreter=lua
 <<LUA
 Console("signout")
 Vml("SetSetting", "web_key", "")
-Current, Convs = nil, ""
+Current, Convs, Names, NamesPending = nil, "", {}, false
 Set("lstConv", "Items", "")
+Set("lstContacts", "Items", "")
+Set("btnContacts", "Content", "Contacts")
 Set("lblThread", "Text", "")
 SignInPage("Signed out of this browser. Your phone carries on as before.")
 LUA
@@ -385,6 +450,7 @@ if Kept("web_key") == "" then return end
 Console("status", nil, "GotStatus")
 Console("conversations", nil, "GotConvs")
 if Current then Console("thread", { number = Current }, "GotThread") end
+if NamesPending then Console("names_list", nil, "GotNames") end
 LUA
 
 @Script GotStatus
@@ -439,6 +505,13 @@ Interpreter=lua
 <<LUA
 local number = Vml("GetProperty", "txtNew", "Text")
 local n = #Digits(number)
+Set("lstPick", "IsVisible", false)
+if n < 6 then                                            -- a name from the phone's address book
+  for _, name in ipairs(Names) do
+    if name:lower() == number:lower() then Set("txtNew", "Text", ""); return Vml("RunScript", "Open", name) end
+  end
+  return Set("lblWithInfo", "Text", "Nobody called \"" .. number .. "\" in your phone's contacts.")
+end
 if n < 10 or n > 15 then return Set("lblWithInfo", "Text", "That number doesn't look right: " .. n .. " digits.") end
 Set("txtNew", "Text", "")
 Vml("RunScript", "Open", number)
@@ -463,7 +536,7 @@ LUA
 Interpreter=lua
 <<LUA
 local d = Answer(args[1], args[2])
-if not d or not Current or Digits(d.number):sub(-10) ~= Digits(Current):sub(-10) then return end
+if not d or not Current or #Digits(Current) < 6 or Digits(d.number):sub(-10) ~= Digits(Current):sub(-10) then return end
 Current, CurrentName = d.number, d.name or ""
 Set("lblWith", "Text", CurrentName ~= "" and (CurrentName .. "     " .. d.number) or d.number)
 local items, lines = d.items or {}, {}
@@ -492,6 +565,7 @@ Set("btnSend", "IsEnabled", true)
 local d, why = Answer(args[1], args[2])
 if not d then return Set("lblWithInfo", "Text", "Not sent: " .. tostring(why)) end
 Set("txtMsg", "Text", "")
+if d.number and d.number ~= "" and d.name and d.name ~= "" then Current = d.number end
 Set("lblWithInfo", "Text", d.woke and "On its way: your phone was woken" or "Queued: it goes when your phone next checks in")
 Vml("RunScript", "Refresh")
 LUA
@@ -500,9 +574,26 @@ LUA
 Interpreter=lua
 <<LUA
 if not Current then return end
-local name = Vml("PromptDialog", "Name this number", "A name for " .. Current .. ":", CurrentName)
-if name == "" or name == CurrentName then return end
-Console("name", { number = Current, name = name }, "Named")
+-- Into the phone's own address book: a number gets a name (a new contact, or a number added to someone already
+-- there); a name (a chat opened by name) can be renamed.
+local isName = #Digits(Current) < 6
+local was = isName and (Current:gsub(" · [^·]*$", "")) or CurrentName
+local name = Vml("PromptDialog", "Save to your phone's contacts",
+  isName and ("A new name for " .. Current .. ":") or ("A name for " .. Current .. ":"), was)
+if name == "" or name == was then return end
+Wanted = isName and name or nil
+Console("contact_save", { name = name, number = isName and "" or Current, old = isName and Current or "" }, "ContactSaved")
+LUA
+
+@Script ContactSaved
+Interpreter=lua
+<<LUA
+local d, why = Answer(args[1], args[2])
+if not d then return Set("lblWithInfo", "Text", "Not saved: " .. tostring(why)) end
+Set("lblWithInfo", "Text", d.woke and "Saved to your phone's contacts" or "Your phone saves it when it next checks in")
+if Current and #Digits(Current) < 6 and Wanted then Current = Wanted; Set("lblWith", "Text", Wanted) end
+Wanted, Convs = nil, ""
+AskNames(true)
 LUA
 
 @Script Named
@@ -512,4 +603,83 @@ local d, why = Answer(args[1], args[2])
 if not d then return Set("lblWithInfo", "Text", "Not named: " .. tostring(why)) end
 CurrentName, Convs = d.name, ""
 Vml("RunScript", "Refresh")
+LUA
+
+@Script GotNames
+Interpreter=lua
+<<LUA
+local d = Answer(args[1], args[2])
+if not d then return end
+if d.pending then return Set("btnContacts", "Content", "Contacts (asking your phone...)") end
+NamesPending = false
+Names = type(d.names) == "table" and d.names or {}
+table.sort(Names, function(a, b) return a:lower() < b:lower() end)
+local rows = {}
+for i, n in ipairs(Names) do rows[i] = Shown(n) end
+Set("lstContacts", "Items", table.concat(rows, ","))
+Set("btnContacts", "Content", "Contacts (" .. #Names .. ")")
+LUA
+
+@Script Suggest
+Interpreter=lua
+<<LUA
+local typed = Vml("GetProperty", "txtNew", "Text")
+if #typed < 2 or #Digits(typed) >= 3 then return Set("lstPick", "IsVisible", false) end
+local want, found = typed:lower(), {}
+for _, name in ipairs(Names) do
+  local low = name:lower()
+  if low:find(want, 1, true) == 1 or low:find(" " .. want, 1, true) then
+    found[#found + 1] = Shown(name)
+    if #found == 8 then break end
+  end
+end
+Set("lstPick", "Items", table.concat(found, ","))
+Set("lstPick", "IsVisible", #found > 0)
+LUA
+
+@Script Picked
+Interpreter=lua
+<<LUA
+local name = Vml("GetProperty", "lstPick", "SelectedItem") or ""
+if name == "" then return end
+name = Unshown(name)
+Set("lstPick", "IsVisible", false)
+Set("txtNew", "Text", "")
+Vml("RunScript", "Open", name)
+LUA
+
+@Script ShowChats
+Interpreter=lua
+<<LUA
+Set("lstContacts", "IsVisible", false)
+Set("btnAddContact", "IsVisible", false)
+Set("lstConv", "IsVisible", true)
+LUA
+
+@Script ShowContacts
+Interpreter=lua
+<<LUA
+Set("lstConv", "IsVisible", false)
+Set("lstContacts", "IsVisible", true)
+Set("btnAddContact", "IsVisible", true)
+if #Names == 0 and not NamesPending then AskNames(true) end
+LUA
+
+@Script PickContact
+Interpreter=lua
+<<LUA
+local item = Vml("GetProperty", "lstContacts", "SelectedItem") or ""
+if item ~= "" then Vml("RunScript", "Open", Unshown(item)) end
+LUA
+
+@Script DoAddContact
+Interpreter=lua
+<<LUA
+local name = Vml("PromptDialog", "Add a contact to your phone", "Their name:", "")
+if name == "" then return end
+local number = Vml("PromptDialog", "Add a contact to your phone", "A number for " .. name .. ":", "")
+if number == "" then return end
+local n = #Digits(number)
+if n < 10 or n > 15 then return Set("lblWithInfo", "Text", "That number doesn't look right: " .. n .. " digits.") end
+Console("contact_save", { name = name, number = number }, "ContactSaved")
 LUA

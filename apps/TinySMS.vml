@@ -19,7 +19,10 @@
 #     Fetch            the TinySMS server (tiny-web.uk), as JSON
 #     SmsSend, OnSms   texts out and in: an app exported for Android only
 #     LookupNames      names for the numbers on a screen (the console, the web page) or a reply's sender,
-#                      from the phone's own address book: the address book itself never leaves the phone
+#                      from the phone's own address book
+#     ReadContacts,    the names in the address book (names only: numbers stay on the phone) go to the
+#     LookupNumber     account so the console and web page can text people by name; the phone finds the
+#                      number itself when it sends
 #     OnMessages       replies that came by chat (RCS), read from the messaging app's notices
 #     OnPush           woken by the server when a text is waiting (no text goes through Google: the
 #                      push only says "ask now")
@@ -36,7 +39,7 @@
 
 @Window TinySMS
 Title=TinySMS
-Version=2.3
+Version=2.6
 Width=360
 Height=640
 OnOpened=Start
@@ -188,7 +191,7 @@ Canvas.Top=490
 IsVisible=false
 Width=252
 Height=36
-Watermark=Number, e.g. 07700 900123
+Watermark=Number, or a name from your phone
 
 @Button btnName
 Parent=c
@@ -246,7 +249,7 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
-VERSION = "2.3"          -- keep with the Window's Version above: shown at the top, and told to the server
+VERSION = "2.6"          -- keep with the Window's Version above: shown at the top, and told to the server
 CONSOLE = "https://tiny-web.uk/api/console.php"
 Role = "gateway"         -- or "console": a computer or a browser, which sends through the gateway and never is one
 Current = nil           -- the console: the number whose conversation is showing
@@ -263,6 +266,8 @@ HeardQ = {}             -- texts that arrived, waiting for their sender's name t
 Asked = 0               -- when RunInBackground was last asked (it lasts six hours from then)
 
 function Kept(key) return Vml("GetSetting", key) end
+function KeptTable(key) local t = json.decode(Kept(key) or ""); return type(t) == "table" and t or {} end
+function LastNumbers() return KeptTable("last_numbers") end
 function State(text) Vml("SetProperty", "lblState", "Text", text) end
 function Now() return os.date("%H:%M") end
 
@@ -316,6 +321,7 @@ function Begin()
   Vml("SetProperty", "tmr", "IsEnabled", "true")
   Vml("OnSms", "Heard")
   Vml("OnMessages", "Heard")          -- replies that came by chat (RCS): the phone asks once for notification access
+  Vml("ReadContacts", "GotNameList")   -- the names (not numbers) for texting by name: the phone asks once
   Vml("OnPush", "Pushed", FIREBASE)
   Vml("RunInBackground", "true")
   Asked = os.time()
@@ -452,6 +458,14 @@ local d, why, said = Answer(args[1], args[2])
 if d and type(d.wanted) == "table" and #d.wanted > 0 then
   Vml("LookupNames", json.encode(d.wanted), "NamesFound")       -- just these numbers, nothing else from the address book
 end
+if d and type(d.edits) == "table" and #d.edits > 0 then        -- contacts added or renamed on a web page or computer
+  local start = not Edits
+  Edits = Edits or {}
+  for _, e in ipairs(d.edits) do table.insert(Edits, e) end
+  if start then Vml("RunScript", "SaveNext") end
+elseif d and d.share_names and not Edits then                  -- a page has opened: it gets the names (no numbers)
+  Vml("ReadContacts", "GotNameList")
+end
 if not d then
   Busy = false
   if said and tostring(said.error or ""):find("device key") then
@@ -464,7 +478,14 @@ if not d.id or d.id == 0 then
   Busy = false
   return State(Paused and "Paused." or ("Working: nothing waiting (" .. Now() .. ")."))
 end
-Sending = { id = d.id, to = d.to, text = d.text, more = d.more or 0 }
+Sending = { id = d.id, to = d.to, text = d.text, more = d.more or 0, name = (d.to_name ~= "" and d.to_name) or nil }
+local exact = Sending.name and KeptTable("labelled_numbers")[Sending.name]
+if (d.to or "") == "" and type(exact) == "string" then Sending.to = exact; d.to = exact end   -- "Sue · work": that very number
+if (d.to or "") == "" and Sending.name then               -- written to a name: this phone finds the number
+  State("Finding " .. Sending.name .. "'s number...")
+  local who = Sending.name:gsub(" · [^·]*$", "")         -- "Sue · work" not known here yet: Sue, at least
+  return Vml("LookupNumber", who, LastNumbers()[Sending.name] or "", "NumberFound")
+end
 State("Sending to " .. Masked(d.to) .. "...")
 Vml("SmsSend", d.to, d.text, "Sent")
 LUA
@@ -476,10 +497,13 @@ local m = Sending
 Sending = nil
 if not m then Busy = false; return end
 local ok = args[1] == "sent"
-if ok then Sent = Sent + 1; Note("Sent to " .. Masked(m.to) .. ".")
+if ok and m.name then                                      -- remember which number a name was sent to, for next time
+  local last = LastNumbers(); last[m.name] = m.to; Vml("SetSetting", "last_numbers", json.encode(last))
+end
+if ok then Sent = Sent + 1; Note("Sent to " .. (m.name or Masked(m.to)) .. ".")
 else Failed = Failed + 1; Note("Not sent to " .. Masked(m.to) .. ": " .. tostring(args[2])) end
 Counts()
-Server("sms_status", { message_id = m.id, status = ok and "sent" or "failed", error = ok and "" or args[2] },
+Server("sms_status", { message_id = m.id, status = ok and "sent" or "failed", error = ok and "" or args[2], number = m.name and m.to or nil },
     m.more > 0 and "Again" or "Done")
 LUA
 
@@ -621,14 +645,20 @@ if not d or d.number ~= Current then return end
 CurrentName = d.name or ""
 local lines = {}
 if CurrentName ~= "" then lines[1] = CurrentName .. "   (" .. d.number .. ")" end
-local items = d.items or {}
-local first = math.max(1, #items - 10)            -- the box shows about eleven lines: the newest, oldest at the top
-for i = first, #items do
+-- The box holds about twelve lines and a long text wraps onto more, so fill it from the newest back:
+-- the latest always shows, at the bottom, and the oldest that don't fit drop off the top.
+local items, shown, room = d.items or {}, {}, 12 - #lines
+for i = #items, 1, -1 do
   local m = items[i]
   local mark = m.direction == "inbound" and "←  " or "→  "
   local note = (m.status == "failed" and "  (not sent)") or ((m.status == "pending" or m.status == "sending") and "  (waiting)") or ""
-  lines[#lines + 1] = mark .. m.at .. "   " .. m.body .. note
+  local line = mark .. m.at .. "   " .. m.body .. note
+  local tall = math.max(1, math.ceil((utf8.len(line) or #line) / 52))
+  if tall > room and #shown > 0 then break end
+  room = room - tall
+  table.insert(shown, 1, line)
 end
+for _, line in ipairs(shown) do lines[#lines + 1] = line end
 Vml("SetProperty", "lblThread", "Text", #lines > 0 and table.concat(lines, "\n") or "Nothing yet with this number.")
 LUA
 
@@ -638,7 +668,9 @@ Interpreter=lua
 local to = Vml("GetProperty", "txtTo", "Text")
 local text = Vml("GetProperty", "txtMsg", "Text")
 local digits = to:gsub("%D", "")
-if #digits < 10 or #digits > 15 then return State("That number doesn't look right: " .. #digits .. " digits.") end
+to = to:match("^%s*(.-)%s*$")
+if to == "" then return State("Who to? A number, or a name from your phone.") end
+if not to:match("%a") and (#digits < 10 or #digits > 15) then return State("That number doesn't look right: " .. #digits .. " digits.") end
 if text:match("^%s*$") then return State("Write the message first.") end
 State("Sending...")
 Vml("SetProperty", "btnSend", "IsEnabled", "false")
@@ -652,7 +684,7 @@ Vml("SetProperty", "btnSend", "IsEnabled", "true")
 local d, why = Answer(args[1], args[2])
 if not d then return State("Not sent: " .. tostring(why)) end
 Vml("SetProperty", "txtMsg", "Text", "")
-Current = d.number or Current
+if (d.number or "") ~= "" then Current = d.number end
 State(d.woke and "On its way: the phone was woken." or "Queued: it goes when the phone next checks in.")
 Vml("RunScript", "Refresh")
 LUA
@@ -715,4 +747,87 @@ local m = table.remove(HeardQ, 1)
 if not m then return end
 local names = json.decode(args[1] or "") or {}
 Server("sms_received", { from_number = m.from, body = m.body, from_name = (type(names) == "table" and names[m.from]) or "" }, "Forwarded")
+LUA
+
+# --- texting by name: the names go to the account, the numbers stay here -------
+
+@Script GotNameList
+Interpreter=lua
+<<LUA
+local list = json.decode(args[1] or "")
+if type(list) ~= "table" then return Note("Contact names not shared: " .. tostring(args[2])) end
+-- A name only, for someone with one number. Someone with more gets one entry per number, told apart by its
+-- label ("Sue Hargreaves · work"), and which number each label means stays here on the phone.
+local numbers, order = {}, {}
+for _, c in ipairs(list) do
+  if c.name and c.name ~= "" then
+    if not numbers[c.name] then numbers[c.name] = {}; order[#order + 1] = c.name end
+    table.insert(numbers[c.name], c)
+  end
+end
+local names, labelled = {}, {}
+for _, name in ipairs(order) do
+  local mine = numbers[name]
+  if #mine == 1 then
+    names[#names + 1] = name
+  else
+    local used = {}
+    for _, c in ipairs(mine) do
+      local label = (c.label or "") ~= "" and c.label or "other"
+      used[label] = (used[label] or 0) + 1
+      if used[label] > 1 then label = label .. " " .. used[label] end
+      local shown = name .. " · " .. label
+      names[#names + 1] = shown
+      labelled[shown] = c.number
+    end
+  end
+end
+Vml("SetSetting", "labelled_numbers", json.encode(labelled))
+Server("name_list", { names = names }, "NameListShared")
+LUA
+
+@Script NameListShared
+Interpreter=lua
+<<LUA
+local d = Answer(args[1], args[2])
+if d then Note("Shared " .. (d.saved or 0) .. " contact names (not numbers), for texting by name.") end
+LUA
+
+@Script NumberFound
+Interpreter=lua
+<<LUA
+local m = Sending
+if not m then Busy = false; return end
+if (args[1] or "") == "" then                             -- no number for that name on this phone
+  Sending = nil
+  Failed = Failed + 1
+  Note("Not sent to " .. m.name .. ": " .. tostring(args[2]))
+  Counts()
+  return Server("sms_status", { message_id = m.id, status = "failed", error = tostring(args[2]) }, m.more > 0 and "Again" or "Done")
+end
+m.to = args[1]
+State("Sending to " .. m.name .. "...")
+Vml("SmsSend", m.to, m.text, "Sent")
+LUA
+
+@Script SaveNext
+Interpreter=lua
+<<LUA
+-- One change at a time into the address book; when they are all done, the pages get the names afresh
+local e = Edits and table.remove(Edits, 1)
+if not e then
+  Edits = nil
+  return Vml("ReadContacts", "GotNameList")
+end
+local function plain(n) return (tostring(n or ""):gsub(" · [^·]*$", "")) end   -- "Sue · work" is Sue
+e.name, e.old = plain(e.name), plain(e.old)
+State("Saving " .. tostring(e.name) .. " to your contacts...")
+Vml("SaveContact", e.name or "", e.number or "", e.old or "", "ContactDone")
+LUA
+
+@Script ContactDone
+Interpreter=lua
+<<LUA
+if (args[1] or "") ~= "" then State("Saved " .. args[1] .. " to your contacts.") else Note("Contact not saved: " .. tostring(args[2])) end
+Vml("RunScript", "SaveNext")
 LUA
