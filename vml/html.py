@@ -1012,6 +1012,14 @@ const commands = {
     else if (handler) setTimeout(() => run(handler, ["", "Numbers are looked up only by an app exported for an Android phone."]), 0);
     return "";
   },
+  // Adds to the phone's address book or changes it: a new contact (oldName blank), or oldName renamed to name, with
+  // number added if given. The handler gets the name, or a blank and why not. An app exported for Android only.
+  SaveContact(name = "", number = "", oldName = "", handler = "") {
+    const id = String(++asked);
+    if (DEV && DEV.saveContact) { if (handler) waitingFor[id] = handler; DEV.saveContact(id, String(name), String(number), String(oldName)); }
+    else if (handler) setTimeout(() => run(handler, ["", "The address book is changed only by an app exported for an Android phone."]), 0);
+    return "";
+  },
   // Names for some numbers from the phone's address book, and nothing else from it: numbers is a JSON list, and the
   // handler gets a JSON object of number: name ("" where the address book has none), or a blank and what went wrong.
   // The phone asks the user the first time. An app exported on its own for Android only.
@@ -1303,7 +1311,7 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "sms" && onSms) run(onSms, [a, b]);
   if (what === "push" && onPush) run(onPush, [a, b]);
   if (what === "messages" && onMessages) run(onMessages, [a, b]);
-  if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:")) {
+  if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:") || what.startsWith("contact:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];
     if (h) run(h, [a, b]);
   }
