@@ -1,5 +1,8 @@
 # ============================================================================
-# TinySMS: this phone becomes your email-to-text gateway.
+# TinySMS: on an Android phone, the email-to-text gateway; on a computer or in
+# a browser, the console that sends texts through it.
+#
+# ON THE PHONE (the gateway)
 #
 #   Email your tinymail address with "sms: 07700 900123" in the subject and
 #   the message in the body: this phone texts it. When they text back, the
@@ -18,7 +21,12 @@
 #     OnPush           woken by the server when a text is waiting (no text goes through Google: the
 #                      push only says "ask now")
 #     RunInBackground  keep going while the phone is in a pocket
-#   On a computer or in a browser it opens and explains itself, but can't text.
+#
+# ON A COMPUTER OR IN A BROWSER (the console)
+#   Sign in with the same tiny-web account: write texts at a keyboard, see each
+#   conversation as it happens, and see whether the gateway phone is awake.
+#   The texts still go out from the phone: this copy never sends or receives
+#   one itself, and never signs in as a gateway.
 #
 #   Made with Visualised. The scripts are at the bottom; "Start" runs first.
 # ============================================================================
@@ -147,6 +155,67 @@ Height=44
 Content=Sign out
 OnClick=DoSignOut
 
+# --- the console (computer or browser): conversations, one thread, and a text to send
+
+@ListBox lstConv
+Parent=c
+Canvas.Left=12
+Canvas.Top=104
+IsVisible=false
+Width=336
+Height=120
+SelectionChanged=PickConv
+
+@TextBlock lblThread
+Parent=c
+Canvas.Left=12
+Canvas.Top=232
+IsVisible=false
+Width=336
+Height=250
+TextWrapping=Wrap
+FontSize=14
+Foreground=#374151
+Text=
+
+@TextBox txtTo
+Parent=c
+Canvas.Left=12
+Canvas.Top=490
+IsVisible=false
+Width=336
+Height=36
+Watermark=Number, e.g. 07700 900123
+
+@TextBox txtMsg
+Parent=c
+Canvas.Left=12
+Canvas.Top=532
+IsVisible=false
+Width=252
+Height=40
+Watermark=Message
+
+@Button btnSend
+Parent=c
+Canvas.Left=272
+Canvas.Top=532
+IsVisible=false
+Width=76
+Height=40
+Content=Send
+OnClick=DoSend
+
+@Button btnConsoleOut
+Parent=c
+Canvas.Left=12
+Canvas.Top=584
+IsVisible=false
+Width=336
+Height=36
+Content=Sign out of this computer
+OnClick=DoConsoleOut
+
 # --- every minute (or what the server says) it asks for anything waiting -----
 
 @Timer tmr
@@ -164,6 +233,10 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
+CONSOLE = "https://tiny-web.uk/api/console.php"
+Role = "gateway"         -- or "console": a computer or a browser, which sends through the gateway and never is one
+Current = nil           -- the console: the number whose conversation is showing
+Convs = ""              -- the console: the list as last shown (only redrawn when it changes, so a choice isn't lost)
 -- TinySMS's Firebase project: public values (they are in every Firebase app), not secrets.
 FIREBASE = json.encode({ project = "tinysms-2929e", app = "1:36897486791:android:65271ea33d3c08b9da4be2", key = "AIzaSyAuXb7Q0K9qaLc1T2TIqkl8YgzRmXYzSbc", sender = "36897486791" })
 Busy = false            -- a question to the server, or a text, is on its way: don't start another
@@ -194,7 +267,8 @@ function Masked(number)
 end
 
 -- The two pages: the sign-in fields, and the working log with its buttons. Shown by turning their controls on or off.
-PAGES = { signin = { "txtUser", "txtPass", "btnSignIn", "lblHelp" }, work = { "lblCounts", "lblLog", "btnPause", "btnSignOut" } }
+PAGES = { signin = { "txtUser", "txtPass", "btnSignIn", "lblHelp" }, work = { "lblCounts", "lblLog", "btnPause", "btnSignOut" },
+          console = { "lstConv", "lblThread", "txtTo", "txtMsg", "btnSend", "btnConsoleOut" } }
 function Page(name)
   for page, controls in pairs(PAGES) do
     for _, c in ipairs(controls) do Vml("SetProperty", c, "IsVisible", tostring(page == name)) end
@@ -233,6 +307,21 @@ function Begin()
   Vml("RunScript", "Poll")
 end
 
+-- The console's questions to the server: its key goes with every one.
+function Console(action, extra, handler)
+  local q = { action = action, key = Kept("console_key") }
+  for k, v in pairs(extra or {}) do q[k] = v end
+  Vml("Fetch", CONSOLE, json.encode(q), handler or "")
+end
+
+function BeginConsole()
+  Page("console")
+  Vml("SetProperty", "tmr", "Interval", "5000")
+  Vml("SetProperty", "tmr", "IsEnabled", "true")
+  State("Signed in as " .. (Kept("console_who") ~= "" and Kept("console_who") or "you") .. ". Looking for your gateway phone...")
+  Vml("RunScript", "Refresh")
+end
+
 -- The first time: a name for this phone that stays the same (the server knows it by this).
 if Kept("device_id") == "" then
   math.randomseed(os.time() + math.floor((os.clock() * 1000000) % 1000000))
@@ -243,8 +332,15 @@ end
 
 local info = json.decode(Vml("DeviceInfo")) or {}
 if info.platform ~= "android-app" then
-  Page("signin")
-  State("This is the TinySMS gateway: it runs on an Android phone, as an app of its own. Here it can only show itself.")
+  Role = "console"
+  Vml("SetProperty", "btnSignIn", "Content", "Sign in")
+  Vml("SetProperty", "lblHelp", "Text", "Your tiny-web account, the same one your TinySMS phone uses. Texts you write here go out from that phone, and its conversations show here. This computer keeps a key of its own, not your password.")
+  if Kept("console_key") ~= "" then
+    BeginConsole()
+  else
+    Page("signin")
+    State("Send texts from this computer through your TinySMS phone.")
+  end
 elseif Kept("device_key") ~= "" then
   Begin()
 else
@@ -263,6 +359,9 @@ local pass = Vml("GetProperty", "txtPass", "Text")
 if user == "" or pass == "" then return State("Your username (or email) and password, please.") end
 local info = json.decode(Vml("DeviceInfo")) or {}
 State("Signing in...")
+if Role == "console" then              -- a computer or a browser: a console key, never a gateway's
+  return Console("login", { username = user, password = pass, label = info.platform or "computer" }, "ConsoleIn")
+end
 Server("register", { username = user, password = pass, want_key = true, model = info.model, android_ver = info.android }, "SignedIn")
 LUA
 
@@ -312,6 +411,7 @@ LUA
 @Script Poll
 Interpreter=lua
 <<LUA
+if Role == "console" then return Vml("RunScript", "Refresh") end
 if Busy or Paused or Kept("device_key") == "" then return end
 if os.time() - Asked > 3600 then Vml("RunInBackground", "true"); Asked = os.time() end   -- six more hours
 Busy = true
@@ -408,4 +508,132 @@ Interpreter=lua
 local d, why = Answer(args[1], args[2])
 if d then Note("Pushes on: the server can wake this phone.")
 else Note("The server didn't take this phone's push address: " .. tostring(why)) end
+LUA
+
+# ============================================================================
+# The console: a computer or a browser, sending through the gateway phone.
+# ============================================================================
+
+@Script ConsoleIn
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "txtPass", "Text", "")
+local d, why = Answer(args[1], args[2])
+if not d or not d.key then return State("Not signed in: " .. tostring(why or "the server gave this computer no key")) end
+Vml("SetSetting", "console_key", d.key)
+Vml("SetSetting", "console_who", d.username or "")
+BeginConsole()
+LUA
+
+@Script Refresh
+Interpreter=lua
+<<LUA
+if Kept("console_key") == "" then return end
+Console("status", nil, "GotStatus")
+Console("conversations", nil, "GotConvs")
+if Current then Console("thread", { number = Current }, "GotThread") end
+LUA
+
+@Script GotStatus
+Interpreter=lua
+<<LUA
+local d, why, said = Answer(args[1], args[2])
+if not d then
+  if said and tostring(said.error or ""):find("sign in") then return Vml("RunScript", "ConsoleOut") end
+  return State("Can't reach tiny-web.uk just now: trying again shortly.")
+end
+local g = d.gateway
+if not g then return State("No gateway phone yet: install TinySMS on an Android phone and sign in there.") end
+local waiting = (d.waiting or 0) > 0 and ("  ·  " .. d.waiting .. " waiting") or ""
+if g.online then
+  State("Gateway " .. (g.model or "phone") .. " is awake" .. (g.battery and ("  ·  " .. g.battery .. "%") or "") .. waiting)
+else
+  State("Gateway " .. (g.model or "phone") .. " last seen " .. (g.seen or "a while ago") .. ": texts wait until it's back" .. waiting)
+end
+LUA
+
+@Script GotConvs
+Interpreter=lua
+<<LUA
+local d = Answer(args[1], args[2])
+if not d then return end
+local rows = {}
+for _, c in ipairs(d.items or {}) do
+  rows[#rows + 1] = c.number .. "  ·  " .. c.count .. (c.replies > 0 and (" (" .. c.replies .. " in)") or "") .. "  ·  " .. c.last
+end
+local items = table.concat(rows, ",")
+if items ~= Convs then
+  Convs = items
+  Vml("SetProperty", "lstConv", "Items", items)
+end
+LUA
+
+@Script PickConv
+Interpreter=lua
+<<LUA
+local item = Vml("GetProperty", "lstConv", "SelectedItem")
+local number = item:match("^(%S+)")
+if not number or number == Current then return end
+Current = number
+Vml("SetProperty", "txtTo", "Text", number)
+Vml("SetProperty", "lblThread", "Text", "")
+Console("thread", { number = number }, "GotThread")
+LUA
+
+@Script GotThread
+Interpreter=lua
+<<LUA
+local d = Answer(args[1], args[2])
+if not d or d.number ~= Current then return end
+local lines = {}
+for _, m in ipairs(d.items or {}) do
+  local mark = m.direction == "inbound" and "←  " or "→  "
+  local note = (m.status == "failed" and "  (not sent)") or ((m.status == "pending" or m.status == "sending") and "  (waiting)") or ""
+  lines[#lines + 1] = mark .. m.at .. "   " .. m.body .. note
+end
+Vml("SetProperty", "lblThread", "Text", #lines > 0 and table.concat(lines, "\n") or "Nothing yet with this number.")
+LUA
+
+@Script DoSend
+Interpreter=lua
+<<LUA
+local to = Vml("GetProperty", "txtTo", "Text")
+local text = Vml("GetProperty", "txtMsg", "Text")
+local digits = to:gsub("%D", "")
+if #digits < 10 or #digits > 15 then return State("That number doesn't look right: " .. #digits .. " digits.") end
+if text:match("^%s*$") then return State("Write the message first.") end
+State("Sending...")
+Vml("SetProperty", "btnSend", "IsEnabled", "false")
+Console("send", { to = to, text = text }, "ConsoleSent")
+LUA
+
+@Script ConsoleSent
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "btnSend", "IsEnabled", "true")
+local d, why = Answer(args[1], args[2])
+if not d then return State("Not sent: " .. tostring(why)) end
+Vml("SetProperty", "txtMsg", "Text", "")
+Current = d.number or Current
+State(d.woke and "On its way: the phone was woken." or "Queued: it goes when the phone next checks in.")
+Vml("RunScript", "Refresh")
+LUA
+
+@Script DoConsoleOut
+Interpreter=lua
+<<LUA
+Console("signout")
+Vml("RunScript", "ConsoleOut")
+LUA
+
+@Script ConsoleOut
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "console_key", "")
+Vml("SetProperty", "tmr", "IsEnabled", "false")
+Current, Convs = nil, ""
+Vml("SetProperty", "lstConv", "Items", "")
+Vml("SetProperty", "lblThread", "Text", "")
+Page("signin")
+State("Signed out of this computer. Your phone carries on as before.")
 LUA
