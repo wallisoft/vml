@@ -1,0 +1,148 @@
+# ============================================================================
+# Sign In Test: "Sign in with Google" and "Sign in with GitHub" in a Visualised app.
+#
+#   One command does it all: Vml("SignIn", "google" or "github", "Handler").
+#   The user's own browser opens at Google's or GitHub's sign-in; the handler
+#   then gets who signed in, as JSON: provider, id, name, email, picture, and a
+#   token signed by tiny-web that the app's own server can check
+#   (POST {"action":"verify","token":...} to tiny-web.uk/api/oauth.php).
+#
+#   Works the same on the desktop, in a browser and on a phone. No app needs
+#   its own Google or GitHub registration. Apps made with Visualised Pro sign
+#   in without limit; others have a free allowance a day.
+# ============================================================================
+
+@Window SignInTest
+Title=Sign In Test
+Version=1.0
+Width=420
+Height=480
+OnOpened=Start
+
+@Canvas c
+Parent=SignInTest
+Background=#F3F5F4
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=32
+Canvas.Top=28
+Width=356
+Height=34
+FontSize=22
+FontWeight=Bold
+Foreground=#127A68
+Text=Sign in
+
+@TextBlock lblAbout
+Parent=c
+Canvas.Left=32
+Canvas.Top=68
+Width=356
+Height=44
+TextWrapping=Wrap
+Foreground=#555555
+Text=Your browser opens at the provider's own page. Nothing is kept: the answer comes straight back here.
+
+@Button btnGoogle
+Parent=c
+Canvas.Left=32
+Canvas.Top=128
+Width=356
+Height=48
+Background=#FFFFFF
+Content=Sign in with Google
+OnClick=WithGoogle
+
+@Button btnGitHub
+Parent=c
+Canvas.Left=32
+Canvas.Top=188
+Width=356
+Height=48
+Background=#24292F
+Foreground=#FFFFFF
+Content=Sign in with GitHub
+OnClick=WithGitHub
+
+@TextBlock lblWho
+Parent=c
+Canvas.Left=32
+Canvas.Top=256
+Width=356
+Height=150
+TextWrapping=Wrap
+FontSize=15
+Text=Not signed in.
+
+@Button btnOut
+Parent=c
+Canvas.Left=32
+Canvas.Top=412
+Width=356
+Height=40
+Content=Sign out
+IsVisible=false
+OnClick=SignOut
+
+# ============================================================================
+# Scripts
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+function Say(text) Vml("SetProperty", "lblWho", "Text", text) end
+function Busy(on)
+  Vml("SetProperty", "btnGoogle", "IsEnabled", tostring(not on))
+  Vml("SetProperty", "btnGitHub", "IsEnabled", tostring(not on))
+end
+-- Someone signed in before? (kept on this device only)
+local kept = json.decode(Vml("GetSetting", "signed_in") or "")
+if type(kept) == "table" and kept.name then Vml("RunScript", "Show", json.encode(kept)) end
+LUA
+
+@Script WithGoogle
+Interpreter=lua
+<<LUA
+Busy(true)
+Say("Opening Google in your browser... finish signing in there.")
+Vml("SignIn", "google", "SignedIn")
+LUA
+
+@Script WithGitHub
+Interpreter=lua
+<<LUA
+Busy(true)
+Say("Opening GitHub in your browser... finish signing in there.")
+Vml("SignIn", "github", "SignedIn")
+LUA
+
+@Script SignedIn
+Interpreter=lua
+<<LUA
+Busy(false)
+if (args[1] or "") == "" then return Say("Not signed in: " .. tostring(args[2])) end
+Vml("SetSetting", "signed_in", args[1])
+Vml("RunScript", "Show", args[1])
+LUA
+
+@Script Show
+Interpreter=lua
+<<LUA
+local who = json.decode(args[1] or "") or {}
+local by = who.provider == "github" and "GitHub" or "Google"
+Say("Hello, " .. (who.name ~= "" and who.name or "you") .. "!\n\n"
+  .. (who.email ~= "" and (who.email .. "\n") or "")
+  .. "Signed in with " .. by .. (who.login and ("  (@" .. who.login .. ")") or ""))
+Vml("SetProperty", "btnOut", "IsVisible", "true")
+LUA
+
+@Script SignOut
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "signed_in", "")
+Vml("SetProperty", "btnOut", "IsVisible", "false")
+Say("Signed out.")
+LUA

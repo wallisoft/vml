@@ -77,7 +77,7 @@ class Page:
         stamped = str(wp.get("LinkPass") or "")
         if stamped.startswith("VP1-"):
             return stamped
-        if os.environ.get("VML_NO_LINK_PASS") or not any(re.search(r"""["']Link(Pair)?["']""", s["code"]) for s in scripts.values()):
+        if os.environ.get("VML_NO_LINK_PASS") or not any(re.search(r"""["'](Link(Pair)?|SignIn)["']""", s["code"]) for s in scripts.values()):
             return ""
         try:
             from . import licence
@@ -980,6 +980,38 @@ const commands = {
       .catch(() => { if (handler) run(handler, ["", "It couldn't be reached (or the server doesn't allow this page)."]); });
     return "";
   },
+  // Sign in with Google or GitHub (provider "google" or "github"). The user's browser opens at the provider's own
+  // sign-in, and the handler then gets JSON {provider, id, name, email, picture, token}, or a blank and why not.
+  // token is signed by tiny-web: an app's own server can check it (tiny-web.uk/api/oauth.php, action "verify").
+  SignIn(provider = "google", handler = "") {
+    const say = (a, b) => { if (handler) run(handler, [a, b]); };
+    const ask = body => new Promise(done => {
+      const text = JSON.stringify(body);
+      if (DEV && DEV.fetch) { const id = String(++asked); waitingFor[id] = (a, b) => done(a); DEV.fetch(id, SIGN_IN, text); }
+      else fetch(SIGN_IN, { method: "POST", body: text, headers: { "Content-Type": "text/plain;charset=UTF-8" } })
+        .then(r => r.text()).then(done, () => done(""));
+    });
+    const read = t => { try { return JSON.parse(t || ""); } catch (e) { return null; } };
+    let tab = null;
+    if (!(DEV && DEV.open)) { try { tab = window.open("", "_blank"); } catch (e) { tab = null; } }   // now, while the click still counts
+    (async () => {
+      const s = read(await ask({ action: "start", provider: String(provider).toLowerCase(), app: document.title || "", v: VML.linkPass || "" }));
+      if (!s || !s.ok) { if (tab) tab.close(); return say("", (s && s.error) || "The sign-in service couldn't be reached."); }
+      if (DEV && DEV.open) DEV.open(s.url);
+      else if (tab) tab.location.href = s.url;
+      else return say("", "The browser blocked the sign-in window: allow pop-ups for this page and try again.");
+      const until = Date.now() + (s.wait || 600) * 1000;
+      while (Date.now() < until) {
+        await new Promise(r => setTimeout(r, 2000));
+        const p = read(await ask({ action: "poll", code: s.code, secret: s.secret }));
+        if (!p) continue;
+        if (!p.ok) return say("", p.error || "Not signed in.");
+        if (p.done) return say(JSON.stringify(Object.assign({}, p.user, { token: p.token })), "");
+      }
+      say("", "Signing in took too long.");
+    })();
+    return "";
+  },
   // Send a text message from the phone. The handler gets "sent", or a blank and what went wrong. Only an app
   // exported on its own for Android can (vml apk): its phone will ask the user's leave the first time.
   SmsSend(number, text = "", handler = "") {
@@ -1299,6 +1331,7 @@ const commands = {
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
 let asked = 0, onSms = "", onPush = "", onMessages = "";
+const SIGN_IN = "https://tiny-web.uk/api/oauth.php";   // SignIn's relay (Google and GitHub)
 const waitingFor = {};                              // Fetch and SmsSend handlers, until their answer comes
 window.vmlAway = () => {                                   // the app has left the screen: let go of the camera and its light
   stopFlash();
@@ -1313,7 +1346,7 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "messages" && onMessages) run(onMessages, [a, b]);
   if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:") || what.startsWith("contact:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];
-    if (h) run(h, [a, b]);
+    if (typeof h === "function") h(a, b); else if (h) run(h, [a, b]);
   }
   if (what === "flash") {
     if (resume) { const r = resume; resume = null; commands.WatchLight(...r); }

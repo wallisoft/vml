@@ -2556,6 +2556,74 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             if handler:
                 self.run_script(handler, answer, problem, origin=origin)
 
+    def cmd_SignIn(self, provider="google", handler=""):
+        """Sign in with Google or GitHub: the user's browser opens at the provider's own sign-in, and handler then
+        gets JSON {provider, id, name, email, picture, token}, or a blank and why not. The token is signed by
+        tiny-web, so an app's own server can check it (tiny-web.uk/api/oauth.php, action "verify")."""
+        import queue
+        import urllib.request
+        origin = self._script_stack[-1] if self._script_stack else None
+        handler = str(handler or "")
+        relay = os.environ.get("VML_SIGNIN_RELAY", "https://tiny-web.uk/api/oauth.php")
+        if getattr(self, "_fetched", None) is None:
+            self._fetched = queue.Queue()
+            self._fetch_timer = QTimer()
+            self._fetch_timer.setInterval(50)
+            self._fetch_timer.timeout.connect(self._fetch_events)
+        self._fetch_timer.start()
+        opened = queue.Queue()
+        try:
+            carry = licences.link_pass(fetch=False)
+        except Exception:
+            carry = ""
+        win = QApplication.activeWindow()
+        title = win.windowTitle() if win else ""
+
+        def ask(body):
+            req = urllib.request.Request(relay, data=json.dumps(body).encode("utf-8"),
+                                         headers={"User-Agent": "Visualised", "Content-Type": "text/plain; charset=utf-8"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read(65536).decode("utf-8", "replace") or "{}")
+
+        def go():
+            answer, problem = "", ""
+            try:
+                s = ask({"action": "start", "provider": str(provider).lower(), "app": title, "v": carry})
+                if not s.get("ok"):
+                    raise RuntimeError(s.get("error") or "Not signed in.")
+                opened.put(s["url"])
+                until = time.time() + int(s.get("wait") or 600)
+                while time.time() < until:
+                    time.sleep(2)
+                    try:
+                        p = ask({"action": "poll", "code": s["code"], "secret": s["secret"]})
+                    except Exception:
+                        continue
+                    if not p.get("ok"):
+                        raise RuntimeError(p.get("error") or "Not signed in.")
+                    if p.get("done"):
+                        answer = json.dumps(dict(p.get("user") or {}, token=p.get("token", "")))
+                        break
+                else:
+                    problem = "Signing in took too long."
+            except Exception as exc:
+                problem = str(getattr(exc, "reason", "") or exc) or "The sign-in service couldn't be reached."
+            self._fetched.put((handler, answer, problem, origin))
+
+        def show():
+            try:
+                QDesktopServices.openUrl(QUrl(opened.get_nowait()))
+                watch.stop()
+            except Exception:
+                pass
+        watch = self._signin_watch = QTimer()
+        watch.setInterval(100)
+        watch.timeout.connect(show)
+        watch.start()
+        QTimer.singleShot(60000, watch.stop)
+        threading.Thread(target=go, daemon=True).start()
+        return ""
+
     def cmd_SmsSend(self, number, text="", handler=""):
         """Send a text message from the phone, then run handler with "sent", or a blank and what went wrong.
         Only an app exported on its own for Android can (vml apk); here the handler hears why not."""
