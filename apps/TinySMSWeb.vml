@@ -1,0 +1,472 @@
+# ============================================================================
+# TinySMS Web: your TinySMS phone's texts, in a browser.
+#
+#   Conversations on the left, the one you're in on the right, and a box to
+#   write in. The texts themselves go out from your TinySMS phone (the
+#   gateway): this page asks tiny-web.uk to send them, and shows what came
+#   back. Sign in with your tiny-web account; this browser keeps a key of its
+#   own, never your password.
+#
+#   What it uses, all through Vml(...):
+#     Fetch                    tiny-web.uk/api/console.php, as JSON
+#     GetSetting, SetSetting   the key, kept by this browser
+#
+#   Made with Visualised: export it as a web page (vml html) and put it
+#   anywhere. The scripts are at the bottom; "Start" runs first.
+# ============================================================================
+
+@Window TinySMSWeb
+Title=TinySMS Web
+Version=2.1
+Width=1000
+Height=640
+OnOpened=Start
+
+@Canvas c
+Parent=TinySMSWeb
+Width=1000
+Height=640
+Background=#D1D7DB
+
+# --- signing in: a card in the middle of the page ---------------------------
+
+@Canvas pgSignIn
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=1000
+Height=640
+Background=#0F766E
+
+@Canvas card
+Parent=pgSignIn
+Canvas.Left=310
+Canvas.Top=120
+Width=380
+Height=400
+Background=#FFFFFF
+CornerRadius=10
+
+@TextBlock lblBrand
+Parent=card
+Canvas.Left=28
+Canvas.Top=24
+Width=324
+Height=34
+FontSize=24
+FontWeight=Bold
+Foreground=#0F766E
+Text=TinySMS Web
+
+@TextBlock lblSignState
+Parent=card
+Canvas.Left=28
+Canvas.Top=64
+Width=324
+Height=44
+TextWrapping=Wrap
+Foreground=#374151
+Text=Your phone's texts, in this browser.
+
+@TextBox txtUser
+Parent=card
+Canvas.Left=28
+Canvas.Top=116
+Width=324
+Height=40
+Watermark=Username or email
+
+@TextBox txtPass
+Parent=card
+Canvas.Left=28
+Canvas.Top=166
+Width=324
+Height=40
+IsPassword=true
+Watermark=Password
+
+@Button btnSignIn
+Parent=card
+Canvas.Left=28
+Canvas.Top=218
+Width=324
+Height=44
+Background=#0F766E
+Foreground=#FFFFFF
+Content=Sign in
+OnClick=DoSignIn
+
+@TextBlock lblHelp
+Parent=card
+Canvas.Left=28
+Canvas.Top=276
+Width=324
+Height=110
+TextWrapping=Wrap
+FontSize=13
+Foreground=#6B7280
+Text=The same tiny-web account as your TinySMS phone. Texts you write here go out from that phone, and its conversations show here. No account yet? Sign up at tiny-web.uk.
+
+# --- the conversations: a list on the left, the one you're in on the right --
+
+@Canvas pgMain
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=1000
+Height=640
+IsVisible=false
+
+@Canvas side
+Parent=pgMain
+Canvas.Left=0
+Canvas.Top=0
+Width=340
+Height=640
+Background=#FFFFFF
+
+@Canvas sideBar
+Parent=side
+Canvas.Left=0
+Canvas.Top=0
+Width=340
+Height=64
+Background=#0F766E
+
+@TextBlock lblTitle
+Parent=sideBar
+Canvas.Left=16
+Canvas.Top=8
+Width=230
+Height=26
+FontSize=18
+FontWeight=Bold
+Foreground=#FFFFFF
+Text=TinySMS Web
+
+@TextBlock lblGate
+Parent=sideBar
+Canvas.Left=16
+Canvas.Top=36
+Width=310
+Height=22
+FontSize=13
+Foreground=#CCFBF1
+Text=
+
+@Button btnOut
+Parent=sideBar
+Canvas.Left=254
+Canvas.Top=12
+Width=74
+Height=26
+FontSize=12
+Content=Sign out
+OnClick=DoSignOut
+
+@TextBox txtNew
+Parent=side
+Canvas.Left=12
+Canvas.Top=76
+Width=236
+Height=36
+Watermark=New text to: 07700 900123
+
+@Button btnNew
+Parent=side
+Canvas.Left=256
+Canvas.Top=76
+Width=72
+Height=36
+Content=Open
+OnClick=DoNew
+
+@ListBox lstConv
+Parent=side
+Canvas.Left=0
+Canvas.Top=122
+Width=340
+Height=518
+SelectionChanged=PickConv
+
+@Canvas chat
+Parent=pgMain
+Canvas.Left=340
+Canvas.Top=0
+Width=660
+Height=640
+Background=#EFEAE2
+
+@Canvas chatBar
+Parent=chat
+Canvas.Left=0
+Canvas.Top=0
+Width=660
+Height=64
+Background=#F0F2F5
+
+@TextBlock lblWith
+Parent=chatBar
+Canvas.Left=20
+Canvas.Top=10
+Width=620
+Height=26
+FontSize=18
+FontWeight=Bold
+Foreground=#111827
+Text=Pick a conversation
+
+@TextBlock lblWithInfo
+Parent=chatBar
+Canvas.Left=20
+Canvas.Top=38
+Width=620
+Height=20
+FontSize=13
+Foreground=#6B7280
+Text=or start a new one on the left
+
+@TextBlock lblThread
+Parent=chat
+Canvas.Left=24
+Canvas.Top=80
+Width=612
+Height=470
+TextWrapping=Wrap
+FontSize=15
+Foreground=#111827
+Text=
+
+@Canvas writeBar
+Parent=chat
+Canvas.Left=0
+Canvas.Top=568
+Width=660
+Height=72
+Background=#F0F2F5
+
+@TextBox txtMsg
+Parent=writeBar
+Canvas.Left=20
+Canvas.Top=14
+Width=520
+Height=44
+Watermark=Write a text
+IsEnabled=false
+
+@Button btnSend
+Parent=writeBar
+Canvas.Left=552
+Canvas.Top=14
+Width=88
+Height=44
+Background=#0F766E
+Foreground=#FFFFFF
+Content=Send
+IsEnabled=false
+OnClick=DoSend
+
+@Timer tmr
+Parent=c
+Interval=5000
+IsEnabled=false
+OnTick=Refresh
+
+# ============================================================================
+# Scripts. Start runs when the page opens and holds everything the others share.
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+CONSOLE = "https://tiny-web.uk/api/console.php"
+VERSION = "2.1"          -- keep with the Window's Version above
+Current = nil           -- the number whose conversation is open
+Convs = ""              -- the list as last shown (only redrawn when it changes, so a choice isn't lost)
+
+function Kept(key) return Vml("GetSetting", key) end
+function Set(name, prop, value) Vml("SetProperty", name, prop, tostring(value)) end
+
+function Answer(text, problem)
+  local d = json.decode(text or "")
+  if type(d) ~= "table" then return nil, problem ~= "" and problem or "The server's answer didn't make sense." end
+  if d.ok == false or (problem ~= "" and not d.ok) then return nil, d.error or problem, d end
+  return d
+end
+
+function Console(action, extra, handler)
+  local q = { action = action, key = Kept("web_key") }
+  for k, v in pairs(extra or {}) do q[k] = v end
+  Vml("Fetch", CONSOLE, json.encode(q), handler or "")
+end
+
+function SignInPage(say)
+  Set("pgMain", "IsVisible", false)
+  Set("pgSignIn", "IsVisible", true)
+  Set("lblSignState", "Text", say or "Your phone's texts, in this browser.")
+  Set("tmr", "IsEnabled", false)
+end
+
+function MainPage()
+  Set("pgSignIn", "IsVisible", false)
+  Set("pgMain", "IsVisible", true)
+  Set("tmr", "IsEnabled", true)
+  Vml("RunScript", "Refresh")
+end
+
+-- 07700 900123 or +447700900123: the digits, to compare numbers however they were written
+function Digits(n) return (tostring(n or ""):gsub("%D", "")) end
+
+Set("lblTitle", "Text", "TinySMS Web " .. VERSION)
+Set("lblBrand", "Text", "TinySMS Web " .. VERSION)
+if Kept("web_key") ~= "" then MainPage() else SignInPage() end
+LUA
+
+@Script DoSignIn
+Interpreter=lua
+<<LUA
+local user = Vml("GetProperty", "txtUser", "Text")
+local pass = Vml("GetProperty", "txtPass", "Text")
+if user == "" or pass == "" then return Set("lblSignState", "Text", "Your username (or email) and password, please.") end
+Set("lblSignState", "Text", "Signing in...")
+Console("login", { username = user, password = pass, label = "web" }, "SignedIn")
+LUA
+
+@Script SignedIn
+Interpreter=lua
+<<LUA
+Set("txtPass", "Text", "")
+local d, why = Answer(args[1], args[2])
+if not d or not d.key then return Set("lblSignState", "Text", "Not signed in: " .. tostring(why or "no key came back")) end
+Vml("SetSetting", "web_key", d.key)
+MainPage()
+LUA
+
+@Script DoSignOut
+Interpreter=lua
+<<LUA
+Console("signout")
+Vml("SetSetting", "web_key", "")
+Current, Convs = nil, ""
+Set("lstConv", "Items", "")
+Set("lblThread", "Text", "")
+SignInPage("Signed out of this browser. Your phone carries on as before.")
+LUA
+
+@Script Refresh
+Interpreter=lua
+<<LUA
+if Kept("web_key") == "" then return end
+Console("status", nil, "GotStatus")
+Console("conversations", nil, "GotConvs")
+if Current then Console("thread", { number = Current }, "GotThread") end
+LUA
+
+@Script GotStatus
+Interpreter=lua
+<<LUA
+local d, why, said = Answer(args[1], args[2])
+if not d then
+  if said and tostring(said.error or ""):find("sign in") then
+    Vml("SetSetting", "web_key", "")
+    return SignInPage("Please sign in again.")
+  end
+  return Set("lblGate", "Text", "Can't reach tiny-web.uk just now...")
+end
+local g = d.gateway
+local waiting = (d.waiting or 0) > 0 and ("  ·  " .. d.waiting .. " waiting") or ""
+if not g then
+  Set("lblGate", "Text", "No gateway phone yet: sign in to TinySMS on one")
+elseif g.online then
+  Set("lblGate", "Text", "● Phone awake" .. (g.battery and ("  ·  " .. g.battery .. "%") or "") .. waiting)
+elseif g.push then
+  Set("lblGate", "Text", "● Phone resting: wakes for each text" .. waiting)
+else
+  Set("lblGate", "Text", "○ Phone last seen " .. (g.seen or "a while ago") .. waiting)
+end
+LUA
+
+@Script GotConvs
+Interpreter=lua
+<<LUA
+local d = Answer(args[1], args[2])
+if not d then return end
+local rows = {}
+for _, c in ipairs(d.items or {}) do
+  rows[#rows + 1] = c.number .. "     " .. c.last .. (c.replies > 0 and ("  ·  " .. c.replies .. " in") or "")
+end
+local items = table.concat(rows, ",")
+if items ~= Convs then
+  Convs = items
+  Set("lstConv", "Items", items)
+end
+LUA
+
+@Script PickConv
+Interpreter=lua
+<<LUA
+local number = (Vml("GetProperty", "lstConv", "SelectedItem") or ""):match("^(%S+)")
+if number then Vml("RunScript", "Open", number) end
+LUA
+
+@Script DoNew
+Interpreter=lua
+<<LUA
+local number = Vml("GetProperty", "txtNew", "Text")
+local n = #Digits(number)
+if n < 10 or n > 15 then return Set("lblWithInfo", "Text", "That number doesn't look right: " .. n .. " digits.") end
+Set("txtNew", "Text", "")
+Vml("RunScript", "Open", number)
+LUA
+
+@Script Open
+Interpreter=lua
+<<LUA
+local number = args[1]
+if not number or number == "" then return end
+Current = number
+Set("lblWith", "Text", number)
+Set("lblWithInfo", "Text", "Texts go out from your TinySMS phone")
+Set("lblThread", "Text", "")
+Set("txtMsg", "IsEnabled", true)
+Set("btnSend", "IsEnabled", true)
+Console("thread", { number = number }, "GotThread")
+LUA
+
+@Script GotThread
+Interpreter=lua
+<<LUA
+local d = Answer(args[1], args[2])
+if not d or not Current or Digits(d.number):sub(-10) ~= Digits(Current):sub(-10) then return end
+Current = d.number
+Set("lblWith", "Text", d.number)
+local items, lines = d.items or {}, {}
+for i = math.max(1, #items - 19), #items do      -- the newest that fit, oldest at the top
+  local m = items[i]
+  local note = (m.status == "failed" and "   (not sent)") or ((m.status == "pending" or m.status == "sending") and "   (waiting)") or ""
+  lines[#lines + 1] = m.at .. "     " .. (m.direction == "inbound" and "←  Them:  " or "→  You:  ") .. m.body .. note
+end
+Set("lblThread", "Text", #lines > 0 and table.concat(lines, "\n") or "Nothing yet with this number: say hello.")
+LUA
+
+@Script DoSend
+Interpreter=lua
+<<LUA
+local text = Vml("GetProperty", "txtMsg", "Text")
+if not Current or text:match("^%s*$") then return end
+Set("btnSend", "IsEnabled", false)
+Set("lblWithInfo", "Text", "Sending...")
+Console("send", { to = Current, text = text }, "Sent")
+LUA
+
+@Script Sent
+Interpreter=lua
+<<LUA
+Set("btnSend", "IsEnabled", true)
+local d, why = Answer(args[1], args[2])
+if not d then return Set("lblWithInfo", "Text", "Not sent: " .. tostring(why)) end
+Set("txtMsg", "Text", "")
+Set("lblWithInfo", "Text", d.woke and "On its way: your phone was woken" or "Queued: it goes when your phone next checks in")
+Vml("RunScript", "Refresh")
+LUA
