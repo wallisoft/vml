@@ -277,12 +277,32 @@ final class Device {
                     String mime = android.provider.ContactsContract.Data.MIMETYPE;
                     String nameKind = android.provider.ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE;
                     String phoneKind = android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE;
+                    // One person is often several raw contacts joined together (Google's, WhatsApp's, the phone's
+                    // own): change the one the user's own account keeps, so Google Contacts sees one person.
                     long raw = -1;
+                    long person = -1;
                     try (android.database.Cursor c = cr.query(android.provider.ContactsContract.Data.CONTENT_URI,
-                            new String[]{android.provider.ContactsContract.Data.RAW_CONTACT_ID}, dn + " = ? AND " + mime + " = ?",
-                            new String[]{was.isEmpty() ? newName : was, nameKind}, null)) {
+                            new String[]{android.provider.ContactsContract.Data.CONTACT_ID}, dn + " = ?",
+                            new String[]{was.isEmpty() ? newName : was}, null)) {
                         if (c != null && c.moveToFirst()) {
-                            raw = c.getLong(0);
+                            person = c.getLong(0);
+                        }
+                    }
+                    if (person >= 0) {
+                        int best = -1;
+                        try (android.database.Cursor c = cr.query(android.provider.ContactsContract.RawContacts.CONTENT_URI,
+                                new String[]{android.provider.ContactsContract.RawContacts._ID, android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE},
+                                android.provider.ContactsContract.RawContacts.CONTACT_ID + " = ? AND " + android.provider.ContactsContract.RawContacts.DELETED + " = 0",
+                                new String[]{String.valueOf(person)}, null)) {
+                            while (c != null && c.moveToNext()) {
+                                String type = c.getString(1) == null ? "" : c.getString(1);
+                                int rank = type.equals("com.google") ? 3 : (type.isEmpty() || type.startsWith("vnd.sec.contact") || type.contains("local")) ? 2
+                                        : (type.contains("whatsapp") || type.contains("telegram") || type.contains("signal") || type.contains("viber")) ? 0 : 1;
+                                if (rank > best) {
+                                    best = rank;
+                                    raw = c.getLong(0);
+                                }
+                            }
                         }
                     }
                     if (!was.isEmpty() && raw < 0) {
@@ -295,9 +315,21 @@ final class Device {
                             activity.tell(answer, "", "A new contact needs a number.");
                             return;
                         }
+                        // A new person goes into the user's Google account when the phone has one (so it is in Google
+                        // Contacts and their other devices), otherwise into the phone's own contacts.
+                        String accountType = null, accountName = null;
+                        try (android.database.Cursor c = cr.query(android.provider.ContactsContract.RawContacts.CONTENT_URI,
+                                new String[]{android.provider.ContactsContract.RawContacts.ACCOUNT_NAME},
+                                android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE + " = ? AND " + android.provider.ContactsContract.RawContacts.DELETED + " = 0",
+                                new String[]{"com.google"}, null)) {
+                            if (c != null && c.moveToFirst() && c.getString(0) != null) {
+                                accountType = "com.google";
+                                accountName = c.getString(0);
+                            }
+                        }
                         ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.RawContacts.CONTENT_URI)
-                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE, null)
-                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_NAME, null).build());
+                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE, accountType)
+                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_NAME, accountName).build());
                         ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
                                 .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, 0)
                                 .withValue(mime, nameKind)
