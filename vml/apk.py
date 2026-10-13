@@ -54,6 +54,7 @@ NEEDS = {
     "ACCESS_BACKGROUND_LOCATION": ("WatchBluetooth",),
     "SEND_SMS": ("SmsSend",),
     "RECEIVE_SMS": ("OnSms",),
+    "READ_CONTACTS": ("ReadContacts",),
     PUSH: ("OnPush",),
     LISTEN: ("OnMessages",),
 }

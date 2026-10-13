@@ -143,6 +143,50 @@ final class Device {
     }
 
     /**
+     * The phone's address book, as JSON [{"name", "number"}, ...]: one entry per number. The page hears back through
+     * vmlFromPhone("contacts:" + id, the JSON, "") or ("", what went wrong). The user is asked the first time.
+     * An app exported on its own only.
+     */
+    @JavascriptInterface
+    public void readContacts(final String id) {
+        final String answer = "contacts:" + id;
+        if (!activity.isOwnApp()) {
+            activity.tell(answer, "", "The address book can only be read by an app exported on its own (vml apk).");
+            return;
+        }
+        activity.runOnUiThread(() -> activity.withPermission(new String[]{"android.permission.READ_CONTACTS"}, granted -> {
+            if (!granted) {
+                activity.tell(answer, "", "Reading the address book wasn't allowed.");
+                return;
+            }
+            new Thread(() -> {
+                org.json.JSONArray out = new org.json.JSONArray();
+                java.util.HashSet<String> seen = new java.util.HashSet<>();
+                String[] cols = {android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER};
+                try (android.database.Cursor c = activity.getContentResolver().query(
+                        android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, cols, null, null,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC")) {
+                    while (c != null && c.moveToNext()) {
+                        String name = c.getString(0), number = c.getString(1);
+                        if (name == null || number == null) {
+                            continue;
+                        }
+                        String digits = number.replaceAll("[^0-9+]", "");
+                        if (digits.length() < 6 || !seen.add(digits)) {
+                            continue;
+                        }
+                        out.put(new org.json.JSONObject().put("name", name).put("number", digits));
+                    }
+                    activity.tell(answer, out.toString(), "");
+                } catch (RuntimeException | org.json.JSONException e) {
+                    activity.tell(answer, "", "The address book couldn't be read: " + e.getMessage());
+                }
+            }).start();
+        }));
+    }
+
+    /**
      * Hear messages that arrive in the phone's messaging apps (Google Messages, Samsung Messages), RCS included,
      * read from their notices: vmlFromPhone("messages", from, text). "from" is a number when the app gives one,
      * otherwise the sender's name as the phone shows it. A blank "from" means it can't yet, and the text says why

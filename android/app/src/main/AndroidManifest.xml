@@ -24,6 +24,8 @@
     <!-- Texts: kept only in an app exported on its own that uses SmsSend or OnSms (vml/apk.py), and only ever used there. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <!-- the address book: kept only in an app whose scripts use ReadContacts (vml/apk.py) -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
