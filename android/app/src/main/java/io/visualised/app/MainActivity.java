@@ -974,6 +974,25 @@ public class MainActivity extends Activity {
 
     /** What a page asks the user or the phone for: messages, location, the camera, a file. */
     private final class Asks extends WebChromeClient {
+        /** What the page says to its console (a script's error, a warning) goes to the phone's log, tagged with
+         *  the app's name: adb logcat -s Visualised shows it. Without this a broken script is silent. */
+        @Override
+        public boolean onConsoleMessage(android.webkit.ConsoleMessage m) {
+            String where = m.sourceId() == null || m.sourceId().isEmpty() ? "" : " (line " + m.lineNumber() + ")";
+            String line = "[" + title + "] " + m.message() + where;
+            switch (m.messageLevel()) {
+                case ERROR:
+                    android.util.Log.e("Visualised", line);
+                    break;
+                case WARNING:
+                    android.util.Log.w("Visualised", line);
+                    break;
+                default:
+                    android.util.Log.i("Visualised", line);
+            }
+            return true;
+        }
+
         @Override
         public boolean onJsAlert(WebView view, String url, String message, final JsResult result) {
             new AlertDialog.Builder(MainActivity.this).setTitle(title).setMessage(message)
