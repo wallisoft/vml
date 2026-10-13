@@ -187,6 +187,62 @@ final class Device {
     }
 
     /**
+     * A number for a name in the phone's address book: the one given in prefer if the person has it (the number
+     * last used for them), otherwise their primary number, otherwise a mobile, otherwise their first. The page hears
+     * back through vmlFromPhone("number:" + id, the number, "") or ("", why not). Asks the user the first time.
+     */
+    @JavascriptInterface
+    public void lookupNumber(final String id, final String name, final String prefer) {
+        final String answer = "number:" + id;
+        if (!activity.isOwnApp()) {
+            activity.tell(answer, "", "Numbers can only be looked up by an app exported on its own (vml apk).");
+            return;
+        }
+        activity.runOnUiThread(() -> activity.withPermission(new String[]{"android.permission.READ_CONTACTS"}, granted -> {
+            if (!granted) {
+                activity.tell(answer, "", "Looking up numbers wasn't allowed.");
+                return;
+            }
+            new Thread(() -> {
+                String best = null, primary = null, mobile = null, first = null;
+                String wanted = prefer == null ? "" : prefer.replaceAll("[^0-9]", "");
+                String[] cols = {android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.IS_SUPER_PRIMARY,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.TYPE};
+                try (android.database.Cursor c = activity.getContentResolver().query(
+                        android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, cols,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " = ?", new String[]{name}, null)) {
+                    while (c != null && c.moveToNext()) {
+                        String n = c.getString(0);
+                        if (n == null) {
+                            continue;
+                        }
+                        String digits = n.replaceAll("[^0-9]", "");
+                        if (!wanted.isEmpty() && digits.length() >= 6 && (wanted.endsWith(digits.substring(Math.max(0, digits.length() - 10)))
+                                || digits.endsWith(wanted.substring(Math.max(0, wanted.length() - 10))))) {
+                            best = n;
+                        }
+                        if (primary == null && c.getInt(1) != 0) {
+                            primary = n;
+                        }
+                        if (mobile == null && c.getInt(2) == android.provider.ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE) {
+                            mobile = n;
+                        }
+                        if (first == null) {
+                            first = n;
+                        }
+                    }
+                } catch (RuntimeException e) {
+                    activity.tell(answer, "", "The number couldn't be looked up: " + e.getMessage());
+                    return;
+                }
+                String n = best != null ? best : primary != null ? primary : mobile != null ? mobile : first;
+                activity.tell(answer, n == null ? "" : n.replaceAll("[^0-9+]", ""), n == null ? "No number for " + name + " on this phone." : "");
+            }).start();
+        }));
+    }
+
+    /**
      * Names for some numbers, from the phone's address book, and nothing else from it: numbersJson is a JSON list,
      * the answer a JSON object of number: name ("" for a number that isn't in it), through
      * vmlFromPhone("names:" + id, the JSON, "") or ("", what went wrong). Asks the user the first time.
