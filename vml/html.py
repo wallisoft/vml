@@ -996,6 +996,14 @@ const commands = {
     else if (onSms) setTimeout(() => run(onSms, ["", "Texts arrive only in an app exported for an Android phone."]), 0);
     return "";
   },
+  // The phone's address book: the handler gets it as JSON, [{"name": ..., "number": ...}, ...] (one entry per number),
+  // or a blank and what went wrong. The phone asks the user the first time. An app exported on its own for Android only.
+  ReadContacts(handler = "") {
+    const id = String(++asked);
+    if (DEV && DEV.readContacts) { if (handler) waitingFor[id] = handler; DEV.readContacts(id); }
+    else if (handler) setTimeout(() => run(handler, ["", "The address book is read only by an app exported for an Android phone."]), 0);
+    return "";
+  },
   // Hear messages that arrive in the phone's messaging apps (Google Messages, Samsung Messages), RCS chats included,
   // read from their notices: the handler gets who from (a number, or the name the phone shows) and what they said.
   // A blank "from" means it can't yet, and the text says why: the user has to turn on notification access for the
@@ -1278,7 +1286,7 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "sms" && onSms) run(onSms, [a, b]);
   if (what === "push" && onPush) run(onPush, [a, b]);
   if (what === "messages" && onMessages) run(onMessages, [a, b]);
-  if (what.startsWith("fetch:") || what.startsWith("sms-sent:")) {
+  if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];
     if (h) run(h, [a, b]);
   }
