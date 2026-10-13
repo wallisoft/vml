@@ -245,6 +245,120 @@ final class Device {
     }
 
     /**
+     * Adds to the phone's address book, or changes it. With oldName blank: a new contact called name with number (or,
+     * if someone is already called name, number is added to them). With oldName: that contact is renamed to name, and
+     * number, if given, added to them. The page hears back through vmlFromPhone("contact:" + id, name, "") or
+     * ("", what went wrong). Asks the user the first time. An app exported on its own only.
+     */
+    @JavascriptInterface
+    public void saveContact(final String id, final String name, final String number, final String oldName) {
+        final String answer = "contact:" + id;
+        if (!activity.isOwnApp()) {
+            activity.tell(answer, "", "The address book can only be changed by an app exported on its own (vml apk).");
+            return;
+        }
+        final String newName = name == null ? "" : name.trim();
+        final String was = oldName == null ? "" : oldName.trim();
+        final String digits = number == null ? "" : number.replaceAll("[^0-9+]", "");
+        if (newName.isEmpty()) {
+            activity.tell(answer, "", "A contact needs a name.");
+            return;
+        }
+        activity.runOnUiThread(() -> activity.withPermission(new String[]{"android.permission.READ_CONTACTS",
+                "android.permission.WRITE_CONTACTS"}, granted -> {
+            if (!granted) {
+                activity.tell(answer, "", "Changing the address book wasn't allowed.");
+                return;
+            }
+            new Thread(() -> {
+                try {
+                    android.content.ContentResolver cr = activity.getContentResolver();
+                    String dn = android.provider.ContactsContract.Data.DISPLAY_NAME;
+                    String mime = android.provider.ContactsContract.Data.MIMETYPE;
+                    String nameKind = android.provider.ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE;
+                    String phoneKind = android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE;
+                    long raw = -1;
+                    try (android.database.Cursor c = cr.query(android.provider.ContactsContract.Data.CONTENT_URI,
+                            new String[]{android.provider.ContactsContract.Data.RAW_CONTACT_ID}, dn + " = ? AND " + mime + " = ?",
+                            new String[]{was.isEmpty() ? newName : was, nameKind}, null)) {
+                        if (c != null && c.moveToFirst()) {
+                            raw = c.getLong(0);
+                        }
+                    }
+                    if (!was.isEmpty() && raw < 0) {
+                        activity.tell(answer, "", "Nobody called " + was + " on this phone.");
+                        return;
+                    }
+                    java.util.ArrayList<android.content.ContentProviderOperation> ops = new java.util.ArrayList<>();
+                    if (raw < 0) {
+                        if (digits.replaceAll("\\D", "").length() < 6) {
+                            activity.tell(answer, "", "A new contact needs a number.");
+                            return;
+                        }
+                        ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.RawContacts.CONTENT_URI)
+                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE, null)
+                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_NAME, null).build());
+                        ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                                .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, 0)
+                                .withValue(mime, nameKind)
+                                .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, newName).build());
+                        ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                                .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, 0)
+                                .withValue(mime, phoneKind)
+                                .withValue(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER, digits)
+                                .withValue(android.provider.ContactsContract.CommonDataKinds.Phone.TYPE,
+                                        android.provider.ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE).build());
+                    } else {
+                        String rawId = String.valueOf(raw);
+                        if (!was.isEmpty() && !was.equals(newName)) {
+                            // a new display name: the parts (given, family...) are cleared so the phone uses this one
+                            ops.add(android.content.ContentProviderOperation.newUpdate(android.provider.ContactsContract.Data.CONTENT_URI)
+                                    .withSelection(android.provider.ContactsContract.Data.RAW_CONTACT_ID + " = ? AND " + mime + " = ?",
+                                            new String[]{rawId, nameKind})
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, newName)
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME, null)
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.MIDDLE_NAME, null)
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.FAMILY_NAME, null)
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.PREFIX, null)
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.SUFFIX, null).build());
+                        }
+                        boolean has = false;
+                        String tail = digits.replaceAll("\\D", "");
+                        tail = tail.substring(Math.max(0, tail.length() - 10));
+                        if (!tail.isEmpty()) {
+                            try (android.database.Cursor c = cr.query(android.provider.ContactsContract.Data.CONTENT_URI,
+                                    new String[]{android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER},
+                                    android.provider.ContactsContract.Data.RAW_CONTACT_ID + " = ? AND " + mime + " = ?",
+                                    new String[]{rawId, phoneKind}, null)) {
+                                while (c != null && c.moveToNext()) {
+                                    String n = c.getString(0) == null ? "" : c.getString(0).replaceAll("\\D", "");
+                                    if (n.endsWith(tail) || (n.length() >= 6 && tail.endsWith(n.substring(Math.max(0, n.length() - 10))))) {
+                                        has = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (!tail.isEmpty() && tail.length() >= 6 && !has) {
+                            ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                                    .withValue(android.provider.ContactsContract.Data.RAW_CONTACT_ID, raw)
+                                    .withValue(mime, phoneKind)
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER, digits)
+                                    .withValue(android.provider.ContactsContract.CommonDataKinds.Phone.TYPE,
+                                            android.provider.ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE).build());
+                        }
+                    }
+                    if (!ops.isEmpty()) {
+                        cr.applyBatch(android.provider.ContactsContract.AUTHORITY, ops);
+                    }
+                    activity.tell(answer, newName, "");
+                } catch (Exception e) {
+                    activity.tell(answer, "", "The address book couldn't be changed: " + e.getMessage());
+                }
+            }).start();
+        }));
+    }
+
+    /**
      * Names for some numbers, from the phone's address book, and nothing else from it: numbersJson is a JSON list,
      * the answer a JSON object of number: name ("" for a number that isn't in it), through
      * vmlFromPhone("names:" + id, the JSON, "") or ("", what went wrong). Asks the user the first time.

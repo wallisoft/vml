@@ -26,6 +26,8 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <!-- the address book: kept only in an app whose scripts use ReadContacts (vml/apk.py) -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- changing the address book: kept only in an app whose scripts use SaveContact -->
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <!-- to come back after the phone restarts: kept only in an app whose scripts use RunInBackground -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
