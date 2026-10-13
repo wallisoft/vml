@@ -18,6 +18,7 @@
 #   What it uses, all through Vml(...):
 #     Fetch            the TinySMS server (tiny-web.uk), as JSON
 #     SmsSend, OnSms   texts out and in: an app exported for Android only
+#     ReadContacts     the phone's address book, shared with the account when asked (names for numbers)
 #     OnMessages       replies that came by chat (RCS), read from the messaging app's notices
 #     OnPush           woken by the server when a text is waiting (no text goes through Google: the
 #                      push only says "ask now")
@@ -34,7 +35,7 @@
 
 @Window TinySMS
 Title=TinySMS
-Version=2.1
+Version=2.2
 Width=360
 Height=640
 OnOpened=Start
@@ -130,11 +131,21 @@ Canvas.Left=12
 Canvas.Top=134
 IsVisible=false
 Width=336
-Height=380
+Height=330
 TextWrapping=Wrap
 FontSize=14
 Foreground=#374151
 Text=
+
+@Button btnContacts
+Parent=c
+Canvas.Left=12
+Canvas.Top=474
+IsVisible=false
+Width=336
+Height=40
+Content=Share this phone's contacts (names for numbers)
+OnClick=DoShareContacts
 
 @Button btnPause
 Parent=c
@@ -184,9 +195,19 @@ Parent=c
 Canvas.Left=12
 Canvas.Top=490
 IsVisible=false
-Width=336
+Width=252
 Height=36
 Watermark=Number, e.g. 07700 900123
+
+@Button btnName
+Parent=c
+Canvas.Left=272
+Canvas.Top=490
+IsVisible=false
+Width=76
+Height=36
+Content=Name
+OnClick=DoName
 
 @TextBox txtMsg
 Parent=c
@@ -234,10 +255,11 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
-VERSION = "2.1"          -- keep with the Window's Version above: shown at the top, and told to the server
+VERSION = "2.2"          -- keep with the Window's Version above: shown at the top, and told to the server
 CONSOLE = "https://tiny-web.uk/api/console.php"
 Role = "gateway"         -- or "console": a computer or a browser, which sends through the gateway and never is one
 Current = nil           -- the console: the number whose conversation is showing
+CurrentName = ""        -- and the name it has, if any
 Convs = ""              -- the console: the list as last shown (only redrawn when it changes, so a choice isn't lost)
 -- TinySMS's Firebase project: public values (they are in every Firebase app), not secrets.
 FIREBASE = json.encode({ project = "tinysms-2929e", app = "1:36897486791:android:65271ea33d3c08b9da4be2", key = "AIzaSyAuXb7Q0K9qaLc1T2TIqkl8YgzRmXYzSbc", sender = "36897486791" })
@@ -269,8 +291,8 @@ function Masked(number)
 end
 
 -- The two pages: the sign-in fields, and the working log with its buttons. Shown by turning their controls on or off.
-PAGES = { signin = { "txtUser", "txtPass", "btnSignIn", "lblHelp" }, work = { "lblCounts", "lblLog", "btnPause", "btnSignOut" },
-          console = { "lstConv", "lblThread", "txtTo", "txtMsg", "btnSend", "btnConsoleOut" } }
+PAGES = { signin = { "txtUser", "txtPass", "btnSignIn", "lblHelp" }, work = { "lblCounts", "lblLog", "btnContacts", "btnPause", "btnSignOut" },
+          console = { "lstConv", "lblThread", "txtTo", "btnName", "txtMsg", "btnSend", "btnConsoleOut" } }
 function Page(name)
   for page, controls in pairs(PAGES) do
     for _, c in ipairs(controls) do Vml("SetProperty", c, "IsVisible", tostring(page == name)) end
@@ -302,6 +324,7 @@ function Begin()
   Vml("SetProperty", "tmr", "IsEnabled", "true")
   Vml("OnSms", "Heard")
   Vml("OnMessages", "Heard")          -- replies that came by chat (RCS): the phone asks once for notification access
+  if Kept("share_contacts") == "yes" then Vml("ReadContacts", "GotContacts") end   -- kept up to date, once asked
   Vml("OnPush", "Pushed", FIREBASE)
   Vml("RunInBackground", "true")
   Asked = os.time()
@@ -567,7 +590,7 @@ local d = Answer(args[1], args[2])
 if not d then return end
 local rows = {}
 for _, c in ipairs(d.items or {}) do
-  rows[#rows + 1] = c.number .. "  ·  " .. c.count .. (c.replies > 0 and (" (" .. c.replies .. " in)") or "") .. "  ·  " .. c.last
+  rows[#rows + 1] = ((c.name or "") ~= "" and (c.name .. "  ") or "") .. c.number .. "  ·  " .. c.count .. (c.replies > 0 and (" (" .. c.replies .. " in)") or "") .. "  ·  " .. c.last
 end
 local items = table.concat(rows, ",")
 if items ~= Convs then
@@ -580,7 +603,7 @@ LUA
 Interpreter=lua
 <<LUA
 local item = Vml("GetProperty", "lstConv", "SelectedItem")
-local number = item:match("^(%S+)")
+local number = item:match("(%+?%d%d%d%d%d%d+)")
 if not number or number == Current then return end
 Current = number
 Vml("SetProperty", "txtTo", "Text", number)
@@ -593,7 +616,9 @@ Interpreter=lua
 <<LUA
 local d = Answer(args[1], args[2])
 if not d or d.number ~= Current then return end
+CurrentName = d.name or ""
 local lines = {}
+if CurrentName ~= "" then lines[1] = CurrentName .. "   (" .. d.number .. ")" end
 local items = d.items or {}
 local first = math.max(1, #items - 10)            -- the box shows about eleven lines: the newest, oldest at the top
 for i = first, #items do
@@ -647,4 +672,50 @@ Vml("SetProperty", "lstConv", "Items", "")
 Vml("SetProperty", "lblThread", "Text", "")
 Page("signin")
 State("Signed out of this computer. Your phone carries on as before.")
+LUA
+
+# --- the address book: names for numbers ---------------------------------------
+
+@Script DoShareContacts
+Interpreter=lua
+<<LUA
+State("Reading this phone's address book...")
+Vml("ReadContacts", "GotContacts")
+LUA
+
+@Script GotContacts
+Interpreter=lua
+<<LUA
+local list = json.decode(args[1] or "")
+if type(list) ~= "table" then return Note("Contacts not shared: " .. tostring(args[2])) end
+Vml("SetSetting", "share_contacts", "yes")            -- from now on kept up to date each time the app starts
+Server("contacts", { contacts = list }, "ContactsShared")
+LUA
+
+@Script ContactsShared
+Interpreter=lua
+<<LUA
+local d, why = Answer(args[1], args[2])
+if not d then return Note("Contacts not shared: " .. tostring(why)) end
+Note("Shared " .. (d.saved or 0) .. " names for numbers with your account.")
+State("Working: texts sent by email go out from this phone.")
+LUA
+
+@Script DoName
+Interpreter=lua
+<<LUA
+local number = Current or Vml("GetProperty", "txtTo", "Text")
+if #(number:gsub("%D", "")) < 6 then return State("Pick a conversation, or type a number, first.") end
+local name = Vml("PromptDialog", "Name this number", "A name for " .. number .. ":", CurrentName)
+if name == "" or name == CurrentName then return end
+Console("name", { number = number, name = name }, "Named")
+LUA
+
+@Script Named
+Interpreter=lua
+<<LUA
+local d, why = Answer(args[1], args[2])
+if not d then return State("Not named: " .. tostring(why)) end
+CurrentName, Convs = d.name, ""
+Vml("RunScript", "Refresh")
 LUA

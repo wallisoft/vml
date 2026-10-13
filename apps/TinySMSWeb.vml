@@ -17,7 +17,7 @@
 
 @Window TinySMSWeb
 Title=TinySMS Web
-Version=2.1
+Version=2.2
 Width=1000
 Height=640
 WebFit=Fill
@@ -216,7 +216,7 @@ Parent=chatBar
 Anchor=Top,Left,Right
 Canvas.Left=20
 Canvas.Top=10
-Width=620
+Width=520
 Height=26
 FontSize=18
 FontWeight=Bold
@@ -233,6 +233,17 @@ Height=20
 FontSize=13
 Foreground=#6B7280
 Text=or start a new one on the left
+
+@Button btnName
+Parent=chatBar
+Anchor=Top,Right
+Canvas.Left=556
+Canvas.Top=16
+Width=84
+Height=32
+Content=Name
+IsEnabled=false
+OnClick=DoName
 
 @TextBlock lblThread
 Parent=chat
@@ -293,8 +304,9 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 CONSOLE = "https://tiny-web.uk/api/console.php"
-VERSION = "2.1"          -- keep with the Window's Version above
+VERSION = "2.2"          -- keep with the Window's Version above
 Current = nil           -- the number whose conversation is open
+CurrentName = ""        -- and its name, if it has one
 Convs = ""              -- the list as last shown (only redrawn when it changes, so a choice isn't lost)
 
 function Kept(key) return Vml("GetSetting", key) end
@@ -406,7 +418,7 @@ local d = Answer(args[1], args[2])
 if not d then return end
 local rows = {}
 for _, c in ipairs(d.items or {}) do
-  rows[#rows + 1] = c.number .. "     " .. c.last .. (c.replies > 0 and ("  ·  " .. c.replies .. " in") or "")
+  rows[#rows + 1] = ((c.name or "") ~= "" and (c.name .. "     ") or "") .. c.number .. "     " .. c.last .. (c.replies > 0 and ("  ·  " .. c.replies .. " in") or "")
 end
 local items = table.concat(rows, ",")
 if items ~= Convs then
@@ -418,7 +430,7 @@ LUA
 @Script PickConv
 Interpreter=lua
 <<LUA
-local number = (Vml("GetProperty", "lstConv", "SelectedItem") or ""):match("^(%S+)")
+local number = (Vml("GetProperty", "lstConv", "SelectedItem") or ""):match("(%+?%d%d%d%d%d%d+)")
 if number then Vml("RunScript", "Open", number) end
 LUA
 
@@ -443,6 +455,7 @@ Set("lblWithInfo", "Text", "Texts go out from your TinySMS phone")
 Set("lblThread", "Text", "")
 Set("txtMsg", "IsEnabled", true)
 Set("btnSend", "IsEnabled", true)
+Set("btnName", "IsEnabled", true)
 Console("thread", { number = number }, "GotThread")
 LUA
 
@@ -451,8 +464,8 @@ Interpreter=lua
 <<LUA
 local d = Answer(args[1], args[2])
 if not d or not Current or Digits(d.number):sub(-10) ~= Digits(Current):sub(-10) then return end
-Current = d.number
-Set("lblWith", "Text", d.number)
+Current, CurrentName = d.number, d.name or ""
+Set("lblWith", "Text", CurrentName ~= "" and (CurrentName .. "     " .. d.number) or d.number)
 local items, lines = d.items or {}, {}
 for i = math.max(1, #items - 19), #items do      -- the newest that fit, oldest at the top
   local m = items[i]
@@ -480,5 +493,23 @@ local d, why = Answer(args[1], args[2])
 if not d then return Set("lblWithInfo", "Text", "Not sent: " .. tostring(why)) end
 Set("txtMsg", "Text", "")
 Set("lblWithInfo", "Text", d.woke and "On its way: your phone was woken" or "Queued: it goes when your phone next checks in")
+Vml("RunScript", "Refresh")
+LUA
+
+@Script DoName
+Interpreter=lua
+<<LUA
+if not Current then return end
+local name = Vml("PromptDialog", "Name this number", "A name for " .. Current .. ":", CurrentName)
+if name == "" or name == CurrentName then return end
+Console("name", { number = Current, name = name }, "Named")
+LUA
+
+@Script Named
+Interpreter=lua
+<<LUA
+local d, why = Answer(args[1], args[2])
+if not d then return Set("lblWithInfo", "Text", "Not named: " .. tostring(why)) end
+CurrentName, Convs = d.name, ""
 Vml("RunScript", "Refresh")
 LUA
