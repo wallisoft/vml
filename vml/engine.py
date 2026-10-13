@@ -2580,6 +2580,14 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "The address book is read only by an app exported for an Android phone.", origin=origin))
         return ""
 
+    def cmd_LookupNames(self, numbers="[]", handler=""):
+        """Names for some numbers from the phone's address book, as JSON {number: name}, to handler; or a blank and
+        why not (as here: an app exported for an Android phone only)."""
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "Names are looked up only by an app exported for an Android phone.", origin=origin))
+        return ""
+
     def cmd_OnMessages(self, handler=""):
         """Hear messages that arrive in the phone's messaging apps (RCS included), read from their notices: handler
         gets who from and what they said. A blank "from" means it can't, and the text says why (as here: an app
