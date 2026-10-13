@@ -178,6 +178,11 @@ def set_visible(node, value):
             fade = QGraphicsOpacityEffect(node.host)
             fade.setOpacity(0.35)
             node.host.setGraphicsEffect(fade)
+        surface = node.parent
+        while surface is not None and surface.type.name != "DesignSurface":
+            surface = surface.parent
+        if surface is not None and hasattr(surface.widget, "arrange_layers"):
+            surface.widget.arrange_layers()
         return
     node.host.setVisible(on)
 
@@ -460,7 +465,7 @@ def canvas_add(parent, child):
 
 
 ANCHORS = ("Top,Left", "Top,Right", "Bottom,Left", "Bottom,Right", "Top,Left,Right", "Bottom,Left,Right",
-           "Top,Bottom,Left", "Top,Bottom,Right", "Top,Bottom,Left,Right")
+           "Top,Bottom,Left", "Top,Bottom,Right", "Top,Bottom,Left,Right", "Center")
 
 
 def anchor_set(value):
@@ -475,6 +480,8 @@ def anchored_rect(props, natural, ref, cur):
     w0 = num(props.get("Width"), natural.width()) if props.get("Width") not in (None, "", "Auto") else natural.width()
     h0 = num(props.get("Height"), natural.height()) if props.get("Height") not in (None, "", "Auto") else natural.height()
     a = anchor_set(props.get("Anchor"))
+    if "Center" in a:                                     # kept in the middle of its container, whatever its size
+        return int((cur[0] - w0) / 2), int((cur[1] - h0) / 2), int(w0), int(h0), False
     dx, dy = cur[0] - ref[0], cur[1] - ref[1]
     x, w = x0, w0
     if "Left" in a and "Right" in a:

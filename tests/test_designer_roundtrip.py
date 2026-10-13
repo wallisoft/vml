@@ -139,6 +139,47 @@ def test_nested_containers_survive_designer_save():
     assert controls(twice) == controls(once), "a second save changed the form again"
 
 
+
+
+def test_stacked_pages_are_layers_in_the_designer():
+    """Pages stacked in one place show one at a time while designing; choosing a control on a hidden page brings
+    that page forward; and none of it changes what's saved."""
+    from PySide6.QtCore import QTimer
+    from vml.engine import Engine
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        (d / "host.vml").write_text("@Window W\nWidth=800\nHeight=900\n\n@DesignSurface Surface\nParent=W\n")
+        (d / "pages.vml").write_text(FORM)
+        e = Engine(None)
+        e.load(str(d / "host.vml"))
+        seen = {}
+
+        def go():
+            try:
+                e.cmd_ImportVml(str(d / "pages.vml"), "Surface")
+                v = e.find("Surface").widget
+                seen["stacks"] = [[n.name for n in g] for g in v.layers_now]
+                seen["front"] = dict(v.layer_front)
+                seen["one shown"] = e.find("pgOne").host.isVisible() and not e.find("pgTwo").host.isVisible()
+                v.select("btnBack")                     # inside frInner, inside the hidden pgTwo
+                seen["after"] = dict(v.layer_front)
+                e.cmd_ExportVml("Surface", str(d / "saved.vml"))
+                seen["saved"] = (d / "saved.vml").read_text()
+            except Exception as exc:
+                seen["error"] = exc
+            e.app.quit()
+        QTimer.singleShot(200, go)
+        e.run()
+    assert "error" not in seen, seen.get("error")
+    assert seen["stacks"] == [["pgOne", "pgTwo"]], seen["stacks"]
+    assert seen["front"] == {("pgOne", "pgTwo"): "pgOne"} and seen["one shown"], seen
+    assert seen["after"] == {("pgOne", "pgTwo"): "pgTwo"}, "choosing btnBack didn't bring pgTwo forward"
+    assert re.search(r"(?m)^@Canvas pgTwo\nParent=\w+\n(?:.+\n)*?IsVisible=false$", seen["saved"]), "pgTwo's own IsVisible changed"
+    assert "IsVisible=false" not in re.search(r"(?ms)^@Canvas pgOne\n.*?(?=^@)", seen["saved"]).group(0), "pgOne saved as hidden"
+
+
 if __name__ == "__main__":
     test_nested_containers_survive_designer_save()
     print("ok: nested containers survive the designer's save")
+    test_stacked_pages_are_layers_in_the_designer()
+    print("ok: stacked pages are layers in the designer")

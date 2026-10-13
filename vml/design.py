@@ -69,7 +69,7 @@ class Overlay(QWidget):
         container = container or self.view.node
         for node in reversed(container.children):
             if node.host.isVisible() and self.rect_of(node).contains(pos):
-                if node.type.name == "Frame":
+                if node.type.name in ("Frame", "Canvas"):           # a page or a frame: what's inside it first
                     return self.hit(pos, node) or node
                 return node
         return None
@@ -329,12 +329,12 @@ class SurfaceView(QScrollArea):
         return next((n for n in self.walk() if n.name == self.selected), None)
 
     def container_at(self, page_pos, exclude=None):
-        """The deepest Frame under a point, ignoring exclude and everything inside it; None means the form."""
+        """The deepest Frame or Canvas under a point, ignoring exclude and everything inside it; None means the form."""
         found, container = None, self.node
         while True:
             nxt = None
             for n in reversed(container.children):
-                if n is exclude or n.type.name != "Frame" or not n.host.isVisible():
+                if n is exclude or n.type.name not in ("Frame", "Canvas") or not n.host.isVisible():
                     continue
                 if self.overlay.rect_of(n).contains(page_pos):
                     nxt = n
@@ -347,9 +347,126 @@ class SurfaceView(QScrollArea):
         name = name or ""
         changed = name != self.selected
         self.selected = name
+        self.bring_forward(self.selected_node())
         self.overlay.update()
         if changed and user:
             self.emit("OnSelectionChanged", {"selected_control": name})
+
+    # layers: pages (canvases or frames) stacked in one place, as a form whose script switches pages has them.
+    # Only one of each stack is shown while designing (the one that starts visible, unless another is chosen), so
+    # they don't draw over each other; the bar beside the form switches between them. Nothing here is saved.
+    def layer_groups(self):
+        groups = []
+
+        def overlap(a, b):
+            ra, rb = a.host.geometry(), b.host.geometry()
+            both = ra.intersected(rb)
+            small = min(ra.width() * ra.height(), rb.width() * rb.height())
+            return small > 0 and both.width() * both.height() >= small / 2
+
+        def visit(container):
+            pages = [k for k in container.children if k.type.name in ("Canvas", "Frame")]
+            taken = set()
+            for i, a in enumerate(pages):
+                if a.name in taken:
+                    continue
+                group = [a] + [b for b in pages[i + 1:] if b.name not in taken and overlap(a, b)]
+                taken.update(n.name for n in group)
+                if len(group) > 1:
+                    groups.append(group)
+            for k in container.children:
+                if k.type.container:
+                    visit(k)
+        visit(self.node)
+        return groups
+
+    def arrange_layers(self, fresh=False):
+        """Show the front page of each stack and hide the others ("" shows them all, those starting hidden faded)."""
+        from .registry import set_visible
+        if getattr(self, "_arranging", False):
+            return
+        self._arranging = True
+        try:
+            fronts = {} if fresh else getattr(self, "layer_front", {})
+            self.layer_front, self.layers_now = {}, self.layer_groups()
+            for group in self.layers_now:
+                key = tuple(n.name for n in group)
+                front = next((v for k, v in fronts.items() if set(k) & set(key) and (v == "" or v in key)), None)
+                if front is None:
+                    front = next((n.name for n in group if str(n.props.get("IsVisible", "true")).lower() != "false"), group[0].name)
+                self.layer_front[key] = front
+                for n in group:
+                    if front == "":
+                        set_visible(n, n.props.get("IsVisible"))
+                    else:
+                        n.host.setVisible(n.name == front)
+                        if n.name == front:
+                            n.host.setGraphicsEffect(None)
+            self.layer_bar()
+        finally:
+            self._arranging = False
+        self.overlay.update()
+
+    def show_layer(self, key, name):
+        self.layer_front[key] = name
+        self.arrange_layers()
+
+    def bring_forward(self, node):
+        """A control chosen in a page that's hidden behind another: bring its page (and any page it's in) forward."""
+        changed = False
+        while node is not None:
+            for key, front in getattr(self, "layer_front", {}).items():
+                if node.name in key and front not in ("", node.name):
+                    self.layer_front[key] = node.name
+                    changed = True
+            node = node.parent
+        if changed:
+            self.arrange_layers()
+
+    def layer_bar(self):
+        """The switch beside the form: one button per page of each stack, and All."""
+        from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout
+        old = getattr(self, "bar", None)
+        if old is not None:
+            old.deleteLater()
+            self.bar = None
+        if not self.layers_now:
+            self.set_page_size()
+            return
+        bar = QWidget(self.page)
+        bar.setObjectName("LayerBar")
+        bar.setStyleSheet("#LayerBar { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; }"
+                          "QPushButton { text-align: left; padding: 3px 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; }"
+                          "QPushButton:checked { background: #dbeafe; border-color: #93c5fd; }"
+                          "QPushButton:hover { border-color: #cbd5e1; }")
+        lay = QVBoxLayout(bar)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(2)
+        for key in [tuple(n.name for n in g) for g in self.layers_now]:
+            title = QLabel("Pages")
+            title.setStyleSheet("color: #6b7280; font-size: 11px; padding: 2px 4px;")
+            lay.addWidget(title)
+            for name in list(key) + [""]:
+                b = QPushButton(name or "All, faded")
+                b.setCheckable(True)
+                b.setChecked(self.layer_front.get(key) == name)
+                b.clicked.connect(lambda _=False, k=key, n=name: self.show_layer(k, n))
+                lay.addWidget(b)
+        bar.adjustSize()
+        bar.move(self.form.x() + self.form.width() + 16, self.form.y())
+        bar.show()
+        self.bar = bar
+        self.set_page_size()
+
+    def set_page_size(self):
+        """Room on the page for the form, and for the layer bar beside it when there is one."""
+        w = self.form.x() + self.form.width() + PAGE_MARGIN + 40
+        bar = getattr(self, "bar", None)
+        if bar is not None:
+            w = max(w, bar.x() + bar.width() + PAGE_MARGIN)
+        self.page.resize(w, self.form.y() + self.form.height() + PAGE_MARGIN + 40)
+        self.overlay.setGeometry(self.page.rect())
+        self.overlay.raise_()
 
     def emit(self, event, details):
         fire = self.handlers.get(event)
@@ -449,6 +566,9 @@ class SurfaceView(QScrollArea):
         self.page.resize(int(w) + 2 * PAGE_MARGIN + 40, int(h) + 2 * PAGE_MARGIN + TITLE_H + mh + 40)
         self.overlay.setGeometry(self.page.rect())
         self.overlay.raise_()
+        if getattr(self, "bar", None) is not None:
+            self.bar.move(self.form.x() + self.form.width() + 16, self.form.y())
+            self.set_page_size()
         self.overlay.update()
 
     def set_form_bg(self, value):
@@ -473,6 +593,8 @@ class SurfaceView(QScrollArea):
             e.cmd_SetProperty(k.name, "Canvas.Top", str(kg.y()))
             e.cmd_SetProperty(k.name, "Width", str(ks.width()))
             e.cmd_SetProperty(k.name, "Height", str(ks.height()))
+        if node.type.name in ("Canvas", "Frame"):
+            self.arrange_layers()
         self.overlay.update()
         self.emit("OnChanged", {"selected_control": node.name})
 

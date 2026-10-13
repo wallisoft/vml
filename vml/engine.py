@@ -1590,6 +1590,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             elif handler:                                    # a module's function, or Name(arguments): kept as written
                 self.cmd_SetEvent(surf.name, ev, handler)
         surf.form_scripts = {n: v for n, v in scripts.items() if n not in used}
+        if hasattr(surf.widget, "arrange_layers"):
+            surf.widget.arrange_layers(fresh=True)
         log(f"opened {path}: {count} controls")
         if notes:
             said = [f"Converted from a panel layout: {notes['controls']} controls placed, {notes['frames']} panels kept as "

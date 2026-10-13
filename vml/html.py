@@ -198,6 +198,8 @@ class Page:
         w, h = int(num(p.get("Width"))), int(num(p.get("Height")))
         a = anchor_set(p.get("Anchor"))
         css = ["position:absolute"]
+        if "Center" in a and has_w and has_h:              # kept in the middle of its parent, whatever its size
+            return css + [f"left:calc(50% - {w // 2}px)", f"top:calc(50% - {h // 2}px)", f"width:{w}px", f"height:{h}px"]
         if "Left" in a and "Right" in a and ref and has_w:
             css += [f"left:{x}px", f"right:{int(ref[0] - x - w)}px"]
         elif "Right" in a and ref and has_w:
