@@ -304,7 +304,11 @@ class Page:
             wp = self.props.get(win[0], {}) if win else {}
             menu = any(r[2] == "TinyMenu" for r in self.rows)
             ref = (num(wp.get("Width"), 640), num(wp.get("Height"), 480) - (MENU_H if menu else 0))
-            css += ["position:relative", "flex:1", "min-height:0", "overflow:hidden"]
+            if parent_type in ("Canvas", "Frame"):          # a canvas in a canvas: it sits where it was put, at its own size
+                ref = (num(p.get("Width"), ref[0]), num(p.get("Height"), ref[1]))
+                css += ["overflow:hidden"]
+            else:
+                css += ["position:relative", "flex:1", "min-height:0", "overflow:hidden"]
             return f'<div {attrs} class="canvas" style="{";".join(css)}">{inner("Canvas", ref)}</div>'
         if ctype == "StackPanel":
             horiz = p.get("Orientation") == "Horizontal"

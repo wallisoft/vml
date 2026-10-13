@@ -77,12 +77,14 @@ class Box(QDialog):
                 self.picture.setPixmap(pix)
                 self.picture.setAlignment(Qt.AlignCenter)
                 outer.addWidget(self.picture)
-        text = QLabel(str(message))
+        import re
+        shown = re.sub(r"\S{40,}", lambda m: re.sub(r"([/\\_.\-])", "\\1\u200b", m.group(0)), str(message))
+        text = QLabel(shown)
         text.setWordWrap(True)
         text.setTextFormat(Qt.PlainText)
         text.setTextInteractionFlags(Qt.TextSelectableByMouse)
         fm = text.fontMetrics()
-        widest = max((fm.horizontalAdvance(line) for line in str(message).splitlines()), default=0) + 8
+        widest = max((fm.horizontalAdvance(line) for line in shown.splitlines()), default=0) + 8
         fit = max(MIN_TEXT_W, min(MAX_TEXT_W, widest))          # as wide as what it says, within reason
         text.setMinimumWidth(fit)
         text.setMaximumWidth(MAX_TEXT_W)

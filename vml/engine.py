@@ -1400,9 +1400,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             if str(settings.get("OpenOnHover", "")).lower() == "true":
                 out.append("OpenOnHover=true")
             out.append("")
-            theme = {k: v for k, v in settings.items() if k != "OpenOnHover"}
-            if theme:
-                out += [f"@MenuTheme {form}MenuTheme", *[f"{k}={v}" for k, v in theme.items()], ""]
+        theme = {k: v for k, v in settings.items() if k != "OpenOnHover"}
+        if theme:                                       # (kept with or without a menu bar: it colours the form's dialogs too)
+            out += [f"@MenuTheme {form}MenuTheme", *([] if menu else [f"Parent={form}"]), *[f"{k}={v}" for k, v in theme.items()], ""]
         out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
@@ -1415,10 +1415,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
         first = ["Canvas.Left", "Canvas.Top", "Width", "Height"]
         real = lambda n: getattr(surf, "export_names", {}).get(n, n)   # a working name back to the form's own name
 
-        def walk(container, parent_name):
+        def walk(container, parent_name):              # every control, however deep: a canvas in a canvas keeps its own
             for kid in container.children:
                 yield kid, parent_name
-                if kid.type.name == "Frame":
+                if kid.type.container and kid.children:
                     yield from walk(kid, kid.name)
         everything = list(walk(surf, canvas))
         for kid, parent_name in everything:
