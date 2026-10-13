@@ -2580,6 +2580,14 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands):
             QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "The address book is read only by an app exported for an Android phone.", origin=origin))
         return ""
 
+    def cmd_LookupNumber(self, name="", prefer="", handler=""):
+        """A number for a name in the phone's address book, to handler; or a blank and why not (as here: an app
+        exported for an Android phone only)."""
+        if handler:
+            origin = self._script_stack[-1] if self._script_stack else None
+            QTimer.singleShot(0, lambda: self.run_script(str(handler), "", "Numbers are looked up only by an app exported for an Android phone.", origin=origin))
+        return ""
+
     def cmd_LookupNames(self, numbers="[]", handler=""):
         """Names for some numbers from the phone's address book, as JSON {number: name}, to handler; or a blank and
         why not (as here: an app exported for an Android phone only)."""
