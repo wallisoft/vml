@@ -142,6 +142,41 @@ final class Device {
         activity.runOnUiThread(() -> Push.watch(activity, options));
     }
 
+    /**
+     * Hear messages that arrive in the phone's messaging apps (Google Messages, Samsung Messages), RCS included,
+     * read from their notices: vmlFromPhone("messages", from, text). "from" is a number when the app gives one,
+     * otherwise the sender's name as the phone shows it. A blank "from" means it can't yet, and the text says why
+     * (the user turning on notification access for the app is what it needs). An app exported on its own only.
+     */
+    @JavascriptInterface
+    public void messagesWatch(boolean on) {
+        if (!on) {
+            Inbox.messages = false;
+            return;
+        }
+        if (!activity.isOwnApp()) {
+            activity.tell("messages", "", "Messages can only be read by an app exported on its own (vml apk).");
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            Inbox.messages = true;
+            Inbox.flush(activity, "messages");
+            String on1 = android.provider.Settings.Secure.getString(activity.getContentResolver(), "enabled_notification_listeners");
+            if (on1 == null || !on1.contains(activity.getPackageName() + "/")) {
+                activity.tell("messages", "", "To hear messages that come by chat (RCS), turn on notification access for this app.");
+                android.content.SharedPreferences p = activity.getSharedPreferences("visualised", android.content.Context.MODE_PRIVATE);
+                if (!p.getBoolean("asked_listen", false)) {            // the settings page once; after that the app can say so
+                    p.edit().putBoolean("asked_listen", true).apply();
+                    try {
+                        activity.startActivity(new android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
+                    } catch (RuntimeException ignored) {
+                        // no such page on this phone: the message above says what to do
+                    }
+                }
+            }
+        });
+    }
+
     /** JSON: what is running the page. */
     @JavascriptInterface
     public String info() {
@@ -498,6 +533,7 @@ final class Device {
     /** The app on screen has been left: put back whatever it switched on. */
     void reset() {
         texts.stop();
+        Inbox.messages = false;
         Push.stop();
         if (air != null) {
             SensorManager sensors = activity.getSystemService(SensorManager.class);

@@ -31,6 +31,9 @@ TEMPLATE = next((d / "android-template.apk" for d in (Path(__file__).resolve().p
 # The push template: the same app with Firebase Cloud Messaging, for apps whose scripts use OnPush.
 PUSH_TEMPLATE = TEMPLATE.with_name("android-template-push.apk")
 PUSH = "com.google.android.c2dm.permission.RECEIVE"   # what an app that hears pushes must declare (and the sign of one)
+LISTEN = "visualised.LISTEN_NOTIFICATIONS"   # not a permission: says the app keeps Heard (reading messaging apps' notices)
+# Parts of the template only some apps keep: (the component's class, what the app must keep for it).
+OPTIONAL_PARTS = {"io.visualised.app.Arriving": "android.permission.RECEIVE_SMS", "io.visualised.app.Heard": LISTEN}
 ANDROID = "http://schemas.android.com/apk/res/android"
 
 # What each thing a script can ask of a phone needs the app to declare (a name with no dots is android.permission.NAME). (Commands are named in scripts as
@@ -52,6 +55,7 @@ NEEDS = {
     "SEND_SMS": ("SmsSend",),
     "RECEIVE_SMS": ("OnSms",),
     PUSH: ("OnPush",),
+    LISTEN: ("OnMessages",),
 }
 ALWAYS = ("INTERNET", "ACCESS_NETWORK_STATE")
 
@@ -204,6 +208,9 @@ def rewrite_manifest(data, package, label, version, code, permissions):
         for place, name, depth, attrs in m.elements():
             if name == "uses-permission" and (m.value(attrs.get("name", (0, 0, 0))) or "") not in keep:
                 m.remove(place)
+                break
+            if name in ("receiver", "service") and OPTIONAL_PARTS.get(m.value(attrs.get("name", (0, 0, 0))) or "", "") not in ("", *keep):
+                m.remove(place)                     # a part of the template this app doesn't use (texts, notices)
                 break
             if name == "intent-filter":             # what belongs to Visualised's own app: opening links and files sent to it
                 inside = [m.value(a.get("name", (0, 0, 0))) for p, n, d, a in m.elements() if p > place and n == "action" and d == depth + 1

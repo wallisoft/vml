@@ -23,7 +23,6 @@ import java.util.Map;
 final class Texts {
     private static final String SENT = ".TEXT_SENT";
     private final MainActivity activity;
-    private BroadcastReceiver arriving;
 
     Texts(MainActivity activity) {
         this.activity = activity;
@@ -102,14 +101,15 @@ final class Texts {
 
     /**
      * Hear texts as they arrive, or stop. Each comes to the page as vmlFromPhone("sms", from, text): parts of a
-     * long text are put back together. A refusal comes as ("sms", "", what went wrong).
+     * long text are put back together. A refusal comes as ("sms", "", what went wrong). The texts themselves are
+     * heard by Arriving, open or not; any that came while the page wasn't listening are handed over now.
      */
     void watch(final boolean on) {
         if (!on) {
             stop();
             return;
         }
-        if (!allowed("sms") || arriving != null) {
+        if (!allowed("sms")) {
             return;
         }
         activity.runOnUiThread(() -> activity.withPermission(new String[]{"android.permission.RECEIVE_SMS"}, granted -> {
@@ -117,37 +117,8 @@ final class Texts {
                 activity.tell("sms", "", "Reading texts as they arrive wasn't allowed.");
                 return;
             }
-            if (arriving != null) {
-                return;
-            }
-            arriving = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    SmsMessage[] parts = Telephony.Sms.Intents.getMessagesFromIntent(intent);
-                    if (parts == null) {
-                        return;
-                    }
-                    Map<String, StringBuilder> texts = new LinkedHashMap<>();
-                    for (SmsMessage part : parts) {
-                        if (part == null || part.getOriginatingAddress() == null) {
-                            continue;
-                        }
-                        StringBuilder text = texts.get(part.getOriginatingAddress());
-                        if (text == null) {
-                            text = new StringBuilder();
-                            texts.put(part.getOriginatingAddress(), text);
-                        }
-                        if (part.getMessageBody() != null) {
-                            text.append(part.getMessageBody());
-                        }
-                    }
-                    for (Map.Entry<String, StringBuilder> t : texts.entrySet()) {
-                        activity.tell("sms", t.getKey(), t.getValue().toString());
-                    }
-                }
-            };
-            // Only the phone itself (which holds BROADCAST_SMS) can hand us a text: no other app can fake one.
-            register(arriving, new IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION), "android.permission.BROADCAST_SMS", true);
+            Inbox.texts = true;
+            Inbox.flush(activity, "sms");
         }));
     }
 
@@ -161,13 +132,6 @@ final class Texts {
     }
 
     void stop() {
-        if (arriving != null) {
-            try {
-                activity.getApplicationContext().unregisterReceiver(arriving);
-            } catch (IllegalArgumentException ignored) {
-                // already gone
-            }
-            arriving = null;
-        }
+        Inbox.texts = false;
     }
 }

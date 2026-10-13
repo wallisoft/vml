@@ -102,6 +102,28 @@
                 android:value="Keeps an app the user made running while the phone is used for something else" />
         </service>
 
+        <!-- texts as they arrive, the app open or not: kept only in an app whose scripts use OnSms (vml/apk.py) -->
+        <receiver
+            android:name=".Arriving"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- messages in the phone's messaging apps (RCS too), read from their notices once the user allows it:
+             kept only in an app whose scripts use OnMessages (vml/apk.py) -->
+        <service
+            android:name=".Heard"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- woken by Android when a Bluetooth device connects or goes; acts only for devices the user chose -->
         <receiver
             android:name=".Places"
