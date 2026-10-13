@@ -1261,6 +1261,7 @@ public class MainActivity extends Activity {
             return;
         }
         background = on;
+        prefs.edit().putBoolean("kept_running", on).apply();   // so a restart of the phone brings it back (Booted)
         if (!on) {
             stopService(new Intent(this, Running.class));
             return;

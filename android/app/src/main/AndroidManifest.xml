@@ -26,6 +26,8 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <!-- the address book: kept only in an app whose scripts use ReadContacts (vml/apk.py) -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- to come back after the phone restarts: kept only in an app whose scripts use RunInBackground -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
@@ -103,6 +105,15 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keeps an app the user made running while the phone is used for something else" />
         </service>
+
+        <!-- the phone has restarted: an app that was kept running comes back (or offers to): RunInBackground only -->
+        <receiver
+            android:name=".Booted"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- texts as they arrive, the app open or not: kept only in an app whose scripts use OnSms (vml/apk.py) -->
         <receiver

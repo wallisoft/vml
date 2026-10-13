@@ -187,6 +187,48 @@ final class Device {
     }
 
     /**
+     * Names for some numbers, from the phone's address book, and nothing else from it: numbersJson is a JSON list,
+     * the answer a JSON object of number: name ("" for a number that isn't in it), through
+     * vmlFromPhone("names:" + id, the JSON, "") or ("", what went wrong). Asks the user the first time.
+     */
+    @JavascriptInterface
+    public void lookupNames(final String id, final String numbersJson) {
+        final String answer = "names:" + id;
+        if (!activity.isOwnApp()) {
+            activity.tell(answer, "", "Names can only be looked up by an app exported on its own (vml apk).");
+            return;
+        }
+        activity.runOnUiThread(() -> activity.withPermission(new String[]{"android.permission.READ_CONTACTS"}, granted -> {
+            if (!granted) {
+                activity.tell(answer, "", "Looking up names wasn't allowed.");
+                return;
+            }
+            new Thread(() -> {
+                org.json.JSONObject out = new org.json.JSONObject();
+                try {
+                    org.json.JSONArray numbers = new org.json.JSONArray(numbersJson);
+                    for (int i = 0; i < numbers.length() && i < 100; i++) {
+                        String n = numbers.optString(i), name = "";
+                        if (n.replaceAll("[^0-9]", "").length() >= 6) {
+                            android.net.Uri u = android.net.Uri.withAppendedPath(android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(n));
+                            try (android.database.Cursor c = activity.getContentResolver().query(u,
+                                    new String[]{android.provider.ContactsContract.PhoneLookup.DISPLAY_NAME}, null, null, null)) {
+                                if (c != null && c.moveToFirst() && c.getString(0) != null) {
+                                    name = c.getString(0);
+                                }
+                            }
+                        }
+                        out.put(n, name);
+                    }
+                    activity.tell(answer, out.toString(), "");
+                } catch (RuntimeException | org.json.JSONException e) {
+                    activity.tell(answer, "", "Names couldn't be looked up: " + e.getMessage());
+                }
+            }).start();
+        }));
+    }
+
+    /**
      * Hear messages that arrive in the phone's messaging apps (Google Messages, Samsung Messages), RCS included,
      * read from their notices: vmlFromPhone("messages", from, text). "from" is a number when the app gives one,
      * otherwise the sender's name as the phone shows it. A blank "from" means it can't yet, and the text says why

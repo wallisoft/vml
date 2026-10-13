@@ -33,7 +33,8 @@ PUSH_TEMPLATE = TEMPLATE.with_name("android-template-push.apk")
 PUSH = "com.google.android.c2dm.permission.RECEIVE"   # what an app that hears pushes must declare (and the sign of one)
 LISTEN = "visualised.LISTEN_NOTIFICATIONS"   # not a permission: says the app keeps Heard (reading messaging apps' notices)
 # Parts of the template only some apps keep: (the component's class, what the app must keep for it).
-OPTIONAL_PARTS = {"io.visualised.app.Arriving": "android.permission.RECEIVE_SMS", "io.visualised.app.Heard": LISTEN}
+OPTIONAL_PARTS = {"io.visualised.app.Arriving": "android.permission.RECEIVE_SMS", "io.visualised.app.Heard": LISTEN,
+                  "io.visualised.app.Booted": "android.permission.RECEIVE_BOOT_COMPLETED"}
 ANDROID = "http://schemas.android.com/apk/res/android"
 
 # What each thing a script can ask of a phone needs the app to declare (a name with no dots is android.permission.NAME). (Commands are named in scripts as
@@ -54,7 +55,8 @@ NEEDS = {
     "ACCESS_BACKGROUND_LOCATION": ("WatchBluetooth",),
     "SEND_SMS": ("SmsSend",),
     "RECEIVE_SMS": ("OnSms",),
-    "READ_CONTACTS": ("ReadContacts",),
+    "READ_CONTACTS": ("ReadContacts", "LookupNames"),
+    "RECEIVE_BOOT_COMPLETED": ("RunInBackground",),
     PUSH: ("OnPush",),
     LISTEN: ("OnMessages",),
 }
