@@ -100,6 +100,7 @@ class Box(QDialog):
             area.setMinimumWidth(fit + 24)
             outer.addWidget(area)
         elif str(message):
+            text.setMinimumHeight(need + fm.lineSpacing() // 2)   # (a dialog sizes itself before a wrapped label knows its lines)
             outer.addWidget(text)
         if ask is not None:
             self.input = QLineEdit(str(ask))
