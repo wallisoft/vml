@@ -18,7 +18,8 @@
 #   What it uses, all through Vml(...):
 #     Fetch            the TinySMS server (tiny-web.uk), as JSON
 #     SmsSend, OnSms   texts out and in: an app exported for Android only
-#     ReadContacts     the phone's address book, shared with the account when asked (names for numbers)
+#     LookupNames      names for the numbers on a screen (the console, the web page) or a reply's sender,
+#                      from the phone's own address book: the address book itself never leaves the phone
 #     OnMessages       replies that came by chat (RCS), read from the messaging app's notices
 #     OnPush           woken by the server when a text is waiting (no text goes through Google: the
 #                      push only says "ask now")
@@ -35,7 +36,7 @@
 
 @Window TinySMS
 Title=TinySMS
-Version=2.2
+Version=2.3
 Width=360
 Height=640
 OnOpened=Start
@@ -131,21 +132,11 @@ Canvas.Left=12
 Canvas.Top=134
 IsVisible=false
 Width=336
-Height=330
+Height=380
 TextWrapping=Wrap
 FontSize=14
 Foreground=#374151
 Text=
-
-@Button btnContacts
-Parent=c
-Canvas.Left=12
-Canvas.Top=474
-IsVisible=false
-Width=336
-Height=40
-Content=Share this phone's contacts (names for numbers)
-OnClick=DoShareContacts
 
 @Button btnPause
 Parent=c
@@ -255,7 +246,7 @@ Interpreter=lua
 <<LUA
 json = require("dkjson")
 API = "https://tiny-web.uk/api/device.php"
-VERSION = "2.2"          -- keep with the Window's Version above: shown at the top, and told to the server
+VERSION = "2.3"          -- keep with the Window's Version above: shown at the top, and told to the server
 CONSOLE = "https://tiny-web.uk/api/console.php"
 Role = "gateway"         -- or "console": a computer or a browser, which sends through the gateway and never is one
 Current = nil           -- the console: the number whose conversation is showing
@@ -268,6 +259,7 @@ Paused = false
 Sending = nil           -- the message being sent: { id, to, text, more }
 Lines = {}              -- what it has done, newest first
 Sent, Replies, Failed = 0, 0, 0
+HeardQ = {}             -- texts that arrived, waiting for their sender's name to be looked up
 Asked = 0               -- when RunInBackground was last asked (it lasts six hours from then)
 
 function Kept(key) return Vml("GetSetting", key) end
@@ -291,7 +283,7 @@ function Masked(number)
 end
 
 -- The two pages: the sign-in fields, and the working log with its buttons. Shown by turning their controls on or off.
-PAGES = { signin = { "txtUser", "txtPass", "btnSignIn", "lblHelp" }, work = { "lblCounts", "lblLog", "btnContacts", "btnPause", "btnSignOut" },
+PAGES = { signin = { "txtUser", "txtPass", "btnSignIn", "lblHelp" }, work = { "lblCounts", "lblLog", "btnPause", "btnSignOut" },
           console = { "lstConv", "lblThread", "txtTo", "btnName", "txtMsg", "btnSend", "btnConsoleOut" } }
 function Page(name)
   for page, controls in pairs(PAGES) do
@@ -324,7 +316,6 @@ function Begin()
   Vml("SetProperty", "tmr", "IsEnabled", "true")
   Vml("OnSms", "Heard")
   Vml("OnMessages", "Heard")          -- replies that came by chat (RCS): the phone asks once for notification access
-  if Kept("share_contacts") == "yes" then Vml("ReadContacts", "GotContacts") end   -- kept up to date, once asked
   Vml("OnPush", "Pushed", FIREBASE)
   Vml("RunInBackground", "true")
   Asked = os.time()
@@ -412,6 +403,13 @@ LUA
 @Script DoSignOut
 Interpreter=lua
 <<LUA
+if Vml("ConfirmDialog", "Sign this phone out of TinySMS?\n\nTexts emailed to you will wait until a phone signs in again.") ~= "true" then return end
+Vml("RunScript", "SignOutNow")
+LUA
+
+@Script SignOutNow
+Interpreter=lua
+<<LUA
 Server("unregister")
 Vml("SetProperty", "tmr", "IsEnabled", "false")
 Vml("OnSms", "")
@@ -451,10 +449,13 @@ LUA
 Interpreter=lua
 <<LUA
 local d, why, said = Answer(args[1], args[2])
+if d and type(d.wanted) == "table" and #d.wanted > 0 then
+  Vml("LookupNames", json.encode(d.wanted), "NamesFound")       -- just these numbers, nothing else from the address book
+end
 if not d then
   Busy = false
   if said and tostring(said.error or ""):find("device key") then
-    Vml("RunScript", "DoSignOut")
+    Vml("RunScript", "SignOutNow")
     return State("The server doesn't know this phone any more: sign in again.")
   end
   return State("Can't reach the server just now (" .. tostring(why) .. "). Trying again shortly.")
@@ -506,7 +507,8 @@ if from == "" then return Note(text) end                  -- it couldn't listen:
 Replies = Replies + 1
 Counts()
 Note("Text from " .. Masked(from) .. ".")
-Server("sms_received", { from_number = from, body = text }, "Forwarded")
+HeardQ[#HeardQ + 1] = { from = from, body = text }
+Vml("LookupNames", json.encode({ from }), "HeardNamed")
 LUA
 
 @Script Forwarded
@@ -676,30 +678,6 @@ LUA
 
 # --- the address book: names for numbers ---------------------------------------
 
-@Script DoShareContacts
-Interpreter=lua
-<<LUA
-State("Reading this phone's address book...")
-Vml("ReadContacts", "GotContacts")
-LUA
-
-@Script GotContacts
-Interpreter=lua
-<<LUA
-local list = json.decode(args[1] or "")
-if type(list) ~= "table" then return Note("Contacts not shared: " .. tostring(args[2])) end
-Vml("SetSetting", "share_contacts", "yes")            -- from now on kept up to date each time the app starts
-Server("contacts", { contacts = list }, "ContactsShared")
-LUA
-
-@Script ContactsShared
-Interpreter=lua
-<<LUA
-local d, why = Answer(args[1], args[2])
-if not d then return Note("Contacts not shared: " .. tostring(why)) end
-Note("Shared " .. (d.saved or 0) .. " names for numbers with your account.")
-State("Working: texts sent by email go out from this phone.")
-LUA
 
 @Script DoName
 Interpreter=lua
@@ -718,4 +696,23 @@ local d, why = Answer(args[1], args[2])
 if not d then return State("Not named: " .. tostring(why)) end
 CurrentName, Convs = d.name, ""
 Vml("RunScript", "Refresh")
+LUA
+
+# --- names, looked up on this phone: for a number on a screen, or a reply's sender ---
+
+@Script NamesFound
+Interpreter=lua
+<<LUA
+local names = json.decode(args[1] or "")
+if type(names) ~= "table" then return Note("Names not looked up: " .. tostring(args[2])) end
+Server("names", { names = names })
+LUA
+
+@Script HeardNamed
+Interpreter=lua
+<<LUA
+local m = table.remove(HeardQ, 1)
+if not m then return end
+local names = json.decode(args[1] or "") or {}
+Server("sms_received", { from_number = m.from, body = m.body, from_name = (type(names) == "table" and names[m.from]) or "" }, "Forwarded")
 LUA
