@@ -1330,7 +1330,8 @@ def allow_sudo(drive, password):
         if status == 0:
             return True, f"Done: {login} can now work as {actas} through SSH Drive (the rule is in {where})."
         if "incorrect password" in low or "sorry, try again" in low or "no password was provided" in low:
-            return False, f"That isn't {login}'s sudo password on {d['host']} (sudo said: {said})."
+            return False, (f"That isn't {login}'s sudo password on {d['host']} (a server's can differ from this computer's; "
+                           f"sudo said: {said}).")
         if "not in the sudoers" in low or "not allowed" in low:
             return False, f"{login} isn't allowed to use sudo on {d['host']} (sudo said: {said})."
         return False, f"It didn't work (exit {status}): {said or 'nothing was said'}"

@@ -1424,10 +1424,11 @@ class ImageWidget(QFrame):
 
     def __init__(self, node):
         super().__init__()
-        self.node, self.pix = node, None
+        self.node, self.pix, self.svg = node, None, None
 
     def load(self):
         src = str(self.node.props.get("Source") or "").strip()
+        self.svg = None
         pix = _QPixmap()
         if src.startswith("data:") and "," in src:
             import base64
@@ -1440,6 +1441,14 @@ class ImageWidget(QFrame):
             path = os.path.expanduser(src)
             if not os.path.isabs(path):
                 path = os.path.join(self.node.engine.asset_dir(self.node.scope), path)
+            if path.lower().endswith(".svg"):                  # a drawing: drawn afresh at whatever size, so always sharp
+                try:
+                    from PySide6.QtSvg import QSvgRenderer
+                    r = QSvgRenderer(path)
+                    if r.isValid():
+                        self.svg = r
+                except ImportError:
+                    pass
             pix.load(path)
         self.pix = None if pix.isNull() else pix
         self.updateGeometry()
@@ -1462,6 +1471,19 @@ class ImageWidget(QFrame):
             p.end()
             return
         mode = str(self.node.props.get("Stretch") or "Uniform")
+        if self.svg is not None:
+            from PySide6.QtCore import QRectF
+            p.setRenderHint(_QPainter.Antialiasing)
+            w, h = self.width(), self.height()
+            size = self.svg.defaultSize()
+            if mode in ("Uniform", "UniformToFill") and size.width() > 0 and size.height() > 0:
+                k = (max if mode == "UniformToFill" else min)(w / size.width(), h / size.height())
+                dw, dh = size.width() * k, size.height() * k
+                self.svg.render(p, QRectF((w - dw) / 2, (h - dh) / 2, dw, dh))
+            else:
+                self.svg.render(p, QRectF(0, 0, w, h))
+            p.end()
+            return
         if mode == "None":
             p.drawPixmap(0, 0, self.pix)
         elif mode == "Fill":
@@ -1469,8 +1491,11 @@ class ImageWidget(QFrame):
             p.drawPixmap(self.rect(), self.pix)
         else:
             aspect = Qt.KeepAspectRatioByExpanding if mode == "UniformToFill" else Qt.KeepAspectRatio
-            scaled = self.pix.scaled(self.size(), aspect, Qt.SmoothTransformation)
-            p.drawPixmap((self.width() - scaled.width()) // 2, (self.height() - scaled.height()) // 2, scaled)
+            ratio = self.devicePixelRatioF()                   # scaled for the screen's real pixels, not stretched up after
+            scaled = self.pix.scaled(self.size() * ratio, aspect, Qt.SmoothTransformation)
+            scaled.setDevicePixelRatio(ratio)
+            sw, sh = scaled.width() / ratio, scaled.height() / ratio
+            p.drawPixmap(int((self.width() - sw) // 2), int((self.height() - sh) // 2), scaled)
         p.end()
 
 

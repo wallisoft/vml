@@ -34,7 +34,7 @@ Canvas.Top=12
 Width=56
 Height=56
 Stretch=Uniform
-Source=mountie.png
+Source=mountie.svg
 
 @TextBlock lblTitle
 Parent=c
