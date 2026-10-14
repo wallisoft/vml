@@ -196,26 +196,14 @@ SHOW_KINDS = (("folders", "Folders", True), ("files", "Files", True), ("links", 
 
 
 def _patterns(text):
-    """The Hide box's patterns: separated by spaces, commas or new lines, as in a .gitignore (# starts a comment)."""
-    import re
-    return [p for p in re.split(r"[\s,]+", re.sub(r"#[^\n]*", "", text)) if p]
+    from . import ignore
+    return ignore.patterns(text)
 
 
 def _hidden_by(text, name, is_dir):
-    """Does a pattern in the Hide box hide this? `*.log`, `node_modules`, `build/` (folders only), `!keep.log`
-    (never hide this one, whatever came before), as .gitignore reads them."""
-    from fnmatch import fnmatchcase
-    hidden = False
-    for p in _patterns(text):
-        keep = p.startswith("!")
-        p = p[1:] if keep else p
-        if p.endswith("/"):
-            if not is_dir:
-                continue
-            p = p.rstrip("/")
-        if fnmatchcase(name, p.lstrip("/")):
-            hidden = not keep
-    return hidden
+    """Does a pattern in the Hide box hide this? (.gitignore's rules: see vml/ignore.py)"""
+    from . import ignore
+    return ignore.hidden_by(text, name, is_dir)
 
 
 def _found(text, name):

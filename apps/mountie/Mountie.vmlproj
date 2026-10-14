@@ -2,6 +2,7 @@
 Name=Mountie
 Startup=Mountie.vml
 Form=Mountie.vml
+Form=Hide.vml
 Module=common.lua
 Module=ssh.lua
 Module=disks.lua

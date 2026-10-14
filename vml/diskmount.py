@@ -214,9 +214,23 @@ class Mounted:
         self._undo()
 
 
+def _local(item):
+    """A folder seen through an ignore list, or a RAM disk (vml/localdrives.py)."""
+    from . import localdrives
+    from .sshdrive import RemoteError
+    try:
+        d = localdrives.start(item)
+    except RemoteError as e:
+        raise DiskError(str(e))
+    how = "RAM" if item.get("kind") == "ram" else "filtered"
+    return Mounted(item, how, [d.mountpoint], d.stop)
+
+
 def mount(item):
     path = str(item.get("path") or "")
     kind = item.get("kind") or kind_of(path)
+    if kind in ("folder", "ram"):
+        return _local(item)
     ro = bool(item.get("readonly", kind == "iso"))
     if kind != "part" and not os.path.isfile(path):
         raise DiskError(f"There's no file at {path}.")

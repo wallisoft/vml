@@ -8,7 +8,11 @@
 #              www-data through sudo.
 #   ISO        disk images: ISO, IMG, DMG.
 #   VHD        virtual disks: VHD, VHDX (and VMDK, QCOW2, VDI on Linux).
-#   Partitions the computer's own disks and sticks, mounted and unmounted.
+#   Disks      the computer's own disks and sticks, mounted and unmounted.
+#   Folders    a folder of yours seen through an ignore list: ~/Downloads as
+#              DownloadFiles, showing just the PDFs, say. A real drive, so
+#              every app's Open box sees it that way too.
+#   RAM        a RAM disk, of the size you say; can keep what's on it.
 #
 #   Lives in the tray, mounts what you ask by itself, can start with the
 #   computer. Everything is kept on this device only.
@@ -16,7 +20,7 @@
 
 @Window Mountie
 Title=Mountie
-Version=1.1
+Version=1.2
 Width=480
 Height=700
 Icon=mountie.png
@@ -77,7 +81,7 @@ Width=372
 Height=36
 TextWrapping=Wrap
 Foreground=#555555
-Text=Servers, disk images and partitions, as drives.
+Text=Servers, disk images, folders and RAM, as drives.
 
 # --- the tabs ---------------------------------------------------------------------
 
@@ -85,7 +89,7 @@ Text=Servers, disk images and partitions, as drives.
 Parent=c
 Canvas.Left=24
 Canvas.Top=88
-Width=105
+Width=67
 Height=36
 BorderThickness=0
 Background=#E5E7EB
@@ -95,9 +99,9 @@ OnClick=TabSsh
 
 @Button btnTabIso
 Parent=c
-Canvas.Left=133
+Canvas.Left=97
 Canvas.Top=88
-Width=105
+Width=67
 Height=36
 BorderThickness=0
 Background=#E5E7EB
@@ -107,9 +111,9 @@ OnClick=TabIso
 
 @Button btnTabVhd
 Parent=c
-Canvas.Left=242
+Canvas.Left=170
 Canvas.Top=88
-Width=105
+Width=67
 Height=36
 BorderThickness=0
 Background=#E5E7EB
@@ -119,15 +123,39 @@ OnClick=TabVhd
 
 @Button btnTabPart
 Parent=c
-Canvas.Left=351
+Canvas.Left=243
 Canvas.Top=88
-Width=105
+Width=67
 Height=36
 BorderThickness=0
 Background=#E5E7EB
 Foreground=#374151
-Content=Partitions
+Content=Disks
 OnClick=TabPart
+
+@Button btnTabFold
+Parent=c
+Canvas.Left=316
+Canvas.Top=88
+Width=67
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=Folders
+OnClick=TabFold
+
+@Button btnTabRam
+Parent=c
+Canvas.Left=389
+Canvas.Top=88
+Width=67
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=RAM
+OnClick=TabRam
 
 # --- the drives ---------------------------------------------------------------
 
@@ -263,6 +291,16 @@ Height=40
 IsVisible=false
 Content=Remove
 OnClick=DiskRemove
+
+@Button btnDiskShows
+Parent=c
+Canvas.Left=24
+Canvas.Top=446
+Width=432
+Height=36
+IsVisible=false
+Content=What it shows...
+OnClick=DiskShows
 
 @CheckBox chkDiskRO
 Parent=c
@@ -495,10 +533,11 @@ State = {}          -- name -> {state=, detail=}
 Editing = nil       -- index of the drive being changed (nil: a new one)
 LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove" }
 FOOT = { "chkBoot", "lblStatus" }
-TABS = { "btnTabSsh", "btnTabIso", "btnTabVhd", "btnTabPart" }
+TABS = { "btnTabSsh", "btnTabIso", "btnTabVhd", "btnTabPart", "btnTabFold", "btnTabRam" }
 DISK = { "lstDisk", "btnDiskToggle", "btnDiskAdd", "btnDiskOpen", "btnDiskRename", "btnDiskRemove", "chkDiskRO", "chkDiskAuto", "chkDiskOn" }
 Info = {}            -- path -> what the image is (format, size, label, partitions), read once
-Images = json.decode(Vml("GetSetting", "images") or "") or {}       -- {name, path, kind, readonly, automount}
+Images = json.decode(Vml("GetSetting", "images") or "") or {}       -- {name, path, kind, readonly, automount, enabled}
+                     -- (kind "folder": + hide, showonly; kind "ram": + size (MB), keep)
 Parts = {}           -- the computer's partitions, as last listed
 DiskState = {}       -- name -> {state=, detail=}
 Tab = "Ssh"
@@ -510,7 +549,7 @@ PickedKey = nil     -- a key picked on a phone: its text (a one-line box can't h
 -- what this device can do
 Can = json.decode(Vml("SshMethods") or "") or {}
 VERSION = Vml("GetProperty", "Mountie", "Version") or ""
-if VERSION == "" then VERSION = "1.1" end                 -- (a phone page may not know its window's Version)
+if VERSION == "" then VERSION = "1.2" end                 -- (a phone page may not know its window's Version)
 Vml("SetProperty", "lblVer", "Text", "v" .. VERSION)
 local can = Can
 if can.android then
@@ -557,6 +596,18 @@ LUA
 Interpreter=lua
 <<LUA
 ShowTab("Part")
+LUA
+
+@Script TabFold
+Interpreter=lua
+<<LUA
+ShowTab("Fold")
+LUA
+
+@Script TabRam
+Interpreter=lua
+<<LUA
+ShowTab("Ram")
 LUA
 
 @Script Closing
@@ -731,4 +782,10 @@ LUA
 Interpreter=lua
 <<LUA
 Disk.DiskOptions(args)
+LUA
+
+@Script DiskShows
+Interpreter=lua
+<<LUA
+Disk.DiskShows(args)
 LUA

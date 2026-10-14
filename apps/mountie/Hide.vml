@@ -1,0 +1,336 @@
+# ============================================================================
+# Mountie: what a folder drive shows. Tick the usual suspects, or write your
+# own rules as a .gitignore has them; the line at the bottom shows what the
+# drive would show now. Opened by Mountie.vml (Folders tab, "What it shows").
+#   in:  setting hide_edit = {name, path, hide, showonly}
+#   out: SetDialogResult {hide, showonly}, or nothing if cancelled
+# ============================================================================
+
+@Window Hide
+Title=What it shows
+Width=460
+Height=650
+Icon=mountie.png
+OnOpened=HideStart
+
+@Canvas cHide
+Parent=Hide
+Background=#F3F5F4
+
+@TextBlock lblHideTitle
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=14
+Width=420
+Height=30
+FontSize=19
+FontWeight=Bold
+Foreground=#127A68
+Text=What it shows
+
+@TextBlock lblHideFrom
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=46
+Width=420
+Height=22
+Foreground=#6B7280
+Text=
+
+@CheckBox chkShowOnly
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=74
+Width=420
+Height=28
+Content=Show only what's ticked (instead of leaving it out)
+OnClick=HideModeChanged
+
+@TextBlock lblHideTicks
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=108
+Width=420
+Height=22
+FontWeight=Bold
+Foreground=#374151
+Text=Leave out
+
+@CheckBox chkU1
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=134
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU2
+Parent=cHide
+Canvas.Left=236
+Canvas.Top=134
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU3
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=164
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU4
+Parent=cHide
+Canvas.Left=236
+Canvas.Top=164
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU5
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=194
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU6
+Parent=cHide
+Canvas.Left=236
+Canvas.Top=194
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU7
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=224
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU8
+Parent=cHide
+Canvas.Left=236
+Canvas.Top=224
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU9
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=254
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU10
+Parent=cHide
+Canvas.Left=236
+Canvas.Top=254
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU11
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=284
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@CheckBox chkU12
+Parent=cHide
+Canvas.Left=236
+Canvas.Top=284
+Width=204
+Height=28
+Content=
+OnClick=HideTicked
+
+@TextBlock lblHideRules
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=320
+Width=420
+Height=22
+Foreground=#6B7280
+Text=The rules, as a .gitignore has them:  *.log   build/   /top-only.txt   !keep.me
+
+@TextBox txtHide
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=344
+Width=420
+Height=156
+AcceptsReturn=true
+FontFamily=monospace
+FontSize=13
+TextChanged=HideTyped
+
+@TextBlock lblHidePreview
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=508
+Width=420
+Height=70
+TextWrapping=Wrap
+FontSize=13
+Foreground=#374151
+Text=
+
+@Button btnHideClear
+Parent=cHide
+Canvas.Left=20
+Canvas.Top=590
+Width=96
+Height=40
+Content=Clear
+OnClick=HideClearAll
+
+@Button btnHideUse
+Parent=cHide
+Canvas.Left=232
+Canvas.Top=590
+Width=110
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+Content=Use these
+OnClick=HideUseThem
+
+@Button btnHideCancel
+Parent=cHide
+Canvas.Left=350
+Canvas.Top=590
+Width=90
+Height=40
+Content=Cancel
+OnClick=HideCancelIt
+
+# ============================================================================
+
+@Script HideStart
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+Edit = json.decode(Vml("GetSetting", "hide_edit") or "") or {}
+USUAL = json.decode(Vml("IgnoreUsual") or "") or {}
+Busy = false
+
+function Lines()                 -- the rules box, line by line (trimmed)
+  local out = {}
+  for line in ((Vml("GetProperty", "txtHide", "Text") or "") .. "\n"):gmatch("([^\n]*)\n") do
+    out[#out + 1] = line:match("^%s*(.-)%s*$")
+  end
+  while #out > 0 and out[#out] == "" do table.remove(out) end
+  return out
+end
+
+function Has(lines, l) for i, x in ipairs(lines) do if x == l then return i end end end
+
+function Retick()                -- a box is ticked when its line is in the rules
+  local lines = Lines()
+  for i, u in ipairs(USUAL) do Vml("SetProperty", "chkU" .. i, "IsChecked", tostring(Has(lines, u.patterns) ~= nil)) end
+end
+
+function Preview()
+  local only = Vml("GetProperty", "chkShowOnly", "IsChecked") == "true"
+  Vml("SetProperty", "lblHideTicks", "Text", only and "Show only" or "Leave out")
+  local got = json.decode(Vml("FolderPreview", Edit.path or "", Vml("GetProperty", "txtHide", "Text") or "",
+    only and "1" or "0") or "") or {}
+  if got.error then
+    Vml("SetProperty", "lblHidePreview", "Foreground", "#B91C1C")
+    return Vml("SetProperty", "lblHidePreview", "Text", "✕ " .. got.error)
+  end
+  Vml("SetProperty", "lblHidePreview", "Foreground", "#374151")
+  local total = (got.shown or 0) + (got.hidden or 0)
+  local names = table.concat(got.names or {}, "   ")
+  if (got.shown or 0) > #(got.names or {}) then names = names .. "   ..." end
+  Vml("SetProperty", "lblHidePreview", "Text", "Shows " .. (got.shown or 0) .. " of the " .. total .. " things at the top"
+    .. ((got.hidden or 0) > 0 and (" (" .. got.hidden .. " left out)") or "") .. ":\n" .. (names ~= "" and names or "(nothing)"))
+end
+
+function SetRules(lines)
+  Busy = true
+  Vml("SetProperty", "txtHide", "Text", table.concat(lines, "\n"))
+  Busy = false
+  Retick(); Preview()
+end
+
+local name = Edit.name or "this drive"
+Vml("SetProperty", "Hide", "Title", "What " .. name .. " shows")
+Vml("SetProperty", "lblHideTitle", "Text", "What " .. name .. " shows")
+Vml("SetProperty", "lblHideFrom", "Text", "from " .. (Edit.path or ""))
+for i = 1, 12 do
+  local u = USUAL[i]
+  Vml("SetProperty", "chkU" .. i, "IsVisible", tostring(u ~= nil))
+  if u then Vml("SetProperty", "chkU" .. i, "Content", u.label) end
+end
+Vml("SetProperty", "chkShowOnly", "IsChecked", tostring(Edit.showonly == true))
+Busy = true
+Vml("SetProperty", "txtHide", "Text", Edit.hide or "")
+Busy = false
+Retick(); Preview()
+LUA
+
+@Script HideTicked
+Interpreter=lua
+<<LUA
+local lines = Lines()
+for i, u in ipairs(USUAL) do
+  local on = Vml("GetProperty", "chkU" .. i, "IsChecked") == "true"
+  local at = Has(lines, u.patterns)
+  if on and not at then lines[#lines + 1] = u.patterns
+  elseif at and not on then table.remove(lines, at) end
+end
+SetRules(lines)
+LUA
+
+@Script HideTyped
+Interpreter=lua
+<<LUA
+if not Busy then Retick(); Preview() end
+LUA
+
+@Script HideModeChanged
+Interpreter=lua
+<<LUA
+Preview()
+LUA
+
+@Script HideClearAll
+Interpreter=lua
+<<LUA
+SetRules({})
+LUA
+
+@Script HideUseThem
+Interpreter=lua
+<<LUA
+Vml("SetDialogResult", json.encode({ hide = table.concat(Lines(), "\n"),
+  showonly = Vml("GetProperty", "chkShowOnly", "IsChecked") == "true" }))
+Vml("CloseForm", "Hide")
+LUA
+
+@Script HideCancelIt
+Interpreter=lua
+<<LUA
+Vml("CloseForm", "Hide")
+LUA

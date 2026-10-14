@@ -15,6 +15,9 @@ Commands for apps that live beside the user's other programs: SSH drives, a tray
     DiskList()                  the computer's partitions, as JSON
     DiskMount(item, handler)    mount a disk image (ISO, IMG, VHD, VHDX...) or a partition: item {name, path, kind, readonly}
     DiskUnmount(item, handler)  unmount it (a partition mounted elsewhere too)
+                                (kind "folder": {path, hide, showonly, readonly}; kind "ram": {size MB, keep zip})
+    FolderPreview(path, hide, showonly)   what a folder drive would show, as JSON
+    IgnoreUsual()               the ready-made ignore lists, as JSON
     SshMethods()                JSON: what this computer can use (winfsp, webdav, sshfs), free drive letters, the user's
                                 likely key files (keys, likeliest first) and whether an SSH agent has keys (agent)
     OpenFolder(path)            show a folder (or a drive letter) in the file manager; answers "" or why not
@@ -243,6 +246,24 @@ class SystemCommands:
         """What a disk image is, as JSON: {size, size_text, format, label, partitions, folder} (read from the file)."""
         from .diskmount import info
         return json.dumps(info(os.path.expanduser(str(path))))
+
+    def cmd_FolderPreview(self, path="", hide="", showonly="0"):
+        """What a folder drive would show, as JSON {shown, hidden, names (the first shown)}: for the ignore box."""
+        from . import ignore
+        p = os.path.expanduser(str(path))
+        pats = ignore.patterns(hide)
+        try:
+            names = sorted(os.listdir(p), key=str.lower)
+        except OSError as e:
+            return json.dumps({"error": e.strerror or str(e)})
+        only = str(showonly).lower() in ("1", "true", "yes")
+        shown = [n for n in names if (ignore.hidden(pats, n, os.path.isdir(os.path.join(p, n))) == only) or not pats]
+        return json.dumps({"shown": len(shown), "hidden": len(names) - len(shown), "names": shown[:12]})
+
+    def cmd_IgnoreUsual(self):
+        """The ready-made ignore lists, as JSON [{key, label, patterns}]."""
+        from . import ignore
+        return json.dumps([{"key": k, "label": l, "patterns": p} for k, l, p in ignore.USUAL])
 
     def cmd_DiskMount(self, item="{}", handler=""):
         """Mount a disk image (ISO, IMG, VHD, VHDX...) or a partition: item is JSON {name, path, kind, readonly}.

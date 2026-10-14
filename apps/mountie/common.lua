@@ -16,23 +16,39 @@ function Say(text, bad)                -- a problem in red, so it isn't missed
 end
 
 -- ── tabs ──
+local TABNAMES = { "Ssh", "Iso", "Vhd", "Part", "Fold", "Ram" }
+local HELP = {
+  Iso = "Disk images (ISO, IMG, DMG). Add one, then Mount it: it opens like a CD or a stick.",
+  Part = "This computer's disks and sticks. The ones it runs from are left alone.",
+  Fold = "A folder of yours as a drive of its own, showing only what you want: ~/Downloads as DownloadFiles, "
+    .. "without the installers and the clutter. Every app's Open box sees it too.",
+  Ram = "A RAM disk: very fast, and gone when Mountie stops (unless you tell it to keep what's on it).",
+}
+
+function Local() return Tab == "Fold" or Tab == "Ram" end      -- the tabs whose drives Mountie makes itself
+
 function ShowTab(t)
   Tab = t
-  for _, n in ipairs({ "Ssh", "Iso", "Vhd", "Part" }) do
+  for _, n in ipairs(TABNAMES) do
     Vml("SetProperty", "btnTab" .. n, "Background", n == t and "#127A68" or "#E5E7EB")
     Vml("SetProperty", "btnTab" .. n, "Foreground", n == t and "#FFFFFF" or "#374151")
   end
   Show(LIST, t == "Ssh"); Show(DISK, t ~= "Ssh"); Show(FOOT, true)
+  Show({ "btnDiskShows" }, Local())
+  Vml("SetProperty", "btnDiskShows", "Content", t == "Ram" and "Size and keeping..." or "What it shows...")
+  Vml("SetControlPosition", "chkBoot", "24", Local() and "490" or "446")      -- room for the button above
+  Vml("SetControlPosition", "lblStatus", "24", Local() and "524" or "480")
+  Vml("SetProperty", "lblStatus", "Height", Local() and "146" or "190")
   if t ~= "Ssh" then
     Vml("SetProperty", "btnDiskAdd", "Content", t == "Part" and "Refresh" or "Add")
     for _, n in ipairs({ "btnDiskRemove", "btnDiskRename", "chkDiskAuto", "chkDiskOn" }) do
       Vml("SetProperty", n, "IsVisible", tostring(t ~= "Part"))
     end
+    Vml("SetProperty", "chkDiskRO", "IsVisible", tostring(t ~= "Ram"))
     if t == "Part" then ListParts() end
     RefreshDisk()
-    Say(t == "Iso" and "Disk images (ISO, IMG, DMG). Add one, then Mount it: it opens like a CD or a stick."
-        or t == "Vhd" and "Virtual disks (VHD, VHDX" .. (Can.windows and "" or ", IMG as no-stick makes them, VMDK, QCOW2") .. "). Each partition inside becomes a drive."
-        or "This computer's disks and sticks. The ones it runs from are left alone.")
+    Say(HELP[t] or ("Virtual disks (VHD, VHDX" .. (Can.windows and "" or ", IMG as no-stick makes them, VMDK, QCOW2")
+      .. "). Each partition inside becomes a drive."))
   else
     Refresh()
     Say(#Drives == 0 and "Add a folder on one of your servers to start: Add, then Test, then Save." or "")
