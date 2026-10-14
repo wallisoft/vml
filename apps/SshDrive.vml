@@ -35,6 +35,28 @@ FontWeight=Bold
 Foreground=#127A68
 Text=SSH Drive
 
+@TextBlock lblVer
+Parent=c
+Canvas.Left=138
+Canvas.Top=28
+Width=80
+Height=20
+FontSize=12
+Foreground=#6B7280
+Text=
+
+@Button btnAbout
+Parent=c
+Canvas.Left=392
+Canvas.Top=20
+Width=64
+Height=28
+BorderThickness=0
+Background=#F3F5F4
+Foreground=#127A68
+Content=About
+OnClick=About
+
 @TextBlock lblAbout
 Parent=c
 Canvas.Left=24
@@ -360,12 +382,14 @@ function Refresh()
   Vml("RunScript", "Picked")
   local up = 0
   for _, s in pairs(State) do if s.state == "mounted" then up = up + 1 end end
-  InTray = (Vml("Tray", "SSH Drive: " .. up .. " of " .. #Drives .. " connected", "Open|Connect all|Disconnect all|-|Quit", "TrayClick") or "") == ""
+  InTray = (Vml("Tray", "SSH Drive: " .. up .. " of " .. #Drives .. " connected", "Open|Connect all|Disconnect all|-|About|Quit", "TrayClick") or "") == ""
 end
 function Mount(d) State[d.name] = { state = "connecting", detail = "" }; Vml("SshMount", json.encode(d), "OnDrive") end
 
 -- what this device can do
 Can = json.decode(Vml("SshMethods") or "") or {}
+VERSION = Vml("GetProperty", "SshDrive", "Version") or "1.0"
+Vml("SetProperty", "lblVer", "Text", "v" .. VERSION)
 local can = Can
 if can.android then
   Vml("SetProperty", "chkBoot", "IsVisible", "false")       -- a phone keeps its drives in Files by itself
@@ -458,6 +482,18 @@ else
 end
 LUA
 
+@Script About
+Interpreter=lua
+<<LUA
+Vml("InfoDialog", "SSH Drive " .. VERSION .. "\n\n"
+  .. "Folders on your SSH servers, as drives:\n"
+  .. "a drive letter on Windows, a folder in Files on Linux and macOS,\n"
+  .. "and in the Files app on Android.\n\n"
+  .. "Your passwords and keys stay on this device.\n\n"
+  .. "Made by Steve (Wallisoft) and Claude, in Visualised.\n"
+  .. "ssh-drive.eur.bz", "About SSH Drive")
+LUA
+
 @Script TrayClick
 Interpreter=lua
 <<LUA
@@ -469,6 +505,8 @@ elseif what == "Connect all" then
   Refresh()
 elseif what == "Disconnect all" then
   Vml("SshUnmount", "")
+elseif what == "About" then
+  Vml("RunScript", "About")
 elseif what == "Quit" then
   Vml("Quit")
 end
