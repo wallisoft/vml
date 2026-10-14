@@ -2939,13 +2939,13 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         picture file instead."""
         return self.cmd_PickPhoto(image, handler)
 
-    def cmd_FileOpenDialog(self, title="Open", ext=""):
+    def cmd_FileOpenDialog(self, title="Open", ext="", start=""):
         kinds = [e.strip().lstrip(".") for e in str(ext).split(",") if e.strip()]       # "vml", or "vb,cs" for several
         if len(kinds) > 1:
             filt = f"{' and '.join(k.upper() for k in kinds)} files ({' '.join('*.' + k for k in kinds)});;All files (*)"
         else:
             filt = f"{ext.upper()} files (*.{ext});;All files (*)" if ext else "All files (*)"
-        return QFileDialog.getOpenFileName(self._parent_window(), str(title), "", filt)[0]
+        return QFileDialog.getOpenFileName(self._parent_window(), str(title), os.path.expanduser(str(start or "")), filt)[0]
 
     def cmd_FileSaveDialog(self, title="Save", default="", ext=""):
         filt = f"{ext.upper()} files (*.{ext});;All files (*)" if ext else "All files (*)"

@@ -36,6 +36,7 @@ DRIVE_DEFAULTS = {
     "auth": "agent",       # "password", "key" or "agent"
     "password": "",
     "key": "",             # path to a private key file
+    "keytext": "",         # or the key itself (a phone has no key files; also fine on a computer)
     "passphrase": "",
     "remote": "",          # folder on the server ("" is the user's home)
     "mount": "",           # Windows: a drive letter like "S:"; elsewhere a folder
@@ -298,7 +299,7 @@ class SftpRemote(BaseRemote):
             if auth == "password":
                 kw["password"] = d["password"]
             elif auth == "key":
-                kw["pkey"] = self._load_key(d["key"], d.get("passphrase") or None)
+                kw["pkey"] = self._load_key(d["key"], d.get("passphrase") or None, d.get("keytext") or "")
             else:
                 kw["allow_agent"], kw["look_for_keys"] = True, True
             try:
@@ -308,6 +309,12 @@ class SftpRemote(BaseRemote):
             except (socket.error, paramiko.SSHException, EOFError) as e:
                 if "authentication" in str(e).lower():          # e.g. no password, no key and no agent
                     raise RemoteError("auth", f"No way to sign in to {d['host']}: {e}. Give a password or a key.")
+                if isinstance(e, socket.gaierror):
+                    raise RemoteError("offline", f"There's no server called {d['host']} (or no internet).")
+                if "Unable to connect to port" in str(e) or isinstance(e, ConnectionRefusedError):
+                    raise RemoteError("offline", f"Couldn't reach {d['host']}: nothing answered on port {d['port'] or 22}.")
+                if isinstance(e, socket.timeout):
+                    raise RemoteError("offline", f"Couldn't reach {d['host']}: no answer (a firewall, or the wrong address?).")
                 raise RemoteError("offline", f"Couldn't reach {d['host']}: {e}")
             fp = fingerprint(ssh.get_transport().get_remote_server_key())
             if d.get("hostkey") and d["hostkey"] != fp:
@@ -328,12 +335,16 @@ class SftpRemote(BaseRemote):
             self.cache = _Cache()
 
     @staticmethod
-    def _load_key(path, passphrase):
+    def _load_key(path, passphrase, text=""):
         import paramiko
         path = os.path.expanduser(path)
+        if not text and not os.path.isfile(path):
+            raise RemoteError("auth", f"There's no key file at {path}.")
         last = None
         for cls in (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey):
             try:
+                if text:
+                    return cls.from_private_key(io.StringIO(reshape_key(text)), password=passphrase)
                 return cls.from_private_key_file(path, password=passphrase)
             except paramiko.PasswordRequiredException:
                 raise RemoteError("auth", "That key needs its passphrase.")
@@ -1093,11 +1104,75 @@ def free_letter():
     raise RemoteError("io", "No free drive letters")
 
 
+def reshape_key(text):
+    """A key pasted into a one-line box loses its line breaks: put them back (BEGIN line, body in 70s, END line)."""
+    import re
+    m = re.search(r"(-----BEGIN [A-Z0-9 ]+-----)(.*?)(-----END [A-Z0-9 ]+-----)", text.strip(), re.S)
+    if not m or ":" in m.group(2):         # (an old PEM key with headers inside is left as it is)
+        return text
+    body = re.sub(r"\s+", "", m.group(2))
+    return m.group(1) + "\n" + "".join(body[i:i + 70] + "\n" for i in range(0, len(body), 70)) + m.group(3) + "\n"
+
+
+def likely_keys():
+    """This user's private key files, the likeliest first (as ssh itself tries them)."""
+    folder = os.path.join(os.path.expanduser("~"), ".ssh")
+    found = []
+    for name in ("id_ed25519", "id_ecdsa", "id_rsa", "id_ed25519_sk", "id_ecdsa_sk", "id_dsa"):
+        p = os.path.join(folder, name)
+        if os.path.isfile(p):
+            found.append(p)
+    try:                                       # any other private key in ~/.ssh (keys named after a server, say)
+        for name in sorted(os.listdir(folder)):
+            p = os.path.join(folder, name)
+            if p not in found and not name.endswith(".pub") and os.path.isfile(p) and os.path.getsize(p) < 20000:
+                with open(p, "rb") as f:
+                    if b"PRIVATE KEY-----" in f.read(100):
+                        found.append(p)
+    except OSError:
+        pass
+    return found
+
+
+def agent_available():
+    """Whether an SSH agent is running with at least one key in it."""
+    try:
+        import paramiko
+        a = paramiko.Agent()
+        try:
+            return len(a.get_keys()) > 0
+        finally:
+            a.close()
+    except Exception:
+        return False
+
+
+def test(drive):
+    """Try a drive without mounting it. Returns (ok, detail, hostkey): the folder it reaches, or what went wrong."""
+    d = dict(DRIVE_DEFAULTS, **drive)
+    try:
+        r = SftpRemote(d)
+    except Exception as e:
+        return False, str(e), ""
+    try:
+        root = r._root
+        try:
+            files = len(r._sftp.listdir(root))
+        except Exception:
+            files = -1
+        where = f"{d['user'] + '@' if d['user'] else ''}{d['host']}:{root}"
+        there = "" if files < 0 else " (empty)" if files == 0 else f" ({files} thing{'' if files == 1 else 's'} there)"
+        return True, f"Connected to {where}{there}", r.d.get("hostkey", "")
+    finally:
+        r.close()
+
+
 def mount(drive, on_hostkey=None):
     """Mounts one drive. Returns the running drive (with .stop(), .method and .mountpoint)."""
     d = dict(DRIVE_DEFAULTS, **drive)
     method = d.get("method") or "auto"
-    if method == "sshfs" or (method == "auto" and not WINDOWS and shutil.which("sshfs") and d.get("auth") != "password"):
+    if method == "sshfs" or (method == "auto" and not WINDOWS and shutil.which("sshfs") and d.get("auth") != "password"
+                             and not d.get("keytext")):
         return SshfsDrive(d, d.get("mount"))
     remote = SftpRemote(d, on_hostkey=on_hostkey)
     label = d.get("name") or d.get("host")

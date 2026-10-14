@@ -1058,9 +1058,37 @@ const commands = {
     else if (handler) setTimeout(() => run(handler, [name, "error", "SSH drives need the computer app, or one exported for an Android phone."]), 0);
     return "";
   },
+  // Try a drive without adding it: handler gets (name, "ok", what it reached, the server's key) or (name, "error", why, "").
+  SshTest(drive = "{}", handler = "") {
+    let d = {}; try { d = JSON.parse(String(drive)); } catch (e) { return "That drive isn't JSON."; }
+    const name = String(d.name || d.host || "");
+    if (handler) onSshTest = String(handler);
+    if (DEV && DEV.sshTest) DEV.sshTest(JSON.stringify(Object.assign(d, { name })));
+    else if (handler) setTimeout(() => run(handler, [name, "error", "SSH drives need the computer app, or the phone app.", ""]), 0);
+    return "";
+  },
   SshUnmount(name = "") { if (DEV && DEV.sshUnmount) DEV.sshUnmount(String(name)); return ""; },
   SshStatus(name = "") { return DEV && DEV.sshStatus ? String(DEV.sshStatus(String(name))) : (name ? '{"state":"off","detail":""}' : "{}"); },
-  SshMethods() { return JSON.stringify({ android: !!(DEV && DEV.sshMount), winfsp: false, webdav: false, sshfs: false, windows: false, letters: [] }); },
+  SshMethods() { return JSON.stringify({ android: !!(DEV && DEV.sshMount), winfsp: false, webdav: false, sshfs: false, windows: false, letters: [], keys: [], agent: false }); },
+  // The user picks a file; handler gets (its name, its text). (A key on a phone, a list, a config...)
+  PickTextFile(handler = "") {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.style.display = "none";
+    input.onchange = () => {
+      const f = input.files && input.files[0];
+      input.remove();
+      if (!f) return;
+      if (f.size > 1048576) { run(handler, [f.name, "", "That file is too big to read as text."]); return; }
+      const rd = new FileReader();
+      rd.onload = () => run(handler, [f.name, String(rd.result || ""), ""]);
+      rd.onerror = () => run(handler, [f.name, "", "That file couldn't be read."]);
+      rd.readAsText(f);
+    };
+    document.body.appendChild(input);
+    input.click();
+    return "";
+  },
   // A tray icon and starting with the computer belong to computers: on a phone and in a browser they quietly do nothing.
   Tray(tooltip = "", menu = "", handler = "") { return ""; },
   TrayMessage(title = "", text = "") { return ""; },
@@ -1369,7 +1397,7 @@ const commands = {
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
-let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false, onSshDrive = "";
+let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false, onSshDrive = "", onSshTest = "";
 // Visualised's own push service (OnPush with no firebase of the app's own; PushSend). The Firebase values are the
 // public ones every app carries; sending is done by tiny-web, never by the app.
 const PUSH_RELAY = "https://tiny-web.uk/api/push.php";
@@ -1415,6 +1443,10 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "push" && onPush && pushRelay) pushHeard(a, b);
   else if (what === "push" && onPush) run(onPush, [a, b]);
   if (what === "messages" && onMessages) run(onMessages, [a, b]);
+  if (what === "sshtest" && onSshTest) {                  // "ok|<server key>|<what it reached>" or "error|<why>"
+    const p = b.split("|"), ok = p[0] === "ok";
+    run(onSshTest, [a, ok ? "ok" : "error", ok ? p.slice(2).join("|") : p.slice(1).join("|"), ok ? p[1] : ""]);
+  }
   if (what === "sshdrive" && onSshDrive) { const i = b.indexOf("|"); run(onSshDrive, [a, i < 0 ? b : b.slice(0, i), i < 0 ? "" : b.slice(i + 1)]); }
   if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:") || what.startsWith("contact:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];

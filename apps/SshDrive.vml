@@ -203,10 +203,20 @@ Watermark=Password
 Parent=c
 Canvas.Left=24
 Canvas.Top=288
-Width=432
+Width=340
 Height=34
 IsVisible=false
-Watermark=Key file (e.g. ~/.ssh/id_ed25519) or, on a phone, the key itself
+Watermark=Key file (e.g. ~/.ssh/id_ed25519), or the key itself
+
+@Button btnBrowse
+Parent=c
+Canvas.Left=372
+Canvas.Top=288
+Width=84
+Height=34
+IsVisible=false
+Content=Browse
+OnClick=BrowseKey
 
 @CheckBox chkAuto
 Parent=c
@@ -227,11 +237,21 @@ Height=28
 IsVisible=false
 Content=Read only
 
-@Button btnSave
+@Button btnTest
 Parent=c
 Canvas.Left=24
 Canvas.Top=370
-Width=206
+Width=132
+Height=40
+IsVisible=false
+Content=Test
+OnClick=TestDrive
+
+@Button btnSave
+Parent=c
+Canvas.Left=164
+Canvas.Top=370
+Width=160
 Height=40
 Background=#127A68
 Foreground=#FFFFFF
@@ -241,13 +261,25 @@ OnClick=SaveDrive
 
 @Button btnCancel
 Parent=c
-Canvas.Left=240
+Canvas.Left=332
 Canvas.Top=370
-Width=216
+Width=124
 Height=40
 IsVisible=false
 Content=Cancel
 OnClick=CloseForm
+
+@TextBlock lblTest
+Parent=c
+Canvas.Left=24
+Canvas.Top=420
+Width=432
+Height=90
+TextWrapping=Wrap
+FontSize=13
+Foreground=#374151
+IsVisible=false
+Text=
 
 # ============================================================================
 # Scripts
@@ -262,7 +294,43 @@ State = {}          -- name -> {state=, detail=}
 Editing = nil       -- index of the drive being changed (nil: a new one)
 LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove", "chkBoot", "lblStatus" }
 FORM = { "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
-         "txtKey", "chkAuto", "chkReadOnly", "btnSave", "btnCancel" }
+         "txtKey", "btnBrowse", "chkAuto", "chkReadOnly", "btnTest", "btnSave", "btnCancel", "lblTest" }
+Tested = nil        -- the last good Test: {host, port, hostkey}, so saving keeps the key it was shown
+PickedKey = nil     -- a key picked on a phone: its text (a one-line box can't hold it), shown by name
+
+-- a path in the user's home, shown the short way (~/.ssh/id_ed25519); the drive keeps it so and expands it later
+function Tilde(p)
+  local home = Can and Can.home or ""
+  if p and home ~= "" and p:sub(1, #home) == home then return "~" .. p:sub(#home + 1) end
+  return p
+end
+
+-- the drive as the form has it
+function FormDrive()
+  local function get(box) return (Vml("GetProperty", box, "Text") or ""):match("^%s*(.-)%s*$") end
+  local host = get("txtHost")
+  local a = tostring(Vml("GetProperty", "cmbAuth", "SelectedIndex"))
+  local auth = a == "0" and "password" or a == "1" and "key" or "agent"
+  local d = {
+    name = get("txtName") ~= "" and get("txtName") or host,
+    host = host, port = tonumber(get("txtPort")) or 22, user = get("txtUser"), remote = get("txtRemote"),
+    mount = get("txtMount"), auth = auth,
+    automount = Vml("GetProperty", "chkAuto", "IsChecked") == "true",
+    readonly = Vml("GetProperty", "chkReadOnly", "IsChecked") == "true",
+  }
+  if auth == "password" then d.password = get("txtSecret") end
+  if auth == "key" then
+    local k = get("txtKey")
+    if PickedKey and k == PickedKey.label then d.keytext = PickedKey.text
+    elseif k:find("PRIVATE KEY") then d.keytext = k                     -- the key itself, pasted
+    else d.key = k end
+    d.passphrase = get("txtSecret")
+  end
+  local old = Editing and Drives[Editing]
+  if old and old.host == d.host and old.port == d.port then d.hostkey = old.hostkey end   -- same server: keep its key
+  if not d.hostkey and Tested and Tested.host == d.host and Tested.port == d.port then d.hostkey = Tested.hostkey end
+  return d
+end
 
 function Show(names, on) for _, n in ipairs(names) do Vml("SetProperty", n, "IsVisible", tostring(on)) end end
 function Say(text) Vml("SetProperty", "lblStatus", "Text", text) end
@@ -298,6 +366,8 @@ local can = Can
 if can.android then
   Vml("SetProperty", "chkBoot", "IsVisible", "false")       -- a phone keeps its drives in Files by itself
   table.remove(LIST, 6)
+  for i, n in ipairs(FORM) do if n == "txtMount" then table.remove(FORM, i) break end end   -- no drive letters on a phone
+  Vml("SetProperty", "txtName", "Width", "432")
   Say("Connected drives are in the Files app (under Browse), and in every app's \"open file\".")
 elseif can.windows and not can.winfsp then
   Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
@@ -387,11 +457,21 @@ LUA
 @Script OpenForm
 Interpreter=lua
 <<LUA
-local d = Editing and Drives[Editing] or { port = 22, auth = Can.android and "password" or "agent", automount = true }
+-- a new drive starts with the likeliest way in: the agent if it has keys, else the user's own key file, else a password
+local guess = Can.agent and "agent" or (Can.keys and #Can.keys > 0) and "key" or "password"
+local d = Editing and Drives[Editing] or { port = 22, auth = guess, automount = true, key = Can.keys and Tilde(Can.keys[1]) }
+Tested, PickedKey = nil, nil
+Vml("SetProperty", "lblTest", "Text", "")
 Vml("SetProperty", "lblForm", "Text", Editing and ("Change " .. d.name) or "A new drive")
 local function put(box, v) Vml("SetProperty", box, "Text", v == nil and "" or tostring(v)) end
 put("txtName", d.name); put("txtMount", d.mount); put("txtHost", d.host); put("txtPort", d.port ~= 22 and d.port or "")
-put("txtUser", d.user); put("txtRemote", d.remote); put("txtKey", d.key or d.keytext)
+put("txtUser", d.user); put("txtRemote", d.remote)
+if d.keytext and d.keytext ~= "" then
+  PickedKey = { label = "(the key saved with this drive)", text = d.keytext }
+  put("txtKey", PickedKey.label)
+else
+  put("txtKey", d.key)
+end
 put("txtSecret", d.auth == "key" and d.passphrase or d.password)
 Vml("SetProperty", "cmbAuth", "SelectedIndex", d.auth == "password" and "0" or d.auth == "key" and "1" or "2")
 Vml("SetProperty", "chkAuto", "IsChecked", tostring(d.automount ~= false))
@@ -406,7 +486,12 @@ Interpreter=lua
 local a = tostring(Vml("GetProperty", "cmbAuth", "SelectedIndex"))
 Vml("SetProperty", "txtSecret", "Watermark", a == "1" and "Key passphrase (if it has one)" or "Password")
 Vml("SetProperty", "txtSecret", "IsVisible", tostring(a ~= "2" and Vml("GetProperty", "btnSave", "IsVisible") == "true"))
-Vml("SetProperty", "txtKey", "IsVisible", tostring(a == "1" and Vml("GetProperty", "btnSave", "IsVisible") == "true"))
+local keyOn = a == "1" and Vml("GetProperty", "btnSave", "IsVisible") == "true"
+Vml("SetProperty", "txtKey", "IsVisible", tostring(keyOn))
+Vml("SetProperty", "btnBrowse", "IsVisible", tostring(keyOn))
+if keyOn and (Vml("GetProperty", "txtKey", "Text") or "") == "" and Can.keys and Can.keys[1] then
+  Vml("SetProperty", "txtKey", "Text", Tilde(Can.keys[1]))          -- the likeliest key
+end
 LUA
 
 @Script AddDrive
@@ -433,27 +518,10 @@ LUA
 @Script SaveDrive
 Interpreter=lua
 <<LUA
-local function get(box) return (Vml("GetProperty", box, "Text") or ""):match("^%s*(.-)%s*$") end
-local host = get("txtHost")
-if host == "" then return Vml("SetProperty", "lblForm", "Text", "Which server? (Server is empty)") end
-local a = tostring(Vml("GetProperty", "cmbAuth", "SelectedIndex"))
-local auth = a == "0" and "password" or a == "1" and "key" or "agent"
-local d = {
-  name = get("txtName") ~= "" and get("txtName") or host,
-  host = host, port = tonumber(get("txtPort")) or 22, user = get("txtUser"), remote = get("txtRemote"),
-  mount = get("txtMount"), auth = auth,
-  automount = Vml("GetProperty", "chkAuto", "IsChecked") == "true",
-  readonly = Vml("GetProperty", "chkReadOnly", "IsChecked") == "true",
-}
-if auth == "password" then d.password = get("txtSecret") end
-if auth == "key" then
-  local k = get("txtKey")
-  if k:find("PRIVATE KEY") then d.keytext = k else d.key = k end      -- a phone has no key files: the key itself
-  d.passphrase = get("txtSecret")
-end
+local d = FormDrive()
+if d.host == "" then return Vml("SetProperty", "lblForm", "Text", "Which server? (Server is empty)") end
 local old = Editing and Drives[Editing]
 if old then
-  if old.host == d.host and old.port == d.port then d.hostkey = old.hostkey end   -- same server: keep its key
   Vml("SshUnmount", old.name)
   State[old.name] = nil
   Drives[Editing] = d
@@ -480,4 +548,57 @@ table.remove(Drives, i)
 Keep()
 Say(d.name .. " removed.")
 Refresh()
+LUA
+
+@Script TestDrive
+Interpreter=lua
+<<LUA
+local d = FormDrive()
+if d.host == "" then return Vml("SetProperty", "lblTest", "Text", "Which server? (Server is empty)") end
+Vml("SetProperty", "lblTest", "Text", "Trying " .. d.host .. "...")
+Vml("SetProperty", "btnTest", "IsEnabled", "false")
+Vml("SshTest", json.encode(d), "OnTest")
+LUA
+
+@Script OnTest
+Interpreter=lua
+<<LUA
+local name, state, detail, key = args[1] or "", args[2] or "", args[3] or "", args[4] or ""
+Vml("SetProperty", "btnTest", "IsEnabled", "true")
+if state == "ok" then
+  local d = FormDrive()
+  Tested = { host = d.host, port = d.port, hostkey = key }
+  local seen = (d.hostkey and d.hostkey ~= key) and "" or ("\nThe server's key: " .. key .. (d.hostkey == key and " (as before)" or " (remembered when you save)"))
+  Vml("SetProperty", "lblTest", "Text", "✓ " .. detail .. (key ~= "" and seen or ""))
+else
+  Vml("SetProperty", "lblTest", "Text", "✕ " .. detail)
+end
+LUA
+
+@Script BrowseKey
+Interpreter=lua
+<<LUA
+-- a computer keeps the key's path; a phone keeps the key itself (its files can't be read later)
+Vml("PickTextFile", "OnKeyFile", "Choose your SSH key", (Can.home or "~") .. "/.ssh")
+LUA
+
+@Script OnKeyFile
+Interpreter=lua
+<<LUA
+local path, text, why = args[1] or "", args[2] or "", args[3] or ""
+if why ~= "" then return Vml("SetProperty", "lblTest", "Text", "✕ " .. why) end
+if path:match("%.pub$") or text:match("^ssh%-") or text:match("^ecdsa%-") then
+  return Vml("SetProperty", "lblTest", "Text", "✕ That's the public half of a key (.pub): choose the file without .pub.")
+end
+if not text:find("PRIVATE KEY") then
+  return Vml("SetProperty", "lblTest", "Text", "✕ That doesn't look like a private key (it should start -----BEGIN ... PRIVATE KEY-----).")
+end
+if Can.android then
+  PickedKey = { label = (path:match("[^/\\]+$") or "key") .. " (picked)", text = text }
+  Vml("SetProperty", "txtKey", "Text", PickedKey.label)
+else
+  PickedKey = nil
+  Vml("SetProperty", "txtKey", "Text", Tilde(path))
+end
+Vml("SetProperty", "lblTest", "Text", "Picked. If the key has a passphrase, put it in the box beside the sign-in choice, then Test.")
 LUA

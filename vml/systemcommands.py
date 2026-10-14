@@ -8,7 +8,11 @@ Commands for apps that live beside the user's other programs: SSH drives, a tray
                                 app to keep in the drive's "hostkey".
     SshUnmount(name)            ("" for all of them)
     SshStatus(name)             JSON {state, detail}, or of all of them by name
-    SshMethods()                JSON: what this computer can use (winfsp, webdav, sshfs) and free drive letters
+    SshTest(drive, handler)     try a drive without mounting it: handler gets (name, "ok", what it reached, the server's
+                                key) or (name, "error", what went wrong, "")
+    SshMethods()                JSON: what this computer can use (winfsp, webdav, sshfs), free drive letters, the user's
+                                likely key files (keys, likeliest first) and whether an SSH agent has keys (agent)
+    PickTextFile(handler, title, start) the user picks a file: handler gets (path, text, why not); answers the path
     Tray(tooltip, menu, handler) an icon by the clock; menu is items separated by | ("-" for a line). Clicking the
                                 icon runs handler("open"), a menu item handler(its text). Closing the last window then
                                 leaves the app running in the tray. Tray("") takes the icon away.
@@ -96,6 +100,32 @@ class SystemCommands:
         drives.up(d)
         return ""
 
+    def cmd_SshTest(self, drive="{}", handler=""):
+        """Try a drive without mounting it: handler gets (name, "ok", what it reached, the server's key) or
+        (name, "error", what went wrong, "")."""
+        import threading
+        try:
+            d = json.loads(drive) if isinstance(drive, str) else dict(drive)
+        except ValueError:
+            return "That drive isn't JSON."
+        name = d.get("name") or d.get("host") or ""
+        q = self._sys_queue()
+        origin = self._script_stack[-1] if self._script_stack else None
+        handler = str(handler or "")
+
+        def run():
+            try:
+                from .sshdrive import test
+                ok, detail, fp = test(d)
+            except ImportError:
+                ok, detail, fp = False, "This copy of Visualised can't do SSH (paramiko is missing).", ""
+            q.put((handler, (name, "ok" if ok else "error", detail, fp), origin))
+        if not d.get("host"):
+            q.put((handler, (name, "error", "Which server? (Server is empty)", ""), origin))
+        else:
+            threading.Thread(target=run, daemon=True).start()
+        return ""
+
     def cmd_SshUnmount(self, name=""):
         import threading
         drives = self._drives()
@@ -122,8 +152,30 @@ class SystemCommands:
             dav = True
         except ImportError:
             dav = False
+        try:
+            from .sshdrive import agent_available, likely_keys
+            keys, agent = likely_keys(), agent_available()
+        except ImportError:
+            keys, agent = [], False
         return json.dumps({"winfsp": winfsp_available(), "webdav": dav, "sshfs": bool(shutil.which("sshfs")),
-                           "windows": WINDOWS, "letters": letters})
+                           "windows": WINDOWS, "letters": letters, "keys": keys, "agent": agent,
+                           "home": os.path.expanduser("~")})
+
+    def cmd_PickTextFile(self, handler="", title="Open", start=""):
+        """The user picks a file; handler gets (its path, its text, why not). On a phone the same command opens the
+        phone's file picker (and the name is just the file's name)."""
+        from PySide6.QtWidgets import QFileDialog
+        path = QFileDialog.getOpenFileName(QApplication.activeWindow(), str(title or "Open"), os.path.expanduser(str(start or "")))[0]
+        if path and handler:
+            try:
+                if os.path.getsize(path) > 1048576:
+                    raise OSError("That file is too big to read as text.")
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    text, why = f.read(), ""
+            except OSError as exc:
+                text, why = "", str(exc)
+            self._sys_queue().put((str(handler), (path, text, why), self._script_stack[-1] if self._script_stack else None))
+        return path
 
     # ── the tray ──
     def cmd_Tray(self, tooltip="", menu="", handler=""):
