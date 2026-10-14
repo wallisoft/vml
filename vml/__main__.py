@@ -11,6 +11,34 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
+
+def _no_console_fix():
+    """Windows, started from the Start menu with no console (a built app): a program run with no stdin/stdout given
+    inherits handles that don't exist, and Python fails with "[WinError 6] The handle is invalid" (net use, PowerShell,
+    WinFsp's helpers...). Give anything left unset an empty input and output instead."""
+    if not sys.platform.startswith("win"):
+        return
+    import subprocess
+    try:
+        import msvcrt
+        ok = sys.stdin is not None and msvcrt.get_osfhandle(sys.stdin.fileno()) not in (-1, None)
+    except Exception:
+        ok = False
+    if ok:
+        return
+    original = subprocess.Popen.__init__
+
+    def init(self, *args, **kw):
+        for k in ("stdin", "stdout", "stderr"):
+            if kw.get(k) is None:
+                kw[k] = subprocess.DEVNULL
+        kw.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        original(self, *args, **kw)
+    subprocess.Popen.__init__ = init
+
+
+_no_console_fix()
+
 from .engine import Engine
 
 

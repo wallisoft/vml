@@ -20,7 +20,7 @@
 
 @Window Mountie
 Title=Mountie
-Version=1.2
+Version=1.2.1
 Width=480
 Height=700
 Icon=mountie.png
@@ -669,7 +669,7 @@ PickedKey = nil     -- a key picked on a phone: its text (a one-line box can't h
 -- what this device can do
 Can = json.decode(Vml("SshMethods") or "") or {}
 VERSION = Vml("GetProperty", "Mountie", "Version") or ""
-if VERSION == "" then VERSION = "1.2" end                 -- (a phone page may not know its window's Version)
+if VERSION == "" then VERSION = "1.2.1" end                 -- (a phone page may not know its window's Version)
 Vml("SetProperty", "lblVer", "Text", "v" .. VERSION)
 local can = Can
 if can.android then
