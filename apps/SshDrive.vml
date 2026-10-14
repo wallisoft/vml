@@ -54,7 +54,7 @@ Canvas.Top=92
 Width=432
 Height=220
 SelectionChanged=Picked
-OnDoubleClick=Toggle
+OnDoubleClick=OpenDrive
 
 @Button btnToggle
 Parent=c
@@ -334,7 +334,10 @@ function FormDrive()
 end
 
 function Show(names, on) for _, n in ipairs(names) do Vml("SetProperty", n, "IsVisible", tostring(on)) end end
-function Say(text) Vml("SetProperty", "lblStatus", "Text", text) end
+function Say(text, bad)                -- a problem in red, so it isn't missed
+  Vml("SetProperty", "lblStatus", "Foreground", bad and "#B91C1C" or "#374151")
+  Vml("SetProperty", "lblStatus", "Text", text)
+end
 function Keep() Vml("SetSetting", "drives", json.encode(Drives)) end
 function Find(name) for i, d in ipairs(Drives) do if d.name == name then return i, d end end end
 function Selected()
@@ -402,10 +405,10 @@ State[name] = { state = state, detail = detail }
 if state == "mounted" then
   Vml("TrayMessage", name .. " connected", (detail:gsub(" %(.*%)", "")))
 elseif state == "error" then
-  Say(name .. ": " .. detail)
+  Say("✕ " .. name .. ": " .. detail, true)
   Vml("TrayMessage", name .. " didn't connect", detail)
 elseif state == "offline" then
-  Say(name .. " is out of reach; it keeps trying. (" .. detail .. ")")
+  Say("○ " .. name .. " is out of reach; it keeps trying. (" .. detail .. ")", true)
 end
 Refresh()
 LUA
@@ -418,7 +421,11 @@ local s = d and State[d.name] or {}
 local up = s.state == "mounted" or s.state == "connecting" or s.state == "offline"
 Vml("SetProperty", "btnToggle", "Content", up and "Disconnect" or "Connect")
 for _, n in ipairs({ "btnToggle", "btnEdit", "btnRemove" }) do Vml("SetProperty", n, "IsEnabled", tostring(d ~= nil)) end
-if d and s.detail and s.detail ~= "" and s.state == "mounted" then Say(d.name .. ": " .. s.detail) end
+if d and s.detail and s.detail ~= "" then
+  if s.state == "mounted" then Say(d.name .. ": " .. s.detail .. (Can.android and "" or "\nDouble-click it to open it."))
+  elseif s.state == "error" then Say("✕ " .. d.name .. ": " .. s.detail, true)
+  elseif s.state == "offline" then Say("○ " .. d.name .. " is out of reach; it keeps trying. (" .. s.detail .. ")", true) end
+end
 LUA
 
 @Script Toggle
@@ -433,6 +440,22 @@ else
   Mount(d)
 end
 Refresh()
+LUA
+
+@Script OpenDrive
+Interpreter=lua
+<<LUA
+-- a connected drive opens in the file manager; one that isn't, connects
+local i, d = Selected()
+if not d then return end
+local s = State[d.name] or {}
+if s.state == "mounted" and not Can.android then
+  local where = (s.detail or ""):gsub(" %(.*%)$", "")
+  local why = where:match("^%a+://") and (Vml("OpenUrl", where) or "") or (Vml("OpenFolder", where) or "")
+  if why ~= "" then Say("✕ " .. why, true) end
+else
+  Vml("RunScript", "Toggle")
+end
 LUA
 
 @Script TrayClick

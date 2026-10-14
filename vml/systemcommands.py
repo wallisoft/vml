@@ -12,6 +12,7 @@ Commands for apps that live beside the user's other programs: SSH drives, a tray
                                 key) or (name, "error", what went wrong, "")
     SshMethods()                JSON: what this computer can use (winfsp, webdav, sshfs), free drive letters, the user's
                                 likely key files (keys, likeliest first) and whether an SSH agent has keys (agent)
+    OpenFolder(path)            show a folder (or a drive letter) in the file manager; answers "" or why not
     PickTextFile(handler, title, start) the user picks a file: handler gets (path, text, why not); answers the path
     Tray(tooltip, menu, handler) an icon by the clock; menu is items separated by | ("-" for a line). Clicking the
                                 icon runs handler("open"), a menu item handler(its text). Closing the last window then
@@ -176,6 +177,17 @@ class SystemCommands:
                 text, why = "", str(exc)
             self._sys_queue().put((str(handler), (path, text, why), self._script_stack[-1] if self._script_stack else None))
         return path
+
+    def cmd_OpenFolder(self, path=""):
+        """Show a folder (or a drive, "S:") in the computer's own file manager. Answers "" or why not."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        p = os.path.expanduser(str(path or ""))
+        if len(p) == 2 and p[1] == ":":
+            p += "\\"
+        if not os.path.isdir(p):
+            return f"There's no folder at {p}."
+        return "" if QDesktopServices.openUrl(QUrl.fromLocalFile(p)) else f"Couldn't open {p}."
 
     # ── the tray ──
     def cmd_Tray(self, tooltip="", menu="", handler=""):

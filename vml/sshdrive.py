@@ -316,7 +316,8 @@ class SftpRemote(BaseRemote):
                 if isinstance(e, socket.timeout):
                     raise RemoteError("offline", f"Couldn't reach {d['host']}: no answer (a firewall, or the wrong address?).")
                 raise RemoteError("offline", f"Couldn't reach {d['host']}: {e}")
-            fp = fingerprint(ssh.get_transport().get_remote_server_key())
+            self.server_key = ssh.get_transport().get_remote_server_key()
+            fp = fingerprint(self.server_key)
             if d.get("hostkey") and d["hostkey"] != fp:
                 ssh.close()
                 raise RemoteError("hostkey", f"{d['host']} has a different key from last time ({fp}, expected {d['hostkey']}). "
@@ -1053,48 +1054,152 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 #  Linux / macOS: the system's sshfs
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
+def _own_folder():
+    """Where SSH Drive keeps its own bits on this computer (known server keys, the passphrase helper)."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    folder = os.path.join(base, "visualised", "sshdrive")
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    return folder
+
+
+ASKPASS = "#!/bin/sh\n# SSH Drive: hands ssh the drive's password or key passphrase (kept in this process's own environment)\n" \
+          "printf '%s\\n' \"$SSHDRIVE_SECRET\"\n"
+HOSTKEY_ALGOS = {"ssh-rsa": "rsa-sha2-512,rsa-sha2-256"}       # (what ssh calls the ways to use each kind of key)
+
+
+def _bookmark(path, name, on):
+    """A drive in the file manager's sidebar (GNOME Files and others read GTK's bookmarks)."""
+    from urllib.parse import quote
+    bm = os.path.join(os.path.expanduser("~"), ".config", "gtk-3.0", "bookmarks")
+    line = f"file://{quote(path)} {name}"
+    try:
+        lines = open(bm, encoding="utf-8").read().splitlines() if os.path.exists(bm) else []
+        mine = f"file://{quote(path)}"
+        kept = [l for l in lines if l.split(" ", 1)[0] != mine]
+        if on:
+            kept.append(line)
+        if kept != lines:
+            os.makedirs(os.path.dirname(bm), exist_ok=True)
+            with open(bm, "w", encoding="utf-8") as f:
+                f.write("\n".join(kept) + ("\n" if kept else ""))
+    except OSError:
+        pass
+
+
+def _sshfs_problem(text, d):
+    """sshfs's (that is, ssh's) complaint in plain words."""
+    t = text.strip()
+    low = t.lower()
+    if "host key verification failed" in low:
+        return f"{d['host']}'s key couldn't be checked. Test the drive again, then save."
+    if "permission denied" in low:
+        return f"The server didn't accept the sign-in for {d['user'] or 'that user'}."
+    if "connection refused" in low:
+        return f"Nothing answers on port {d['port'] or 22} at {d['host']}."
+    if "timed out" in low:
+        return f"No answer from {d['host']} (a firewall, or blocked for a while?)."
+    if "not empty" in low:
+        return f"The folder it goes in isn't empty: {t}"
+    if "fuse: device not found" in low or "/dev/fuse" in low:
+        return "This computer can't mount folders (FUSE isn't available)."
+    return t or "sshfs couldn't mount it."
+
+
 class SshfsDrive:
+    """A folder in the file manager through the system's sshfs. The app has already signed in once itself (so it
+    knows the server's key and that the sign-in works); sshfs is handed exactly that key, and the password or
+    passphrase through a helper, so nothing waits for a question nobody can see."""
     method = "sshfs"
 
-    def __init__(self, drive, mountpoint):
+    def __init__(self, drive, mountpoint, server_key=None):
         d = dict(DRIVE_DEFAULTS, **drive)
         if not shutil.which("sshfs"):
             raise RemoteError("io", "sshfs isn't installed (on Ubuntu: sudo apt install sshfs)")
-        mp = os.path.expanduser(mountpoint or os.path.join("~", "SSH", d["name"] or d["host"]))
+        self.name = d["name"] or d["host"]
+        mp = os.path.expanduser(mountpoint or os.path.join("~", "SSH", self.name))
+        if os.path.ismount(mp):                                  # left from before (the app was killed): let it go
+            subprocess.run(["fusermount", "-uz", mp], capture_output=True, timeout=8)
         os.makedirs(mp, exist_ok=True)
         self.mountpoint = mp
-        target = f"{d['user'] + '@' if d['user'] else ''}{d['host']}:{d.get('remote') or ''}"
-        opts = ["reconnect", "ServerAliveInterval=15", "ServerAliveCountMax=3", "follow_symlinks",
-                f"volname={d['name'] or d['host']}"]
+        own = _own_folder()
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in self.name)
+        port = int(d.get("port") or 22)
+        opts = ["reconnect", "ServerAliveInterval=15", "ServerAliveCountMax=3", "follow_symlinks", "ConnectTimeout=15",
+                f"fsname=sshdrive:{self.name}"]
+        if sys.platform == "darwin":
+            opts.append(f"volname={self.name}")                  # (macFUSE only: Linux's FUSE refuses it)
         if d.get("readonly"):
             opts.append("ro")
-        if d.get("auth") == "key" and d.get("key"):
-            opts.append("IdentityFile=" + os.path.expanduser(d["key"]))
+        if server_key is not None:                               # exactly the key the app has pinned, and no other
+            kh = os.path.join(own, f"known_hosts-{safe}")
+            who = d["host"] if port == 22 else f"[{d['host']}]:{port}"
+            with open(kh, "w") as f:
+                f.write(f"{who} {server_key.get_name()} {server_key.get_base64()}\n")
+            opts += [f"UserKnownHostsFile={kh}", "GlobalKnownHostsFile=/dev/null", "StrictHostKeyChecking=yes",
+                     "HostKeyAlgorithms=" + HOSTKEY_ALGOS.get(server_key.get_name(), server_key.get_name())]
+        self.keyfile = None
+        secret = ""
+        auth = d.get("auth") or "agent"
+        if auth == "key":
+            if d.get("keytext"):                                 # the key itself: a file only sshfs can read, while mounted
+                self.keyfile = os.path.join(own, f"key-{safe}")
+                fd = os.open(self.keyfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    f.write(reshape_key(d["keytext"]))
+                opts.append("IdentityFile=" + self.keyfile)
+            else:
+                opts.append("IdentityFile=" + os.path.expanduser(d["key"]))
+            opts.append("IdentitiesOnly=yes")
+            secret = d.get("passphrase") or ""
+        elif auth == "password":
+            opts += ["PreferredAuthentications=keyboard-interactive,password", "PubkeyAuthentication=no"]
+            secret = d.get("password") or ""
         env = dict(os.environ)
-        cmd = ["sshfs", target, mp, "-p", str(d.get("port") or 22), "-o", ",".join(opts)]
-        if d.get("auth") == "password":
-            cmd[1:1] = []
-            cmd += ["-o", "password_stdin"]
-        r = subprocess.run(cmd, input=(d.get("password", "") + "\n") if d.get("auth") == "password" else None,
-                           capture_output=True, text=True, env=env, timeout=40)
+        if secret:
+            helper = os.path.join(own, "askpass")
+            if not os.path.exists(helper) or open(helper).read() != ASKPASS:
+                with open(helper, "w") as f:
+                    f.write(ASKPASS)
+                os.chmod(helper, 0o700)
+            env.update(SSH_ASKPASS=helper, SSH_ASKPASS_REQUIRE="force", SSHDRIVE_SECRET=secret, DISPLAY=env.get("DISPLAY", ":0"))
+        target = f"{d['user'] + '@' if d['user'] else ''}{d['host']}:{d.get('remote') or ''}"
+        cmd = ["sshfs", target, mp, "-p", str(port)]
+        for o in opts:                                           # one -o each; a comma inside a value is escaped for FUSE
+            cmd += ["-o", o.replace("\\", "\\\\").replace(",", "\\,")]
+        try:
+            r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=40,
+                               start_new_session=True)          # (no terminal for ssh to ask anything on)
+        except subprocess.TimeoutExpired:
+            self._forget()
+            raise RemoteError("offline", f"{d['host']} took too long to answer.")
         if r.returncode:
-            raise RemoteError("io", (r.stderr or r.stdout).strip() or "sshfs failed")
+            self._forget()
+            raise RemoteError("io", _sshfs_problem(r.stderr or r.stdout, d))
+        _bookmark(mp, self.name, True)
+
+    def _forget(self):
+        if self.keyfile and os.path.exists(self.keyfile):
+            os.remove(self.keyfile)
 
     def stop(self):
         """Unmount; if something has it open (a file manager window), or the server has gone, unmount it lazily:
         it goes as soon as it's let go, and nothing is left hanging meanwhile."""
         mp = self.mountpoint
-        for flags in ("-u", "-uz"):
-            for tool in ("fusermount3", "fusermount"):
-                if shutil.which(tool):
-                    try:
-                        if subprocess.run([tool, flags, mp], capture_output=True, timeout=8).returncode == 0:
-                            return
-                    except subprocess.TimeoutExpired:
-                        pass
-                    break
-        if sys.platform == "darwin":
-            subprocess.run(["umount", "-f", mp], capture_output=True, timeout=8)
+        _bookmark(mp, self.name, False)
+        try:
+            for flags in ("-u", "-uz"):
+                for tool in ("fusermount3", "fusermount"):
+                    if shutil.which(tool):
+                        try:
+                            if subprocess.run([tool, flags, mp], capture_output=True, timeout=8).returncode == 0:
+                                return
+                        except subprocess.TimeoutExpired:
+                            pass
+                        break
+            if sys.platform == "darwin":
+                subprocess.run(["umount", "-f", mp], capture_output=True, timeout=8)
+        finally:
+            self._forget()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1265,9 +1370,11 @@ def mount(drive, on_hostkey=None):
     """Mounts one drive. Returns the running drive (with .stop(), .method and .mountpoint)."""
     d = dict(DRIVE_DEFAULTS, **drive)
     method = d.get("method") or "auto"
-    if method == "sshfs" or (method == "auto" and not WINDOWS and shutil.which("sshfs") and d.get("auth") != "password"
-                             and not d.get("keytext")):
-        return SshfsDrive(d, d.get("mount"))
+    if method == "sshfs" or (method == "auto" and not WINDOWS and shutil.which("sshfs")):
+        check = SftpRemote(d, on_hostkey=on_hostkey)            # signs in once: clear errors, and the server's key pinned
+        key = getattr(check, "server_key", None)
+        check.close()
+        return SshfsDrive(d, d.get("mount"), server_key=key)
     remote = SftpRemote(d, on_hostkey=on_hostkey)
     label = d.get("name") or d.get("host")
     if WINDOWS:

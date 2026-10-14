@@ -1070,6 +1070,7 @@ const commands = {
   SshUnmount(name = "") { if (DEV && DEV.sshUnmount) DEV.sshUnmount(String(name)); return ""; },
   SshStatus(name = "") { return DEV && DEV.sshStatus ? String(DEV.sshStatus(String(name))) : (name ? '{"state":"off","detail":""}' : "{}"); },
   SshMethods() { return JSON.stringify({ android: !!(DEV && DEV.sshMount), winfsp: false, webdav: false, sshfs: false, windows: false, letters: [], keys: [], agent: false }); },
+  OpenFolder(path = "") { return "Folders open in the computer app."; },
   // The user picks a file; handler gets (its name, its text). (A key on a phone, a list, a config...)
   PickTextFile(handler = "") {
     const input = document.createElement("input");
