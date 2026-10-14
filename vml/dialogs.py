@@ -191,6 +191,74 @@ def choose(parent, title, text, buttons, edge=""):
     return Box(parent, title, text, tuple(buttons), edge).run()
 
 
+SHOW_KINDS = (("folders", "Folders", True), ("files", "Files", True), ("links", "Links", True),
+              ("hidden", "Hidden", False), ("noignored", "Hide git-ignored", False))
+
+
+class _Showing:
+    """What the file list shows (folders, files, links, hidden ones, git-ignored ones): a filter between Qt's
+    file system model and the list. The folders on the way to the one being looked at always show, or the list
+    would have nowhere to stand. Kept between boxes, for every app."""
+
+    def __init__(self, fd):
+        from PySide6.QtCore import QSettings, QSortFilterProxyModel
+        self.settings = QSettings("Visualised", "FileBox")
+        self.on = {k: str(self.settings.value(k, d)).lower() in ("true", "1") for k, _, d in SHOW_KINDS}
+        self.fd = fd
+        self.ignored = {}                                      # folder -> the names git ignores there (or None: no repo)
+        outer = self
+
+        class Proxy(QSortFilterProxyModel):
+            def filterAcceptsRow(self, row, parent):
+                return outer.accepts(self.sourceModel(), self.sourceModel().index(row, 0, parent))
+        self.proxy = Proxy(fd)
+        from PySide6.QtCore import QDir
+        fd.setFilter(QDir.AllEntries | QDir.NoDotAndDotDot | QDir.Hidden | QDir.System | QDir.AllDirs)
+        fd.setProxyModel(self.proxy)
+
+    def accepts(self, model, index):
+        import os
+        info = model.fileInfo(index)
+        path = info.absoluteFilePath()
+        here = self.fd.directory().absolutePath()
+        if info.isDir() and (here == path or here.startswith(path.rstrip("/") + "/")):
+            return True                                        # on the way to where we are
+        if info.isSymLink() and not self.on["links"]:
+            return False
+        if info.isDir() and not self.on["folders"] and not self.fd.testOption(self.fd.Option.ShowDirsOnly):
+            return False
+        if info.isFile() and not info.isDir() and not self.on["files"]:
+            return False
+        if (info.fileName().startswith(".") or info.isHidden()) and not self.on["hidden"]:
+            return False
+        if self.on["noignored"] and info.fileName() in (self._ignored(os.path.dirname(path)) or ()):
+            return False
+        return True
+
+    def _ignored(self, folder):
+        """The names in a folder that git ignores there (None outside a repository). Asked once per folder."""
+        import os
+        import subprocess
+        if folder in self.ignored:
+            return self.ignored[folder]
+        names = None
+        try:
+            entries = os.listdir(folder)
+            r = subprocess.run(["git", "-C", folder, "check-ignore", "--stdin"], input="\n".join(entries),
+                               capture_output=True, text=True, timeout=3)
+            if r.returncode in (0, 1):                          # 1: nothing ignored (128: not a repository)
+                names = {os.path.basename(line.rstrip("/")) for line in r.stdout.splitlines() if line.strip()}
+        except (OSError, subprocess.SubprocessError):
+            pass
+        self.ignored[folder] = names
+        return names
+
+    def set(self, key, on):
+        self.on[key] = bool(on)
+        self.settings.setValue(key, "true" if on else "false")
+        self.proxy.invalidateFilter()
+
+
 class FileBox(_Framed, QDialog):
     """Choosing a file or folder, in the same frame as the boxes above: our own title bar (with its close button)
     and edge. Qt's own file dialog sits inside it, so it looks and behaves the same everywhere, title bar or none
@@ -227,6 +295,39 @@ class FileBox(_Framed, QDialog):
         fd.rejected.connect(self.reject)
         frame.addWidget(fd)
         self.fd = fd
+        self.showing = _Showing(fd)
+        fd.directoryEntered.connect(lambda _: self.showing.proxy.invalidateFilter())
+        row = QHBoxLayout()                                    # Show: [x] Folders [x] Files [x] Links [ ] Hidden ...
+        row.setContentsMargins(12, 2, 12, 8)
+        row.setSpacing(14)
+        row.addWidget(QLabel("Show:"))
+        from PySide6.QtWidgets import QCheckBox
+        self.boxes = {}
+        for key, label, _ in SHOW_KINDS:
+            if mode == "folder" and key in ("files", "folders"):
+                continue
+            box = QCheckBox(label)
+            box.setChecked(self.showing.on[key])
+            box.toggled.connect(lambda on, k=key: self.showing.set(k, on))
+            row.addWidget(box)
+            self.boxes[key] = box
+        row.addStretch(1)
+        frame.addLayout(row)
+        import os
+        from PySide6.QtCore import QUrl
+        home = os.path.expanduser("~")                         # the usual places, Downloads among them, to one side
+        places = [home] + [os.path.join(home, p) for p in ("Downloads", "Desktop", "Documents")] + ["/" if os.name != "nt" else "C:\\"]
+        fd.setSidebarUrls([QUrl.fromLocalFile(p) for p in places if os.path.isdir(p)])
+        from PySide6.QtWidgets import QHeaderView, QTreeView
+        view = fd.findChild(QTreeView, "treeView")             # the name wide, the rest as wide as they need
+        if view is not None:
+            view.header().setSectionResizeMode(0, QHeaderView.Stretch)
+            for c in (1, 2, 3):
+                view.header().setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        from PySide6.QtWidgets import QSplitter
+        split = fd.findChild(QSplitter, "splitter")
+        if split is not None:
+            split.setSizes([150, 650])
         self.resize(820, 520)
 
     def _name_box(self):
