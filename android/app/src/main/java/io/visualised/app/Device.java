@@ -73,6 +73,12 @@ final class Device {
         SshDrives.mount(activity, drive);
     }
 
+    /** Try a drive without adding it: vmlFromPhone("sshtest", name, "ok|key|where" or "error|why"). */
+    @JavascriptInterface
+    public void sshTest(String drive) {
+        SshDrives.test(activity, drive);
+    }
+
     /** Take a drive out of the Files app ("" for all of them). */
     @JavascriptInterface
     public void sshUnmount(String name) {

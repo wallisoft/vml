@@ -190,6 +190,56 @@ public final class SshDrives extends DocumentsProvider {
         }
     }
 
+    /**
+     * Try a drive without adding it. The app hears tell("sshtest", name, "ok|" + server key + "|" + what it reached)
+     * or ("sshtest", name, "error|" + why). Nothing is kept: the key is pinned when the drive is mounted.
+     */
+    static void test(Context context, String json) {
+        final Context c = context.getApplicationContext();
+        work().post(() -> {
+            String name = "";
+            Conn k = null;
+            try {
+                JSONObject d = new JSONObject(json);
+                name = d.optString("name", d.optString("host"));
+                if (d.optString("host").isEmpty()) {
+                    throw new Problem("Which server? (Server is empty)", false, OsConstants.EINVAL);
+                }
+                k = new Conn(c, d);
+                k.trial = true;
+                String base = k.base();
+                int things = k.run(s -> {
+                    int n = 0;
+                    for (Object e : s.ls(base)) {
+                        String f = ((ChannelSftp.LsEntry) e).getFilename();
+                        if (!f.equals(".") && !f.equals("..")) {
+                            n++;
+                        }
+                    }
+                    return n;
+                });
+                String user = d.optString("user");
+                tellTest(name, "ok|" + k.seenKey + "|Connected to " + (user.isEmpty() ? "" : user + "@") + d.optString("host")
+                        + ":" + base + (things <= 0 ? " (empty)" : " (" + things + (things == 1 ? " thing" : " things") + " there)"));
+            } catch (Problem p) {
+                tellTest(name, "error|" + p.getMessage());
+            } catch (JSONException e) {
+                tellTest(name, "error|That drive isn't JSON.");
+            } finally {
+                if (k != null) {
+                    k.close();
+                }
+            }
+        });
+    }
+
+    private static void tellTest(String name, String b) {
+        Listener l = listener;
+        if (l != null) {
+            l.told("sshtest", name, b);
+        }
+    }
+
     /** Take a drive away ("" for all of them). */
     static void unmount(Context context, String name) {
         Context c = context.getApplicationContext();
@@ -281,6 +331,8 @@ public final class SshDrives extends DocumentsProvider {
         private ChannelSftp sftp;
         private String base;
         private boolean keyChanged;
+        boolean trial;                  // only being tried (SshTest): the server's key is noted, not kept
+        String seenKey = "";
 
         Conn(Context context, JSONObject d) {
             this.context = context;
@@ -356,7 +408,7 @@ public final class SshDrives extends DocumentsProvider {
                     throw new Problem("On a phone, paste the key itself (the text of the key file, BEGIN to END).", false, OsConstants.EACCES);
                 }
             }
-            return text.getBytes(StandardCharsets.UTF_8);
+            return reshape(text).getBytes(StandardCharsets.UTF_8);
         }
 
         private Problem problem(JSchException e) {
@@ -373,6 +425,12 @@ public final class SshDrives extends DocumentsProvider {
             }
             if (m.contains("UnknownHost")) {
                 return new Problem("There's no server called " + d.optString("host") + " (or no internet).", true, OsConstants.EHOSTUNREACH);
+            }
+            if (m.contains("Connection refused")) {
+                return new Problem("Couldn't reach " + d.optString("host") + ": nothing answered on port " + d.optInt("port", 22) + ".", true, OsConstants.EHOSTUNREACH);
+            }
+            if (m.contains("timeout") || m.contains("timed out")) {
+                return new Problem("Couldn't reach " + d.optString("host") + ": no answer (a firewall, or the wrong address?).", true, OsConstants.EHOSTUNREACH);
             }
             return new Problem(m.replaceFirst("^java\\.[\\w.]+: ", ""), true, OsConstants.EHOSTUNREACH);
         }
@@ -459,6 +517,14 @@ public final class SshDrives extends DocumentsProvider {
             public int check(String host, byte[] key) {
                 String fp = fingerprint(key);
                 String known = d.optString("hostkey");
+                seenKey = fp;
+                if (trial) {
+                    if (known.isEmpty() || known.equals(fp)) {
+                        return OK;
+                    }
+                    keyChanged = true;
+                    return CHANGED;
+                }
                 if (known.isEmpty()) {
                     synchronized (SshDrives.class) {
                         JSONObject all = drives(context);
@@ -492,6 +558,21 @@ public final class SshDrives extends DocumentsProvider {
             @Override public HostKey[] getHostKey() { return new HostKey[0]; }
             @Override public HostKey[] getHostKey(String host, String type) { return new HostKey[0]; }
         }
+    }
+
+    /** A key pasted into a one-line box loses its line breaks: put them back (BEGIN line, body in 70s, END line). */
+    static String reshape(String text) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(-----BEGIN [A-Z0-9 ]+-----)(.*?)(-----END [A-Z0-9 ]+-----)",
+                java.util.regex.Pattern.DOTALL).matcher(text.trim());
+        if (!m.find() || m.group(2).contains(":")) {
+            return text;                        // (an old PEM key with headers inside is left as it is)
+        }
+        String body = m.group(2).replaceAll("\\s+", "");
+        StringBuilder out = new StringBuilder(m.group(1)).append('\n');
+        for (int i = 0; i < body.length(); i += 70) {
+            out.append(body, i, Math.min(body.length(), i + 70)).append('\n');
+        }
+        return out.append(m.group(3)).append('\n').toString();
     }
 
     /** "ssh-ed25519 SHA256:..." as ssh-keygen -l shows it (and as Visualised on a computer keeps it). */
