@@ -307,6 +307,8 @@ class SystemCommands:
 
     # ── the tray ──
     def cmd_Tray(self, tooltip="", menu="", handler=""):
+        """An icon in the tray. menu: items with | between ("-" a line; "Title>one;two" a submenu, whose items come
+        to the handler as "Title>one"); handler gets the item picked, or "open" when the icon itself is clicked."""
         app = QApplication.instance()
         old = getattr(self, "_tray", None)
         if not tooltip:
@@ -337,6 +339,14 @@ class SystemCommands:
         for item in [x.strip() for x in str(menu or "").split("|") if x.strip()]:
             if item == "-":
                 m.addSeparator()
+                continue
+            if ">" in item:                    # "Title>one;two": a submenu; picking one hands the handler "Title>one"
+                title, kids = item.split(">", 1)
+                sub = m.addMenu(title.replace("&", "&&"))
+                for kid in [k.strip() for k in kids.split(";") if k.strip()]:
+                    act = QAction(kid.replace("&", "&&"), sub)
+                    act.triggered.connect(lambda _=False, t=f"{title}>{kid}": q.put((handler, (t,), origin)))
+                    sub.addAction(act)
                 continue
             act = QAction(item.replace("&", "&&"), m)            # (& would underline the next letter)
             act.triggered.connect(lambda _=False, t=item: q.put((handler, (t,), origin)))

@@ -69,6 +69,7 @@ function Refresh()
   end
 end
 
+TERMS = "Open a terminal"
 -- the tray's menu: who made it, Exit, then every drive with a dot for how it is (picking one mounts or unmounts it)
 local TRAYDOT = { mounted = "●", mounting = "◌", connecting = "◌", error = "✕" }
 TrayItems = {}
@@ -88,6 +89,22 @@ function TrayMenu()
   for _, im in ipairs(Images or {}) do
     if im.enabled ~= false then add(im.name, (DiskState[im.name] or {}).state, { image = im }) end
   end
+  -- a terminal on any of them: SSH drives always, the rest once mounted (and folder drives, in their folder)
+  TrayTerms = {}
+  local names = {}
+  local function term(name, what)
+    local n = name:gsub("[|;>]", "/")
+    while TrayTerms[n] do n = n .. " " end
+    TrayTerms[n] = what
+    names[#names + 1] = n
+  end
+  for _, d in ipairs(Drives) do term(d.name, { ssh = d }) end
+  for _, im in ipairs(Images or {}) do
+    local s = DiskState[im.name] or {}
+    local at = s.state == "mounted" and Places(s.detail):match("^[^,]+") or (im.kind == "folder" and im.path) or nil
+    if at and im.enabled ~= false then term(im.name, { folder = at }) end
+  end
+  if #names > 0 then menu[#menu + 1] = "-"; menu[#menu + 1] = TERMS .. ">" .. table.concat(names, ";") end
   TrayTop = top
   return table.concat(menu, "|")
 end
@@ -210,6 +227,11 @@ function Ssh.TrayClick(args)
     ShowLog()
   elseif what == "Exit" then
     Vml("Quit")
+  elseif what:sub(1, #TERMS + 1) == TERMS .. ">" then
+    local t = TrayTerms[what:sub(#TERMS + 2)]
+    if not t then return end
+    local why = t.ssh and Vml("OpenTerminal", "", json.encode(t.ssh)) or Vml("OpenTerminal", t.folder)
+    if (why or "") ~= "" then LogAdd("✕ " .. why, true) end
   elseif TrayItems[what] then
     TrayToggle(TrayItems[what])
   end
