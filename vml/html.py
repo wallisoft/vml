@@ -501,6 +501,10 @@ TEMPLATE = r"""<!DOCTYPE html>
   button { font: inherit; padding: 4px 10px; border: 1px solid #c4c8cf; border-radius: 4px; background: #f7f7f8; cursor: pointer; }
   button:hover { border-color: #9ca3af; } button:active { background: #e5e7eb; }
   select.alt option:nth-child(even) { background: #E8EEEC; }
+  * { scrollbar-width: thin; scrollbar-color: rgba(60,70,80,.32) transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; } ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(60,70,80,.28); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: rgba(60,70,80,.5); }
   select.alt option { padding: 3px 2px; }
   input[type=text], input[type=password], textarea, select { font: inherit; box-sizing: border-box; border: 1px solid #c4c8cf; border-radius: 3px; padding: 3px 5px; background: #fff; }
   .grid, .tree { box-sizing: border-box; border: 1px solid #c4c8cf; background: #fff; overflow: auto; outline: none; }

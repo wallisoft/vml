@@ -94,12 +94,26 @@ class Template:
         self.root = self.parts[0][0] if self.parts else None
 
 
+# Scrollbars as they are drawn now: thin, rounded, no arrows, on a clear track, darker under the pointer.
+SCROLLBARS = """
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px 2px 2px 0; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0 2px 2px 2px; }
+QScrollBar::handle:vertical { background: rgba(60, 70, 80, 0.28); border-radius: 3px; min-height: 28px; margin: 0 2px; }
+QScrollBar::handle:horizontal { background: rgba(60, 70, 80, 0.28); border-radius: 3px; min-width: 28px; margin: 2px 0; }
+QScrollBar::handle:hover, QScrollBar::handle:pressed { background: rgba(60, 70, 80, 0.5); }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: none; background: none; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+"""
+
+
 class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     log_line = staticmethod(log)
 
     def __init__(self, db_path=None, lua_paths=()):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(True)
+        if SCROLLBARS not in (self.app.styleSheet() or ""):
+            self.app.setStyleSheet((self.app.styleSheet() or "") + SCROLLBARS)
         if db_path is None:
             fd, db_path = tempfile.mkstemp(prefix="vml-", suffix=".db")
             os.close(fd)

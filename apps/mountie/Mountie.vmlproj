@@ -1,0 +1,7 @@
+# Visualised project
+Name=Mountie
+Startup=Mountie.vml
+Form=Mountie.vml
+Module=common.lua
+Module=ssh.lua
+Module=disks.lua

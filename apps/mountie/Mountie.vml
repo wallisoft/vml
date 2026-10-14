@@ -1,0 +1,707 @@
+# ============================================================================
+# Mountie: everything you might want to open as a drive, in one place.
+#
+#   SSH        a folder on a server: a drive letter on Windows (WinFsp, or
+#              Windows' own WebDAV client), a folder in Files on Linux and
+#              macOS (sshfs), the Files app on Android. Password, key or the
+#              SSH agent; the server's key remembered; Act as root or
+#              www-data through sudo.
+#   ISO        disk images: ISO, IMG, DMG.
+#   VHD        virtual disks: VHD, VHDX (and VMDK, QCOW2, VDI on Linux).
+#   Partitions the computer's own disks and sticks, mounted and unmounted.
+#
+#   Lives in the tray, mounts what you ask by itself, can start with the
+#   computer. Everything is kept on this device only.
+# ============================================================================
+
+@Window Mountie
+Title=Mountie
+Version=1.1
+Width=480
+Height=700
+Icon=mountie.png
+OnOpened=Start
+OnClosing=Closing
+
+@Canvas c
+Parent=Mountie
+Background=#F3F5F4
+
+@Image imgHat
+Parent=c
+Canvas.Left=20
+Canvas.Top=12
+Width=56
+Height=56
+Stretch=Uniform
+Source=mountie.png
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=84
+Canvas.Top=16
+Width=150
+Height=34
+FontSize=24
+FontWeight=Bold
+Foreground=#127A68
+Text=Mountie
+
+@TextBlock lblVer
+Parent=c
+Canvas.Left=190
+Canvas.Top=27
+Width=80
+Height=20
+FontSize=12
+Foreground=#6B7280
+Text=
+
+@Button btnAbout
+Parent=c
+Canvas.Left=392
+Canvas.Top=20
+Width=64
+Height=28
+BorderThickness=0
+Background=#F3F5F4
+Foreground=#127A68
+Content=About
+OnClick=About
+
+@TextBlock lblAbout
+Parent=c
+Canvas.Left=84
+Canvas.Top=50
+Width=372
+Height=36
+TextWrapping=Wrap
+Foreground=#555555
+Text=Servers, disk images and partitions, as drives.
+
+# --- the tabs ---------------------------------------------------------------------
+
+@Button btnTabSsh
+Parent=c
+Canvas.Left=24
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=SSH
+OnClick=TabSsh
+
+@Button btnTabIso
+Parent=c
+Canvas.Left=133
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=ISO
+OnClick=TabIso
+
+@Button btnTabVhd
+Parent=c
+Canvas.Left=242
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=VHD
+OnClick=TabVhd
+
+@Button btnTabPart
+Parent=c
+Canvas.Left=351
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=Partitions
+OnClick=TabPart
+
+# --- the drives ---------------------------------------------------------------
+
+@ListBox lstDrives
+Parent=c
+AlternatingRows=true
+Canvas.Left=24
+Canvas.Top=136
+Width=432
+Height=220
+SelectionChanged=Picked
+OnDoubleClick=OpenDrive
+
+@Button btnToggle
+Parent=c
+Canvas.Left=24
+Canvas.Top=366
+Width=132
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+Content=Connect
+OnClick=Toggle
+
+@Button btnAdd
+Parent=c
+Canvas.Left=164
+Canvas.Top=366
+Width=92
+Height=40
+Content=Add
+OnClick=AddDrive
+
+@Button btnEdit
+Parent=c
+Canvas.Left=264
+Canvas.Top=366
+Width=92
+Height=40
+Content=Change
+OnClick=EditDrive
+
+@Button btnRemove
+Parent=c
+Canvas.Left=364
+Canvas.Top=366
+Width=92
+Height=40
+Content=Remove
+OnClick=RemoveDrive
+
+@CheckBox chkBoot
+Parent=c
+Canvas.Left=24
+Canvas.Top=446
+Width=432
+Height=28
+Content=Start with the computer, in the tray
+OnClick=BootChanged
+
+@TextBlock lblStatus
+Parent=c
+Canvas.Left=24
+Canvas.Top=480
+Width=432
+Height=190
+TextWrapping=Wrap
+FontSize=13
+Foreground=#374151
+Text=
+
+# --- disk images and partitions (the ISO, VHD and Partitions tabs share these) ----
+
+@ListBox lstDisk
+Parent=c
+AlternatingRows=true
+Canvas.Left=24
+Canvas.Top=136
+Width=432
+Height=220
+IsVisible=false
+SelectionChanged=DiskPicked
+OnDoubleClick=DiskOpen
+
+@Button btnDiskToggle
+Parent=c
+Canvas.Left=24
+Canvas.Top=366
+Width=132
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+IsVisible=false
+Content=Mount
+OnClick=DiskToggle
+
+@Button btnDiskAdd
+Parent=c
+Canvas.Left=164
+Canvas.Top=366
+Width=92
+Height=40
+IsVisible=false
+Content=Add
+OnClick=DiskAdd
+
+@Button btnDiskOpen
+Parent=c
+Canvas.Left=264
+Canvas.Top=366
+Width=92
+Height=40
+IsVisible=false
+Content=Open
+OnClick=DiskOpen
+
+@Button btnDiskRemove
+Parent=c
+Canvas.Left=364
+Canvas.Top=366
+Width=92
+Height=40
+IsVisible=false
+Content=Remove
+OnClick=DiskRemove
+
+@CheckBox chkDiskRO
+Parent=c
+Canvas.Left=24
+Canvas.Top=412
+Width=206
+Height=28
+IsVisible=false
+Content=Read only
+OnClick=DiskOptions
+
+@CheckBox chkDiskAuto
+Parent=c
+Canvas.Left=240
+Canvas.Top=412
+Width=216
+Height=28
+IsVisible=false
+Content=Mount it when Mountie starts
+OnClick=DiskOptions
+
+# --- adding or changing a drive (shown over the list) --------------------------
+
+@TextBlock lblForm
+Parent=c
+Canvas.Left=24
+Canvas.Top=136
+Width=432
+Height=24
+FontWeight=Bold
+IsVisible=false
+Text=A drive
+
+@TextBox txtName
+Parent=c
+Canvas.Left=24
+Canvas.Top=164
+Width=206
+Height=34
+IsVisible=false
+Watermark=Name (e.g. Web server)
+
+@TextBox txtMount
+Parent=c
+Canvas.Left=240
+Canvas.Top=164
+Width=216
+Height=34
+IsVisible=false
+Watermark=Drive letter or folder (blank: any)
+
+@TextBox txtHost
+Parent=c
+Canvas.Left=24
+Canvas.Top=206
+Width=300
+Height=34
+IsVisible=false
+Watermark=Server (e.g. tiny-web.uk)
+
+@TextBox txtPort
+Parent=c
+Canvas.Left=334
+Canvas.Top=206
+Width=122
+Height=34
+IsVisible=false
+Watermark=Port (22)
+
+@TextBox txtUser
+Parent=c
+Canvas.Left=24
+Canvas.Top=248
+Width=206
+Height=34
+IsVisible=false
+Watermark=User
+
+@TextBox txtRemote
+Parent=c
+Canvas.Left=240
+Canvas.Top=248
+Width=216
+Height=34
+IsVisible=false
+Watermark=Folder on the server (blank: home)
+
+@ComboBox cmbAuth
+Parent=c
+Canvas.Left=24
+Canvas.Top=290
+Width=206
+Height=34
+IsVisible=false
+Items=Password,Key file,SSH agent
+SelectionChanged=AuthChanged
+
+@TextBox txtSecret
+Parent=c
+Canvas.Left=240
+Canvas.Top=290
+Width=216
+Height=34
+IsVisible=false
+IsPassword=true
+Watermark=Password
+
+@TextBox txtKey
+Parent=c
+Canvas.Left=24
+Canvas.Top=332
+Width=340
+Height=34
+IsVisible=false
+Watermark=Key file (e.g. ~/.ssh/id_ed25519), or the key itself
+
+@Button btnBrowse
+Parent=c
+Canvas.Left=372
+Canvas.Top=332
+Width=84
+Height=34
+IsVisible=false
+Content=Browse
+OnClick=BrowseKey
+
+@TextBox txtActAs
+Parent=c
+Canvas.Left=24
+Canvas.Top=374
+Width=206
+Height=34
+IsVisible=false
+Watermark=Act as (blank: you; or root, www-data)
+
+@Button btnAllow
+Parent=c
+Canvas.Left=240
+Canvas.Top=374
+Width=216
+Height=34
+IsVisible=false
+Content=Allow it on the server
+OnClick=AllowSudo
+
+@CheckBox chkAuto
+Parent=c
+Canvas.Left=24
+Canvas.Top=416
+Width=206
+Height=28
+IsVisible=false
+Content=Connect by itself
+IsChecked=true
+
+@CheckBox chkReadOnly
+Parent=c
+Canvas.Left=240
+Canvas.Top=416
+Width=216
+Height=28
+IsVisible=false
+Content=Read only
+
+@Button btnTest
+Parent=c
+Canvas.Left=24
+Canvas.Top=456
+Width=132
+Height=40
+IsVisible=false
+Content=Test
+OnClick=TestDrive
+
+@Button btnSave
+Parent=c
+Canvas.Left=164
+Canvas.Top=456
+Width=160
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+IsVisible=false
+Content=Save and connect
+OnClick=SaveDrive
+
+@Button btnCancel
+Parent=c
+Canvas.Left=332
+Canvas.Top=456
+Width=124
+Height=40
+IsVisible=false
+Content=Cancel
+OnClick=CloseForm
+
+@TextBlock lblTest
+Parent=c
+Canvas.Left=24
+Canvas.Top=506
+Width=432
+Height=170
+TextWrapping=Wrap
+FontSize=13
+Foreground=#374151
+IsVisible=false
+Text=
+
+# ============================================================================
+# Scripts: Start sets things up; each event calls its handler in ssh.lua or
+# disks.lua, the project's modules (see Mountie.vmlproj).
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+Drives = json.decode(Vml("GetSetting", "drives") or "") or {}
+State = {}          -- name -> {state=, detail=}
+Editing = nil       -- index of the drive being changed (nil: a new one)
+LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove" }
+FOOT = { "chkBoot", "lblStatus" }
+TABS = { "btnTabSsh", "btnTabIso", "btnTabVhd", "btnTabPart" }
+DISK = { "lstDisk", "btnDiskToggle", "btnDiskAdd", "btnDiskOpen", "btnDiskRemove", "chkDiskRO", "chkDiskAuto" }
+Images = json.decode(Vml("GetSetting", "images") or "") or {}       -- {name, path, kind, readonly, automount}
+Parts = {}           -- the computer's partitions, as last listed
+DiskState = {}       -- name -> {state=, detail=}
+Tab = "Ssh"
+FORM = { "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
+         "txtKey", "btnBrowse", "txtActAs", "btnAllow", "chkAuto", "chkReadOnly", "btnTest", "btnSave", "btnCancel", "lblTest" }
+Tested = nil        -- the last good Test: {host, port, hostkey}, so saving keeps the key it was shown
+PickedKey = nil     -- a key picked on a phone: its text (a one-line box can't hold it), shown by name
+
+-- what this device can do
+Can = json.decode(Vml("SshMethods") or "") or {}
+VERSION = Vml("GetProperty", "Mountie", "Version") or ""
+if VERSION == "" then VERSION = "1.1" end                 -- (a phone page may not know its window's Version)
+Vml("SetProperty", "lblVer", "Text", "v" .. VERSION)
+local can = Can
+if can.android then
+  Vml("SetProperty", "chkBoot", "IsVisible", "false")       -- a phone keeps its drives in Files by itself
+  table.remove(LIST, 6)
+  for _, gone in ipairs({ "txtMount", "txtActAs" }) do                -- no drive letters on a phone; sudo from a computer
+    for i, n in ipairs(FORM) do if n == gone then table.remove(FORM, i) break end end
+  end
+  Vml("SetProperty", "txtName", "Width", "432")
+  Say("Connected drives are in the Files app (under Browse), and in every app's \"open file\".")
+  Show(TABS, false)                                                -- a phone has SSH drives only
+elseif can.windows and not can.winfsp then
+  Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
+end
+Vml("SetProperty", "chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
+Refresh()
+for _, d in ipairs(Drives) do if d.automount ~= false then Mount(d) end end
+if not can.android then
+  for _, im in ipairs(Images) do if im.automount then DiskMount(im) end end
+end
+ShowTab("Ssh")
+if Vml("LaunchedAtBoot") == "true" then Vml("HideForm", "Mountie") end
+LUA
+
+@Script TabSsh
+Interpreter=lua
+<<LUA
+ShowTab("Ssh")
+LUA
+
+@Script TabIso
+Interpreter=lua
+<<LUA
+ShowTab("Iso")
+LUA
+
+@Script TabVhd
+Interpreter=lua
+<<LUA
+ShowTab("Vhd")
+LUA
+
+@Script TabPart
+Interpreter=lua
+<<LUA
+ShowTab("Part")
+LUA
+
+@Script Closing
+Interpreter=lua
+<<LUA
+Ssh.Closing(args)
+LUA
+
+@Script OnDrive
+Interpreter=lua
+<<LUA
+Ssh.OnDrive(args)
+LUA
+
+@Script Picked
+Interpreter=lua
+<<LUA
+Ssh.Picked(args)
+LUA
+
+@Script Toggle
+Interpreter=lua
+<<LUA
+Ssh.Toggle(args)
+LUA
+
+@Script OpenDrive
+Interpreter=lua
+<<LUA
+Ssh.OpenDrive(args)
+LUA
+
+@Script About
+Interpreter=lua
+<<LUA
+Ssh.About(args)
+LUA
+
+@Script TrayClick
+Interpreter=lua
+<<LUA
+Ssh.TrayClick(args)
+LUA
+
+@Script BootChanged
+Interpreter=lua
+<<LUA
+Ssh.BootChanged(args)
+LUA
+
+@Script OpenForm
+Interpreter=lua
+<<LUA
+Ssh.OpenForm(args)
+LUA
+
+@Script AuthChanged
+Interpreter=lua
+<<LUA
+Ssh.AuthChanged(args)
+LUA
+
+@Script AddDrive
+Interpreter=lua
+<<LUA
+Ssh.AddDrive(args)
+LUA
+
+@Script EditDrive
+Interpreter=lua
+<<LUA
+Ssh.EditDrive(args)
+LUA
+
+@Script CloseForm
+Interpreter=lua
+<<LUA
+Ssh.CloseForm(args)
+LUA
+
+@Script SaveDrive
+Interpreter=lua
+<<LUA
+Ssh.SaveDrive(args)
+LUA
+
+@Script RemoveDrive
+Interpreter=lua
+<<LUA
+Ssh.RemoveDrive(args)
+LUA
+
+@Script TestDrive
+Interpreter=lua
+<<LUA
+Ssh.TestDrive(args)
+LUA
+
+@Script OnTest
+Interpreter=lua
+<<LUA
+Ssh.OnTest(args)
+LUA
+
+@Script BrowseKey
+Interpreter=lua
+<<LUA
+Ssh.BrowseKey(args)
+LUA
+
+@Script OnKeyFile
+Interpreter=lua
+<<LUA
+Ssh.OnKeyFile(args)
+LUA
+
+@Script AllowSudo
+Interpreter=lua
+<<LUA
+Ssh.AllowSudo(args)
+LUA
+
+@Script OnAllowed
+Interpreter=lua
+<<LUA
+Ssh.OnAllowed(args)
+LUA
+
+@Script DiskPicked
+Interpreter=lua
+<<LUA
+Disk.DiskPicked(args)
+LUA
+
+@Script DiskToggle
+Interpreter=lua
+<<LUA
+Disk.DiskToggle(args)
+LUA
+
+@Script OnDisk
+Interpreter=lua
+<<LUA
+Disk.OnDisk(args)
+LUA
+
+@Script DiskOpen
+Interpreter=lua
+<<LUA
+Disk.DiskOpen(args)
+LUA
+
+@Script DiskAdd
+Interpreter=lua
+<<LUA
+Disk.DiskAdd(args)
+LUA
+
+@Script DiskRemove
+Interpreter=lua
+<<LUA
+Disk.DiskRemove(args)
+LUA
+
+@Script DiskOptions
+Interpreter=lua
+<<LUA
+Disk.DiskOptions(args)
+LUA
