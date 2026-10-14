@@ -15,6 +15,37 @@ function Say(text, bad)                -- a problem in red, so it isn't missed
   Vml("SetProperty", "lblStatus", "Text", text)
 end
 
+-- ── the log: what happened to the drives, newest first; ⚠ on the Log button until new problems are looked at ──
+function LogAdd(text, bad)
+  if LOG[1] and LOG[1].text == text then return end              -- (a drive that keeps failing the same way: once)
+  table.insert(LOG, 1, { t = os.date("%d %b %H:%M"), text = text, bad = bad == true })
+  while #LOG > 200 do table.remove(LOG) end
+  if bad then Unseen = Unseen + 1 end
+  Vml("SetSetting", "log", json.encode(LOG))
+  Vml("SetSetting", "log_unseen", tostring(Unseen))
+  LogButton()
+end
+
+function LogButton()
+  local new = Unseen > 0
+  Vml("SetProperty", "btnLog", "Content", new and ("⚠ " .. Unseen) or "Log")
+  Vml("SetProperty", "btnLog", "Background", new and "#FEF3C7" or "#F3F5F4")
+  Vml("SetProperty", "btnLog", "Foreground", new and "#92400E" or "#6B7280")
+  Vml("SetProperty", "btnLog", "ToolTip", new and (Unseen .. " new problem" .. (Unseen == 1 and "" or "s") .. ": click to see")
+    or "What happened to the drives")
+end
+
+function ShowLog()
+  Unseen = 0
+  Vml("SetSetting", "log_unseen", "0")
+  LogButton()
+  Refresh()                                                     -- (the tray's Log item too)
+  if Vml("FormOpenModal", "Log.vml") == "clear" then
+    LOG = {}
+    Vml("SetSetting", "log", "[]")
+  end
+end
+
 -- ── tabs ──
 local TABNAMES = { "Ssh", "Iso", "Vhd", "Part", "Fold", "Ram" }
 local HELP = {

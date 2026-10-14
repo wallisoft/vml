@@ -73,13 +73,14 @@ local TRAYDOT = { mounted = "●", mounting = "◌", connecting = "◌", error =
 TrayItems = {}
 function TrayMenu()
   TrayItems = {}
-  local top = "Mountie " .. VERSION .. "  ·  Steve & Claude, Wallisoft"
-  local menu = { top, "Open Mountie", "Exit" }
+  local top = "About Mountie™ " .. VERSION
+  TrayLog = Unseen > 0 and ("⚠  Log: " .. Unseen .. " new") or "Log"
+  local menu = { top, "Open Mountie", TrayLog, "Exit" }
   local function add(name, state, what)
     local label = (TRAYDOT[state] or "○") .. "  " .. name:gsub("|", "/")
     while TrayItems[label] do label = label .. " " end           -- (two with one name: both still pickable)
     TrayItems[label] = what
-    if #menu == 3 then menu[#menu + 1] = "-" end
+    if #menu == 4 then menu[#menu + 1] = "-" end
     menu[#menu + 1] = label
   end
   for _, d in ipairs(Drives) do add(d.name, (State[d.name] or {}).state, { ssh = d }) end
@@ -128,10 +129,15 @@ function Ssh.OnDrive(args)
   State[name] = { state = state, detail = detail }
   if state == "mounted" then
     Vml("TrayMessage", name .. " connected", (detail:gsub(" %(.*%)", "")))
+    LogAdd("● " .. name .. " connected: " .. detail)
+  elseif state == "off" then
+    LogAdd("○ " .. name .. " disconnected")
   elseif state == "error" then
+    LogAdd("✕ " .. name .. ": " .. detail, true)
     Say("✕ " .. name .. ": " .. detail, true)
     Vml("TrayMessage", name .. " didn't connect", detail)
   elseif state == "offline" then
+    LogAdd("○ " .. name .. " out of reach: " .. detail, true)
     Say("○ " .. name .. " is out of reach; it keeps trying. (" .. detail .. ")", true)
   end
   Refresh()
@@ -181,7 +187,7 @@ end
 
 function Ssh.About(args)
   args = args or {}
-  Vml("InfoDialog", "Mountie " .. VERSION .. "\n\n"
+  Vml("InfoDialog", "Mountie™ " .. VERSION .. "\n\n"
     .. "Everything you might open as a drive, in one place:\n"
     .. "folders on your SSH servers, disk images (ISO, IMG, VHD, VHDX),\n"
     .. "the computer's own partitions, your folders through an ignore list,\n"
@@ -198,6 +204,9 @@ function Ssh.TrayClick(args)
     Vml("ShowForm", "Mountie")
   elseif what == TrayTop then
     Ssh.About()
+  elseif what == TrayLog then
+    Vml("ShowForm", "Mountie")
+    ShowLog()
   elseif what == "Exit" then
     Vml("Quit")
   elseif TrayItems[what] then

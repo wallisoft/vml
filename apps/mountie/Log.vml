@@ -1,0 +1,117 @@
+# ============================================================================
+# Mountie's log: what happened to the drives, newest first (problems marked ✕).
+# Opened by Mountie.vml (the Log button, or Log on the hat's menu).
+#   in:  setting log = [{t, text, bad}]
+#   out: SetDialogResult "clear" to empty it, or nothing
+# ============================================================================
+
+@Window LogWin
+Title=Mountie's log
+Width=560
+Height=520
+Icon=mountie.png
+OnOpened=LogStart
+
+@Canvas cLog
+Parent=LogWin
+Background=#F3F5F4
+
+@TextBlock lblLogTitle
+Parent=cLog
+Canvas.Left=20
+Canvas.Top=14
+Width=520
+Height=30
+FontSize=19
+FontWeight=Bold
+Foreground=#127A68
+Text=What happened
+
+@TextBlock lblLogCount
+Parent=cLog
+Canvas.Left=20
+Canvas.Top=44
+Width=520
+Height=22
+Foreground=#6B7280
+Text=
+
+@TextBox txtLog
+Parent=cLog
+Canvas.Left=20
+Canvas.Top=70
+Width=520
+Height=372
+AcceptsReturn=true
+IsReadOnly=true
+FontFamily=monospace
+FontSize=12
+
+@Button btnLogCopy
+Parent=cLog
+Canvas.Left=20
+Canvas.Top=458
+Width=96
+Height=40
+Content=Copy
+OnClick=LogCopy
+
+@Button btnLogClear
+Parent=cLog
+Canvas.Left=124
+Canvas.Top=458
+Width=96
+Height=40
+Content=Clear
+OnClick=LogClear
+
+@Button btnLogClose
+Parent=cLog
+Canvas.Left=444
+Canvas.Top=458
+Width=96
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+Content=Close
+OnClick=LogClose
+
+# ============================================================================
+
+@Script LogStart
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+local log = json.decode(Vml("GetSetting", "log") or "") or {}
+local lines, bad = {}, 0
+for _, e in ipairs(log) do
+  lines[#lines + 1] = (e.t or "") .. "  " .. (e.text or "")
+  if e.bad then bad = bad + 1 end
+end
+LogText = table.concat(lines, "\n")
+Vml("SetProperty", "txtLog", "Text", #lines > 0 and LogText or "Nothing yet: mounting, unmounting and any problems show up here.")
+Vml("SetProperty", "lblLogCount", "Text", #lines == 0 and "" or (#lines .. (#lines == 1 and " entry" or " entries") .. ", "
+  .. (bad == 0 and "no problems" or (bad .. (bad == 1 and " problem" or " problems"))) .. ". Newest first."))
+Vml("SetProperty", "btnLogCopy", "IsEnabled", tostring(#lines > 0))
+Vml("SetProperty", "btnLogClear", "IsEnabled", tostring(#lines > 0))
+LUA
+
+@Script LogCopy
+Interpreter=lua
+<<LUA
+Vml("ClipboardSet", LogText or "")
+Vml("SetProperty", "lblLogCount", "Text", "Copied: paste it wherever it helps.")
+LUA
+
+@Script LogClear
+Interpreter=lua
+<<LUA
+Vml("SetDialogResult", "clear")
+Vml("CloseForm", "LogWin")
+LUA
+
+@Script LogClose
+Interpreter=lua
+<<LUA
+Vml("CloseForm", "LogWin")
+LUA

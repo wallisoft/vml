@@ -214,11 +214,14 @@ function Disk.OnDisk(args)
   local name, state, detail = args[1] or "", args[2] or "", args[3] or ""
   DiskState[name] = { state = state, detail = detail }
   if state == "mounted" then
+    LogAdd("● " .. name .. " mounted at " .. Tilde(Places(detail)))
     Say(name .. ": " .. Places(detail) .. "\nDouble-click it to open it.")
     Vml("TrayMessage", name .. " mounted", Places(detail))
   elseif state == "error" then
+    LogAdd("✕ " .. name .. ": " .. detail, true)
     Say("✕ " .. name .. ": " .. detail, true)
   elseif state == "off" then
+    LogAdd("○ " .. name .. " unmounted")
     Say(name .. " unmounted.")
     DiskState[name] = nil
   end

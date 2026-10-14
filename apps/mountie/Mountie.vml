@@ -49,17 +49,30 @@ Height=34
 FontSize=24
 FontWeight=Bold
 Foreground=#127A68
-Text=Mountie
+Text=Mountie™
 
 @TextBlock lblVer
 Parent=c
-Canvas.Left=190
+Canvas.Left=212
 Canvas.Top=27
 Width=80
 Height=20
 FontSize=12
 Foreground=#6B7280
 Text=
+
+@Button btnLog
+Parent=c
+Canvas.Left=322
+Canvas.Top=20
+Width=64
+Height=28
+BorderThickness=0
+Background=#F3F5F4
+Foreground=#6B7280
+Content=Log
+ToolTip=What happened to the drives
+OnClick=ShowLog
 
 @Button btnAbout
 Parent=c
@@ -541,6 +554,8 @@ Images = json.decode(Vml("GetSetting", "images") or "") or {}       -- {name, pa
 Parts = {}           -- the computer's partitions, as last listed
 DiskState = {}       -- name -> {state=, detail=}
 Tab = "Ssh"
+LOG = json.decode(Vml("GetSetting", "log") or "") or {}            -- {t, text, bad}, newest first
+Unseen = tonumber(Vml("GetSetting", "log_unseen") or "") or 0      -- problems not looked at yet
 FORM = { "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
          "txtKey", "btnBrowse", "txtActAs", "btnAllow", "chkAuto", "chkReadOnly", "btnTest", "btnSave", "btnCancel", "lblTest" }
 Tested = nil        -- the last good Test: {host, port, hostkey}, so saving keeps the key it was shown
@@ -565,6 +580,7 @@ elseif can.windows and not can.winfsp then
   Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
 end
 Vml("SetProperty", "chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
+LogButton()
 Refresh()
 for _, d in ipairs(Drives) do if d.automount ~= false then Mount(d) end end
 if not can.android then
@@ -788,4 +804,10 @@ LUA
 Interpreter=lua
 <<LUA
 Disk.DiskShows(args)
+LUA
+
+@Script ShowLog
+Interpreter=lua
+<<LUA
+ShowLog()
 LUA
