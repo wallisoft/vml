@@ -1450,6 +1450,8 @@ class ImageWidget(QFrame):
                 except ImportError:
                     pass
             pix.load(path)
+            if pix.isNull() and self.svg is None and path.lower().endswith(".svg") and os.path.exists(path[:-4] + ".png"):
+                pix.load(path[:-4] + ".png")                   # no SVG support in this Qt: the picture's PNG, if it has one
         self.pix = None if pix.isNull() else pix
         self.updateGeometry()
         self.update()
