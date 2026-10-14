@@ -141,11 +141,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq patchelf libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0 fuse3
           python -m pip install --upgrade pip
-          python -m pip install -r packaging/build-requirements.txt paramiko mfusepy
+          python -m pip install -r packaging/build-requirements.txt paramiko mfusepy python-xlib
       - name: Compile with Nuitka
         run: |
           python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 \
-            --include-package=vml --include-package=lupa --include-package=paramiko --include-module=mfusepy \
+            --include-package=vml --include-package=lupa --include-package=paramiko --include-module=mfusepy --include-package=Xlib \
             --include-data-dir=designer=designer --include-data-dir=vml/lua=lua --include-data-dir=vml/web=web \
             --include-data-dir=apps/mountie=mountie \
             --output-filename=Mountie --output-dir=build packaging/mountie/mountie.py

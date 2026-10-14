@@ -332,6 +332,12 @@ class SystemCommands:
         q = self._sys_queue()
         m = getattr(self, "_tray_menu", None)
         fresh = m is None
+        if fresh:
+            try:
+                from . import startupnote
+                startupnote.notes()           # (listening from now on, for GNOME's tray-click spinner)
+            except Exception:
+                pass
         if fresh:                             # one menu for good, refilled: a desktop panel shows the tray's menu
             m = QMenu()                       # over D-Bus, and some never notice a new one swapped in
             self._tray_menu = m               # (Qt doesn't keep the menu alive for us)
@@ -345,11 +351,11 @@ class SystemCommands:
                 sub = m.addMenu(title.replace("&", "&&"))
                 for kid in [k.strip() for k in kids.split(";") if k.strip()]:
                     act = QAction(kid.replace("&", "&&"), sub)
-                    act.triggered.connect(lambda _=False, t=f"{title}>{kid}": q.put((handler, (t,), origin)))
+                    act.triggered.connect(lambda _=False, t=f"{title}>{kid}": (_picked(), q.put((handler, (t,), origin))))
                     sub.addAction(act)
                 continue
             act = QAction(item.replace("&", "&&"), m)            # (& would underline the next letter)
-            act.triggered.connect(lambda _=False, t=item: q.put((handler, (t,), origin)))
+            act.triggered.connect(lambda _=False, t=item: (_picked(), q.put((handler, (t,), origin))))
             m.addAction(act)
         if fresh or tray.contextMenu() is not m:
             tray.setContextMenu(m)
@@ -382,7 +388,7 @@ class SystemCommands:
         tray = getattr(self, "_tray", None)
         if tray:
             tray.hide()
-        QTimer.singleShot(300, QApplication.instance().quit)
+        QTimer.singleShot(500, QApplication.instance().quit)
         return ""
 
     # ── starting with the computer ──
@@ -450,6 +456,15 @@ class SystemCommands:
     def cmd_LaunchedAtBoot(self):
         at_boot = AT_BOOT in sys.argv or Path(sys.executable).stem.lower().endswith("atboot")   # (a Store app's
         return "true" if at_boot else "false"                                                 # startup copy)
+
+
+def _picked():
+    """A tray menu item was picked: finish the "launching" spinner GNOME starts for it (vml/startupnote.py)."""
+    try:
+        from . import startupnote
+        startupnote.picked()
+    except Exception:
+        pass
 
 
 def _store_app():
