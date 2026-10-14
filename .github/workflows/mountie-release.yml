@@ -1,0 +1,179 @@
+name: Mountie release
+
+# Push a tag like mountie-v1.2 and this compiles Mountie into a program of its own (Mountie.exe / Mountie, with the
+# hat), builds Mountie-Setup.exe, a portable Windows zip and the Linux package, then publishes them to the PUBLIC
+# repo wallisoft/mountie-releases. The source stays in this private repo.
+# Mountie is a Visualised project (apps/mountie); packaging/mountie/mountie.py runs it, and that's what's compiled.
+# (release.yml runs on tags starting "v" and no-stick-release.yml on "no-stick-v": none of them trigger each other.)
+#
+# Needs:  secret RELEASES_TOKEN with Contents read/write on wallisoft/mountie-releases (make that repo first)
+
+on:
+  push:
+    tags: ["mountie-v*"]
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: .          # (the runtime, vml/, is found from the top of the repo)
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Tag must match Version= in Mountie.vml
+        run: |
+          TAG="${GITHUB_REF_NAME#mountie-v}"
+          CODE=$(grep -m1 '^Version=' apps/mountie/Mountie.vml | cut -d= -f2 | tr -d '\r')
+          echo "tag=$TAG code=$CODE"
+          [ "$TAG" = "$CODE" ] || { echo "::error::Tag mountie-v$TAG doesn't match Version=$CODE in Mountie.vml"; exit 1; }
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Check the Lua (scripts in the forms, and the modules)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
+          mkdir chk
+          for f in Mountie Hide; do
+            awk -v pre="chk/$f-" '/^@Script /{name=$2} /^<<LUA$/{inb=1; out=pre name ".lua"; next} /^LUA$/{inb=0; next} inb{print > out}' "apps/mountie/$f.vml"
+          done
+          for f in chk/*.lua apps/mountie/*.lua; do luac5.4 -p "$f" || { echo "::error::Lua syntax error in $f"; exit 1; }; done
+          echo "$(ls chk/*.lua apps/mountie/*.lua | wc -l) Lua files are valid"
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r packaging/build-requirements.txt paramiko wsgidav cheroot
+          python -m pip install winfspy
+          if ($LASTEXITCODE -ne 0) { "winfspy didn't install: this build will use WebDAV drives only"; $global:LASTEXITCODE = 0 }
+          choco install innosetup -y --no-progress
+      - name: The hat as an icon
+        run: |
+          mkdir build
+          python -c "from PIL import Image; Image.open('apps/mountie/mountie.png').convert('RGBA').save('build/mountie.ico', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+      - name: Compile with Nuitka
+        shell: pwsh
+        run: |
+          $winfsp = @()
+          python -c "import winfspy" 2>$null; if ($LASTEXITCODE -eq 0) { $winfsp = @("--include-package=winfspy") }
+          $global:LASTEXITCODE = 0
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
+            --windows-console-mode=attach --windows-icon-from-ico=build/mountie.ico `
+            --include-package=vml --include-package=lupa --include-package=paramiko `
+            --include-package=wsgidav --include-package-data=wsgidav --include-package=cheroot @winfsp `
+            --include-data-dir=designer=designer --include-data-dir=vml/lua=lua --include-data-dir=vml/web=web `
+            --include-data-dir=apps/mountie=mountie `
+            --company-name=Wallisoft --product-name=Mountie `
+            --file-version=${{ needs.check.outputs.version }} --product-version=${{ needs.check.outputs.version }} `
+            --output-filename=Mountie.exe --output-dir=build packaging/mountie/mountie.py
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:VML_KEPT = "$PWD\kept"
+          Start-Process build\mountie.dist\Mountie.exe -ArgumentList "--shot", "shot.png" -Wait -NoNewWindow -RedirectStandardError run.log
+          if (-not (Test-Path shot.png)) { Get-Content run.log; throw "Mountie didn't open its window" }
+          if (Select-String -Path run.log -Pattern "Traceback|script error" -Quiet) { Get-Content run.log; throw "Mountie's scripts failed as it opened" }
+          "Mountie opens its window"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shot-windows
+          path: shot.png
+      - name: Mountie-Setup.exe and the portable zip
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ needs.check.outputs.version }}" packaging\mountie\mountie.iss
+          New-Item -ItemType Directory stage | Out-Null
+          Copy-Item -Recurse build\mountie.dist stage\Mountie
+          Copy-Item LICENSE stage\Mountie\LICENSE.txt
+          Compress-Archive -Path stage\Mountie -DestinationPath Mountie-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            packaging/mountie/Output/Mountie-Setup.exe
+            Mountie-windows-x64.zip
+
+  linux:
+    needs: check
+    runs-on: ubuntu-22.04        # older base = runs on older and newer distros
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq patchelf libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0 fuse3
+          python -m pip install --upgrade pip
+          python -m pip install -r packaging/build-requirements.txt paramiko mfusepy
+      - name: Compile with Nuitka
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 \
+            --include-package=vml --include-package=lupa --include-package=paramiko --include-module=mfusepy \
+            --include-data-dir=designer=designer --include-data-dir=vml/lua=lua --include-data-dir=vml/web=web \
+            --include-data-dir=apps/mountie=mountie \
+            --output-filename=Mountie --output-dir=build packaging/mountie/mountie.py
+      - name: Smoke test
+        run: |
+          VML_KEPT=$PWD/kept QT_QPA_PLATFORM=offscreen timeout 60 ./build/mountie.dist/Mountie --shot shot.png 2> run.log || true
+          test -s shot.png || { cat run.log; exit 1; }
+          ! grep -q "Traceback\|script error" run.log || { cat run.log; exit 1; }
+          echo "Mountie opens its window"
+      - name: Package
+        run: |
+          mv build/mountie.dist stage-mountie
+          echo "${{ needs.check.outputs.version }}" > stage-mountie/VERSION
+          cp LICENSE stage-mountie/LICENSE.txt
+          tar czf mountie-linux-x86_64.tar.gz --transform 's,^stage-mountie,mountie,' stage-mountie
+          cp packaging/mountie/install.sh install.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            mountie-linux-x86_64.tar.gz
+            install.sh
+            shot.png
+
+  publish:
+    needs: [check, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Make sure everything made it
+        run: |
+          for f in Mountie-Setup.exe Mountie-windows-x64.zip mountie-linux-x86_64.tar.gz install.sh; do
+            find . -name "$f" | grep -q . || { echo "::error::$f is missing"; exit 1; }
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          repository: wallisoft/mountie-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: v${{ needs.check.outputs.version }}
+          name: Mountie ${{ needs.check.outputs.version }}
+          body: |
+            Servers, disk images, partitions, your folders through an ignore list, and RAM disks: as drives.
+
+            **Windows 10 and 11:** download `Mountie-Setup.exe` and run it (no admin needed), or unzip `Mountie-windows-x64.zip` anywhere.
+            For the fastest SSH drives, install [WinFsp](https://winfsp.dev) too (free); without it Mountie uses Windows' own WebDAV client.
+            **Linux (Ubuntu 22.04+ and similar):** `curl -fsSL https://github.com/wallisoft/mountie-releases/releases/latest/download/install.sh | bash`
+          files: |
+            **/Mountie-Setup.exe
+            **/Mountie-windows-x64.zip
+            **/mountie-linux-x86_64.tar.gz
+            **/install.sh

@@ -24,6 +24,7 @@ from . import ignore
 from .sshdrive import BaseRemote, Entry, LocalRemote, RemoteError, _bookmark, _clean
 
 MB = 1 << 20
+SERVE_FLAG = "--serve-drive"          # what a built program is started with to serve one drive (see vml/__main__.py)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -629,7 +630,11 @@ class FuseDrive:
             json.dump(self.drive, f)
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = dict(os.environ, PYTHONPATH=here + os.pathsep + os.environ.get("PYTHONPATH", ""))
-        self.proc = subprocess.Popen([sys.executable, "-m", "vml.localdrives", "serve", spec, self.mountpoint],
+        if "__compiled__" in globals() or getattr(sys, "frozen", False):     # a built program: it serves it itself
+            cmd = [sys.executable, SERVE_FLAG, spec, self.mountpoint]
+        else:
+            cmd = [sys.executable, "-m", "vml.localdrives", "serve", spec, self.mountpoint]
+        self.proc = subprocess.Popen(cmd,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env,
                                      start_new_session=True)
         end = time.monotonic() + wait

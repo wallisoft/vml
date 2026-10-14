@@ -15,6 +15,10 @@ from .engine import Engine
 
 
 def main():
+    if sys.argv[1:2] == ["--serve-drive"] and len(sys.argv) == 4:   # a built Mountie serving a folder or RAM drive
+        from .localdrives import serve
+        serve(sys.argv[2], sys.argv[3])
+        return
     ap = argparse.ArgumentParser(prog="vml")
     ap.add_argument("vml", nargs="?", help="the form to open (default: the VML designer)")
     ap.add_argument("extra", nargs="*", help=argparse.SUPPRESS)

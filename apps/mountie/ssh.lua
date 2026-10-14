@@ -58,7 +58,43 @@ function Refresh()
   local up = 0
   for _, s in pairs(State) do if s.state == "mounted" then up = up + 1 end end
   for _, s in pairs(DiskState) do if s.state == "mounted" then up = up + 1 end end
-  InTray = (Vml("Tray", "Mountie: " .. up .. " mounted", "Open|Connect all|Disconnect all|-|About|Quit", "TrayClick") or "") == ""
+  InTray = (Vml("Tray", "Mountie: " .. up .. " mounted", TrayMenu(), "TrayClick") or "") == ""
+end
+
+-- the tray's menu: who made it, Exit, then every drive with a dot for how it is (picking one mounts or unmounts it)
+local TRAYDOT = { mounted = "●", mounting = "◌", connecting = "◌", error = "✕" }
+TrayItems = {}
+function TrayMenu()
+  TrayItems = {}
+  local top = "Mountie " .. VERSION .. "  ·  Steve & Claude, Wallisoft"
+  local menu = { top, "Open Mountie", "Exit" }
+  local function add(name, state, what)
+    local label = (TRAYDOT[state] or "○") .. "  " .. name:gsub("|", "/")
+    while TrayItems[label] do label = label .. " " end           -- (two with one name: both still pickable)
+    TrayItems[label] = what
+    if #menu == 3 then menu[#menu + 1] = "-" end
+    menu[#menu + 1] = label
+  end
+  for _, d in ipairs(Drives) do add(d.name, (State[d.name] or {}).state, { ssh = d }) end
+  for _, im in ipairs(Images or {}) do
+    if im.enabled ~= false then add(im.name, (DiskState[im.name] or {}).state, { image = im }) end
+  end
+  TrayTop = top
+  return table.concat(menu, "|")
+end
+
+function TrayToggle(what)
+  if what.ssh then
+    local d, s = what.ssh, (State[what.ssh.name] or {}).state
+    if s == "mounted" or s == "connecting" then Vml("SshUnmount", d.name) else Mount(d) end
+    Refresh()
+  else
+    local it, s = what.image, (DiskState[what.image.name] or {}).state
+    if s == "mounted" or s == "mounting" then
+      Vml("DiskUnmount", json.encode({ name = it.name, path = it.path, kind = it.kind }), "OnDisk")
+    else DiskMount(it) end
+    if Tab ~= "Ssh" then RefreshDisk() else Refresh() end
+  end
 end
 
 function Mount(d) State[d.name] = { state = "connecting", detail = "" }; Vml("SshMount", json.encode(d), "OnDrive") end
@@ -70,7 +106,7 @@ function Ssh.Closing(args)
   -- the window goes, the drives stay: say so the first time, so nobody wonders where it went
   if InTray and not ToldTray then
     ToldTray = true
-    Vml("TrayMessage", "Mountie is still running", "Your drives stay connected. To quit, use Quit on the hat's menu.")
+    Vml("TrayMessage", "Mountie is still running", "Your drives stay connected. To quit, use Exit on the hat's menu.")
   end
 end
 
@@ -140,8 +176,9 @@ function Ssh.About(args)
   args = args or {}
   Vml("InfoDialog", "Mountie " .. VERSION .. "\n\n"
     .. "Everything you might open as a drive, in one place:\n"
-    .. "folders on your SSH servers, disk images (ISO, IMG, VHD, VHDX)\n"
-    .. "and the computer's own partitions. A drive letter on Windows,\n"
+    .. "folders on your SSH servers, disk images (ISO, IMG, VHD, VHDX),\n"
+    .. "the computer's own partitions, your folders through an ignore list,\n"
+    .. "and RAM disks. A drive letter on Windows,\n"
     .. "a folder in Files on Linux and macOS, the Files app on Android.\n\n"
     .. "Your passwords and keys stay on this device.\n\n"
     .. "Made by Steve (Wallisoft) and Claude, in Visualised.", "About Mountie")
@@ -150,20 +187,14 @@ end
 function Ssh.TrayClick(args)
   args = args or {}
   local what = args[1] or ""
-  if what == "open" or what == "Open" then
+  if what == "open" or what == "Open Mountie" then
     Vml("ShowForm", "Mountie")
-  elseif what == "Connect all" then
-    for _, d in ipairs(Drives) do if (State[d.name] or {}).state ~= "mounted" then Mount(d) end end
-    Refresh()
-  elseif what == "Disconnect all" then
-    Vml("SshUnmount", "")
-    for _, im in ipairs(Images) do
-      if (DiskState[im.name] or {}).state == "mounted" then Vml("DiskUnmount", json.encode(im), "OnDisk") end
-    end
-  elseif what == "About" then
+  elseif what == TrayTop then
     Ssh.About()
-  elseif what == "Quit" then
+  elseif what == "Exit" then
     Vml("Quit")
+  elseif TrayItems[what] then
+    TrayToggle(TrayItems[what])
   end
 end
 

@@ -320,7 +320,7 @@ class SystemCommands:
             if item == "-":
                 m.addSeparator()
                 continue
-            act = QAction(item, m)
+            act = QAction(item.replace("&", "&&"), m)            # (& would underline the next letter)
             act.triggered.connect(lambda _=False, t=item: q.put((handler, (t,), origin)))
             m.addAction(act)
         tray.setContextMenu(m)

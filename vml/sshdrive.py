@@ -1075,9 +1075,22 @@ ASKPASS = "#!/bin/sh\n# SSH Drive: hands ssh the drive's password or key passphr
 HOSTKEY_ALGOS = {"ssh-rsa": "rsa-sha2-512,rsa-sha2-256"}       # (what ssh calls the ways to use each kind of key)
 
 
+def _shows_itself(path):
+    """Does the file manager list this mount by itself? (GIO shows mounts in the home folder, outside hidden
+    folders, and under /media and /run/media: a bookmark as well would show it twice.)"""
+    path = os.path.abspath(path)
+    home = os.path.expanduser("~").rstrip("/")
+    if path.startswith(home + "/"):
+        return "/." not in path[len(home):]
+    return path.startswith(("/media/", "/run/media/"))
+
+
 def _bookmark(path, name, on):
-    """A drive in the file manager's sidebar (GNOME Files and others read GTK's bookmarks)."""
+    """A drive in the file manager's sidebar (GNOME Files and others read GTK's bookmarks), when it wouldn't be
+    there anyway. Turning it off, or finding the mount shows itself, takes away any bookmark made before."""
     from urllib.parse import quote
+    if on and _shows_itself(path):
+        on = False
     bm = os.path.join(os.path.expanduser("~"), ".config", "gtk-3.0", "bookmarks")
     line = f"file://{quote(path)} {name}"
     try:
