@@ -770,12 +770,41 @@ def set_selected_item(node, value):
 
 # ------------------------------------------------------------------ the registry
 
+def window_icon(node, value):
+    """The window's icon (and the app's, for its tray icon and the task bar): a file beside the form, or data:."""
+    src = str(value or "").strip()
+    if not src or str(getattr(node, "scope", "")).startswith("design:"):
+        return
+    pix = _QPixmap()
+    if src.startswith("data:") and "," in src:
+        import base64
+        try:
+            pix.loadFromData(base64.b64decode(src.split(",", 1)[1]))
+        except ValueError:
+            return
+    else:
+        import os
+        path = os.path.expanduser(src)
+        if not os.path.isabs(path):
+            path = os.path.join(node.engine.asset_dir(node.scope), path)
+        pix.load(path)
+    if pix.isNull():
+        return
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QApplication
+    icon = QIcon(pix)
+    node.widget.setWindowIcon(icon)
+    if QApplication.instance().windowIcon().isNull() or not getattr(QApplication.instance(), "_vml_icon_set", False):
+        QApplication.instance().setWindowIcon(icon)
+        QApplication.instance()._vml_icon_set = True
+
+
 register(ControlType("Window", make_window, container=True, add_child=single_add, place_child=single_place,
                      remove_child=layout_remove, category="Containers",
                      events={"OnOpened": None, "OnClosing": None, **KEY_EVENTS}),   # OnOpened/OnClosing fired by the engine
          COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or ""))),
                   Prop("Version", "text", "Common"),                             # the app's own version; a phone shows it beside the app
-                  Prop("Icon", "text", "Common"),                                # a picture for the app: its icon on a phone
+                  Prop("Icon", "text", "Common", apply=window_icon),             # a picture for the app: its icon on a phone, and its window's and tray's here
                   Prop("WebAddress", "text", "Common"),                          # where the app is on the web, if it is: LinkAddress builds on it
                   Prop("AndroidPackage", "text", "Common"),                      # its package name as an Android app, to choose one's own (com.example.myapp)
                   Prop("AndroidKey", "text", "Common"),                          # which signing key it was last exported with: put in by the export

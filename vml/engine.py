@@ -850,11 +850,39 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         return getattr(node, "template", None) or node.type.name
 
     # --- settings
+    # An app run on its own keeps its settings for next time, as it does on a phone or in a browser: they go to
+    # ~/.vml/kept/<app>.json (readable by this user only) as well as the form's database. keep_settings() turns it on.
+    def keep_settings(self, app_path):
+        name = re.sub(r"[^\w.-]+", "_", Path(str(app_path)).stem) or "app"
+        self._kept_path = Path(os.environ.get("VML_KEPT") or Path.home() / ".vml" / "kept") / f"{name}.json"
+        try:
+            self._kept = json.loads(self._kept_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self._kept = {}
+        for k, v in self._kept.items():
+            self.store.set_setting(k, v)
+
+    def _keep(self, key, value):
+        path = getattr(self, "_kept_path", None)
+        if path is None:
+            return
+        self._kept[str(key)] = "" if value is None else str(value)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self._kept, f, indent=1)
+            os.replace(tmp, path)
+        except OSError as exc:
+            log(f"couldn't keep the setting {key}: {exc}")
+
     def cmd_GetSetting(self, key):
         return self.store.get_setting(key)
 
     def cmd_SetSetting(self, key, value=""):
         self.store.set_setting(key, value)
+        self._keep(key, value)
 
     # --- this user's preferences and licence: kept between runs, unlike settings, which belong to the open form
     def cmd_GetPreference(self, key, default=""):

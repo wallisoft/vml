@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Mountie's hat: a felt campaign hat, a wide flat brim and a crown pinched in four dents to a peak -->
+  <defs>
+    <linearGradient id="felt" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9C7038"/><stop offset="0.45" stop-color="#CFA15F"/><stop offset="1" stop-color="#A57638"/>
+    </linearGradient>
+    <linearGradient id="brim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C2925A"/><stop offset="1" stop-color="#8A5F2E"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="64" cy="100" rx="58" ry="11" fill="#2E2010" opacity="0.15"/>
+  <ellipse cx="64" cy="92" rx="61" ry="14" fill="url(#brim)" stroke="#5A3C1A" stroke-width="2.5"/>
+  <path d="M33 88 C33 70 41 56 52 46 C57 41 60 34 64 24 C68 34 71 41 76 46 C87 56 95 70 95 88 C82 94 46 94 33 88 Z"
+        fill="url(#felt)" stroke="#5A3C1A" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M64 25 C62 40 58 52 50 62" fill="none" stroke="#7A5428" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/>
+  <path d="M64 25 C66 40 70 52 78 62" fill="none" stroke="#7A5428" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/>
+  <path d="M64 27 L64 58" stroke="#E2BF85" stroke-width="1.6" stroke-linecap="round" opacity="0.6"/>
+  <path d="M34 79 C48 85 80 85 94 79 L95 88 C82 94 46 94 33 88 Z" fill="#4A2F14" stroke="#36220C" stroke-width="1.4"/>
+  <circle cx="64" cy="86.5" r="3" fill="#D9B46C"/>
+</svg>

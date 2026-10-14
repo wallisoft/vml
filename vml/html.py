@@ -1067,6 +1067,13 @@ const commands = {
     else if (handler) setTimeout(() => run(handler, [name, "error", "SSH drives need the computer app, or the phone app.", ""]), 0);
     return "";
   },
+  DiskList() { return "[]"; },
+  DiskMount(item = "{}", handler = "") {
+    let d = {}; try { d = JSON.parse(String(item)); } catch (e) { return "That isn't JSON."; }
+    if (handler) setTimeout(() => run(handler, [String(d.name || ""), "error", "Disk images open in the computer app."]), 0);
+    return "";
+  },
+  DiskUnmount(item = "", handler = "") { return ""; },
   SshAllowSudo(drive = "{}", password = "", handler = "") {
     let d = {}; try { d = JSON.parse(String(drive)); } catch (e) { return "That drive isn't JSON."; }
     if (handler) setTimeout(() => run(handler, [String(d.name || d.host || ""), "error", "Acting as another user works from a computer for now."]), 0);

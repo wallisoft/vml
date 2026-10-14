@@ -1,44 +1,56 @@
 # ============================================================================
-# SSH Drive: folders on your servers as drives on this computer, or in your
-# phone's Files app.
+# Mountie: everything you might want to open as a drive, in one place.
 #
-#   Windows   a drive letter (WinFsp when it's installed, Windows' own WebDAV
-#             client when it isn't). Linux and macOS: a folder (sshfs).
-#   Android   each drive appears in the Files app and in every app's "open".
+#   SSH        a folder on a server: a drive letter on Windows (WinFsp, or
+#              Windows' own WebDAV client), a folder in Files on Linux and
+#              macOS (sshfs), the Files app on Android. Password, key or the
+#              SSH agent; the server's key remembered; Act as root or
+#              www-data through sudo.
+#   ISO        disk images: ISO, IMG, DMG.
+#   VHD        virtual disks: VHD, VHDX (and VMDK, QCOW2, VDI on Linux).
+#   Partitions the computer's own disks and sticks, mounted and unmounted.
 #
-#   Sign in with a password, a key or the SSH agent. The server's own key is
-#   remembered the first time and a changed one is refused, as ssh does.
-#   Lives in the tray, mounts its drives by itself and can start with the
+#   Lives in the tray, mounts what you ask by itself, can start with the
 #   computer. Everything is kept on this device only.
 # ============================================================================
 
-@Window SshDrive
-Title=SSH Drive
-Version=1.0
+@Window Mountie
+Title=Mountie
+Version=1.1
 Width=480
-Height=640
+Height=700
+Icon=mountie.png
 OnOpened=Start
 OnClosing=Closing
 
 @Canvas c
-Parent=SshDrive
+Parent=Mountie
 Background=#F3F5F4
+
+@Image imgHat
+Parent=c
+Canvas.Left=20
+Canvas.Top=12
+Width=56
+Height=56
+Stretch=Uniform
+Source=mountie.png
 
 @TextBlock lblTitle
 Parent=c
-Canvas.Left=24
-Canvas.Top=18
-Width=432
-Height=32
-FontSize=22
+Canvas.Left=84
+Canvas.Top=16
+Width=150
+Height=34
+FontSize=24
 FontWeight=Bold
 Foreground=#127A68
-Text=SSH Drive
+Text=Mountie
 
 @TextBlock lblVer
 Parent=c
-Canvas.Left=138
-Canvas.Top=28
+Canvas.Left=190
+Canvas.Top=27
 Width=80
 Height=20
 FontSize=12
@@ -59,20 +71,70 @@ OnClick=About
 
 @TextBlock lblAbout
 Parent=c
-Canvas.Left=24
-Canvas.Top=52
-Width=432
+Canvas.Left=84
+Canvas.Top=50
+Width=372
 Height=36
 TextWrapping=Wrap
 Foreground=#555555
-Text=Folders on your servers, as drives here.
+Text=Servers, disk images and partitions, as drives.
+
+# --- the tabs ---------------------------------------------------------------------
+
+@Button btnTabSsh
+Parent=c
+Canvas.Left=24
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=SSH
+OnClick=TabSsh
+
+@Button btnTabIso
+Parent=c
+Canvas.Left=133
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=ISO
+OnClick=TabIso
+
+@Button btnTabVhd
+Parent=c
+Canvas.Left=242
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=VHD
+OnClick=TabVhd
+
+@Button btnTabPart
+Parent=c
+Canvas.Left=351
+Canvas.Top=88
+Width=105
+Height=36
+BorderThickness=0
+Background=#E5E7EB
+Foreground=#374151
+Content=Partitions
+OnClick=TabPart
 
 # --- the drives ---------------------------------------------------------------
 
 @ListBox lstDrives
 Parent=c
 Canvas.Left=24
-Canvas.Top=92
+Canvas.Top=136
 Width=432
 Height=220
 SelectionChanged=Picked
@@ -81,7 +143,7 @@ OnDoubleClick=OpenDrive
 @Button btnToggle
 Parent=c
 Canvas.Left=24
-Canvas.Top=322
+Canvas.Top=366
 Width=132
 Height=40
 Background=#127A68
@@ -92,7 +154,7 @@ OnClick=Toggle
 @Button btnAdd
 Parent=c
 Canvas.Left=164
-Canvas.Top=322
+Canvas.Top=366
 Width=92
 Height=40
 Content=Add
@@ -101,7 +163,7 @@ OnClick=AddDrive
 @Button btnEdit
 Parent=c
 Canvas.Left=264
-Canvas.Top=322
+Canvas.Top=366
 Width=92
 Height=40
 Content=Change
@@ -110,7 +172,7 @@ OnClick=EditDrive
 @Button btnRemove
 Parent=c
 Canvas.Left=364
-Canvas.Top=322
+Canvas.Top=366
 Width=92
 Height=40
 Content=Remove
@@ -119,7 +181,7 @@ OnClick=RemoveDrive
 @CheckBox chkBoot
 Parent=c
 Canvas.Left=24
-Canvas.Top=376
+Canvas.Top=446
 Width=432
 Height=28
 Content=Start with the computer, in the tray
@@ -128,20 +190,94 @@ OnClick=BootChanged
 @TextBlock lblStatus
 Parent=c
 Canvas.Left=24
-Canvas.Top=410
+Canvas.Top=480
 Width=432
-Height=200
+Height=190
 TextWrapping=Wrap
 FontSize=13
 Foreground=#374151
 Text=
+
+# --- disk images and partitions (the ISO, VHD and Partitions tabs share these) ----
+
+@ListBox lstDisk
+Parent=c
+Canvas.Left=24
+Canvas.Top=136
+Width=432
+Height=220
+IsVisible=false
+SelectionChanged=DiskPicked
+OnDoubleClick=DiskOpen
+
+@Button btnDiskToggle
+Parent=c
+Canvas.Left=24
+Canvas.Top=366
+Width=132
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+IsVisible=false
+Content=Mount
+OnClick=DiskToggle
+
+@Button btnDiskAdd
+Parent=c
+Canvas.Left=164
+Canvas.Top=366
+Width=92
+Height=40
+IsVisible=false
+Content=Add
+OnClick=DiskAdd
+
+@Button btnDiskOpen
+Parent=c
+Canvas.Left=264
+Canvas.Top=366
+Width=92
+Height=40
+IsVisible=false
+Content=Open
+OnClick=DiskOpen
+
+@Button btnDiskRemove
+Parent=c
+Canvas.Left=364
+Canvas.Top=366
+Width=92
+Height=40
+IsVisible=false
+Content=Remove
+OnClick=DiskRemove
+
+@CheckBox chkDiskRO
+Parent=c
+Canvas.Left=24
+Canvas.Top=412
+Width=206
+Height=28
+IsVisible=false
+Content=Read only
+OnClick=DiskOptions
+
+@CheckBox chkDiskAuto
+Parent=c
+Canvas.Left=240
+Canvas.Top=412
+Width=216
+Height=28
+IsVisible=false
+Content=Mount it when Mountie starts
+OnClick=DiskOptions
 
 # --- adding or changing a drive (shown over the list) --------------------------
 
 @TextBlock lblForm
 Parent=c
 Canvas.Left=24
-Canvas.Top=92
+Canvas.Top=136
 Width=432
 Height=24
 FontWeight=Bold
@@ -151,7 +287,7 @@ Text=A drive
 @TextBox txtName
 Parent=c
 Canvas.Left=24
-Canvas.Top=120
+Canvas.Top=164
 Width=206
 Height=34
 IsVisible=false
@@ -160,7 +296,7 @@ Watermark=Name (e.g. Web server)
 @TextBox txtMount
 Parent=c
 Canvas.Left=240
-Canvas.Top=120
+Canvas.Top=164
 Width=216
 Height=34
 IsVisible=false
@@ -169,7 +305,7 @@ Watermark=Drive letter or folder (blank: any)
 @TextBox txtHost
 Parent=c
 Canvas.Left=24
-Canvas.Top=162
+Canvas.Top=206
 Width=300
 Height=34
 IsVisible=false
@@ -178,7 +314,7 @@ Watermark=Server (e.g. tiny-web.uk)
 @TextBox txtPort
 Parent=c
 Canvas.Left=334
-Canvas.Top=162
+Canvas.Top=206
 Width=122
 Height=34
 IsVisible=false
@@ -187,7 +323,7 @@ Watermark=Port (22)
 @TextBox txtUser
 Parent=c
 Canvas.Left=24
-Canvas.Top=204
+Canvas.Top=248
 Width=206
 Height=34
 IsVisible=false
@@ -196,7 +332,7 @@ Watermark=User
 @TextBox txtRemote
 Parent=c
 Canvas.Left=240
-Canvas.Top=204
+Canvas.Top=248
 Width=216
 Height=34
 IsVisible=false
@@ -205,7 +341,7 @@ Watermark=Folder on the server (blank: home)
 @ComboBox cmbAuth
 Parent=c
 Canvas.Left=24
-Canvas.Top=246
+Canvas.Top=290
 Width=206
 Height=34
 IsVisible=false
@@ -215,7 +351,7 @@ SelectionChanged=AuthChanged
 @TextBox txtSecret
 Parent=c
 Canvas.Left=240
-Canvas.Top=246
+Canvas.Top=290
 Width=216
 Height=34
 IsVisible=false
@@ -225,7 +361,7 @@ Watermark=Password
 @TextBox txtKey
 Parent=c
 Canvas.Left=24
-Canvas.Top=288
+Canvas.Top=332
 Width=340
 Height=34
 IsVisible=false
@@ -234,7 +370,7 @@ Watermark=Key file (e.g. ~/.ssh/id_ed25519), or the key itself
 @Button btnBrowse
 Parent=c
 Canvas.Left=372
-Canvas.Top=288
+Canvas.Top=332
 Width=84
 Height=34
 IsVisible=false
@@ -244,7 +380,7 @@ OnClick=BrowseKey
 @TextBox txtActAs
 Parent=c
 Canvas.Left=24
-Canvas.Top=330
+Canvas.Top=374
 Width=206
 Height=34
 IsVisible=false
@@ -253,7 +389,7 @@ Watermark=Act as (blank: you; or root, www-data)
 @Button btnAllow
 Parent=c
 Canvas.Left=240
-Canvas.Top=330
+Canvas.Top=374
 Width=216
 Height=34
 IsVisible=false
@@ -263,7 +399,7 @@ OnClick=AllowSudo
 @CheckBox chkAuto
 Parent=c
 Canvas.Left=24
-Canvas.Top=372
+Canvas.Top=416
 Width=206
 Height=28
 IsVisible=false
@@ -273,7 +409,7 @@ IsChecked=true
 @CheckBox chkReadOnly
 Parent=c
 Canvas.Left=240
-Canvas.Top=372
+Canvas.Top=416
 Width=216
 Height=28
 IsVisible=false
@@ -282,7 +418,7 @@ Content=Read only
 @Button btnTest
 Parent=c
 Canvas.Left=24
-Canvas.Top=412
+Canvas.Top=456
 Width=132
 Height=40
 IsVisible=false
@@ -292,7 +428,7 @@ OnClick=TestDrive
 @Button btnSave
 Parent=c
 Canvas.Left=164
-Canvas.Top=412
+Canvas.Top=456
 Width=160
 Height=40
 Background=#127A68
@@ -304,7 +440,7 @@ OnClick=SaveDrive
 @Button btnCancel
 Parent=c
 Canvas.Left=332
-Canvas.Top=412
+Canvas.Top=456
 Width=124
 Height=40
 IsVisible=false
@@ -314,7 +450,7 @@ OnClick=CloseForm
 @TextBlock lblTest
 Parent=c
 Canvas.Left=24
-Canvas.Top=462
+Canvas.Top=506
 Width=432
 Height=170
 TextWrapping=Wrap
@@ -334,7 +470,14 @@ json = require("dkjson")
 Drives = json.decode(Vml("GetSetting", "drives") or "") or {}
 State = {}          -- name -> {state=, detail=}
 Editing = nil       -- index of the drive being changed (nil: a new one)
-LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove", "chkBoot", "lblStatus" }
+LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove" }
+FOOT = { "chkBoot", "lblStatus" }
+TABS = { "btnTabSsh", "btnTabIso", "btnTabVhd", "btnTabPart" }
+DISK = { "lstDisk", "btnDiskToggle", "btnDiskAdd", "btnDiskOpen", "btnDiskRemove", "chkDiskRO", "chkDiskAuto" }
+Images = json.decode(Vml("GetSetting", "images") or "") or {}       -- {name, path, kind, readonly, automount}
+Parts = {}           -- the computer's partitions, as last listed
+DiskState = {}       -- name -> {state=, detail=}
+Tab = "Ssh"
 FORM = { "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
          "txtKey", "btnBrowse", "txtActAs", "chkAuto", "chkReadOnly", "btnTest", "btnSave", "btnCancel", "lblTest" }
 Tested = nil        -- the last good Test: {host, port, hostkey}, so saving keeps the key it was shown
@@ -380,6 +523,7 @@ function Say(text, bad)                -- a problem in red, so it isn't missed
   Vml("SetProperty", "lblStatus", "Text", text)
 end
 function Keep() Vml("SetSetting", "drives", json.encode(Drives)) end
+function KeepImages() Vml("SetSetting", "images", json.encode(Images)) end
 function Find(name) for i, d in ipairs(Drives) do if d.name == name then return i, d end end end
 function Selected()
   local i = tonumber(Vml("GetProperty", "lstDrives", "SelectedIndex") or "-1") or -1
@@ -402,13 +546,87 @@ function Refresh()
   Vml("RunScript", "Picked")
   local up = 0
   for _, s in pairs(State) do if s.state == "mounted" then up = up + 1 end end
-  InTray = (Vml("Tray", "SSH Drive: " .. up .. " of " .. #Drives .. " connected", "Open|Connect all|Disconnect all|-|About|Quit", "TrayClick") or "") == ""
+  for _, s in pairs(DiskState) do if s.state == "mounted" then up = up + 1 end end
+  InTray = (Vml("Tray", "Mountie: " .. up .. " mounted", "Open|Connect all|Disconnect all|-|About|Quit", "TrayClick") or "") == ""
 end
 function Mount(d) State[d.name] = { state = "connecting", detail = "" }; Vml("SshMount", json.encode(d), "OnDrive") end
 
+-- ── tabs ──
+function ShowTab(t)
+  Tab = t
+  for _, n in ipairs({ "Ssh", "Iso", "Vhd", "Part" }) do
+    Vml("SetProperty", "btnTab" .. n, "Background", n == t and "#127A68" or "#E5E7EB")
+    Vml("SetProperty", "btnTab" .. n, "Foreground", n == t and "#FFFFFF" or "#374151")
+  end
+  Show(LIST, t == "Ssh"); Show(DISK, t ~= "Ssh"); Show(FOOT, true)
+  if t ~= "Ssh" then
+    Vml("SetProperty", "btnDiskAdd", "Content", t == "Part" and "Refresh" or "Add")
+    Vml("SetProperty", "btnDiskRemove", "IsVisible", tostring(t ~= "Part"))
+    Vml("SetProperty", "chkDiskAuto", "IsVisible", tostring(t ~= "Part"))
+    if t == "Part" then ListParts() end
+    RefreshDisk()
+    Say(t == "Iso" and "Disk images (ISO, IMG, DMG). Add one, then Mount it: it opens like a CD or a stick."
+        or t == "Vhd" and "Virtual disks (VHD, VHDX" .. (Can.windows and "" or ", VMDK, QCOW2") .. "). Each partition inside becomes a drive."
+        or "This computer's disks and sticks. The ones it runs from are left alone.")
+  else
+    Refresh()
+    Say(#Drives == 0 and "Add a folder on one of your servers to start: Add, then Test, then Save." or "")
+  end
+end
+
+-- ── disk images and partitions ──
+local DISKDOT = { mounted = "●", mounting = "◌", error = "✕" }
+function DiskItems()                       -- what the tab shows: images of its kind, or the partitions
+  if Tab == "Part" then return Parts end
+  local out = {}
+  for _, im in ipairs(Images) do if im.kind == (Tab == "Iso" and "iso" or "vhd") then out[#out + 1] = im end end
+  return out
+end
+function DiskSelected()
+  local i = tonumber(Vml("GetProperty", "lstDisk", "SelectedIndex") or "-1") or -1
+  local items = DiskItems()
+  if i >= 0 and items[i + 1] then return items[i + 1] end
+end
+function Places(detail) return ((detail or ""):gsub(" %([^)]*%)$", "")) end
+function DiskLabel(it)
+  local s = DiskState[it.name] or {}
+  if Tab == "Part" then
+    local where = s.state == "mounted" and Places(s.detail) or it.mounted
+    local dot = it.system and "■" or (where ~= "" and "●" or (DISKDOT[s.state] or "·"))
+    return dot .. " " .. it.name .. "   " .. (it.label ~= "" and (it.label .. "  ") or "") .. it.fstype .. "  " .. it.size
+      .. (where ~= "" and ("   →  " .. where) or "") .. (it.system and "  (this computer's own)" or "")
+  end
+  local label = (DISKDOT[s.state] or "·") .. " " .. it.name .. (it.readonly and "   read only" or "")
+  if s.state == "mounted" then label = label .. "   →  " .. Tilde(Places(s.detail)):gsub(", ", "   ") end
+  return label
+end
+function RefreshDisk()
+  local rows = {}
+  for _, it in ipairs(DiskItems()) do rows[#rows + 1] = (DiskLabel(it):gsub(",", " ")) end
+  local keep = Vml("GetProperty", "lstDisk", "SelectedIndex")
+  Vml("SetProperty", "lstDisk", "Items", table.concat(rows, ","))
+  if keep and keep ~= "-1" and tonumber(keep) < #rows then Vml("SetProperty", "lstDisk", "SelectedIndex", keep) end
+  Vml("RunScript", "DiskPicked")
+  Refresh()
+end
+function ListParts()
+  local got = json.decode(Vml("DiskList") or "") or {}
+  if got.error then Say("✕ " .. got.error, true); Parts = {}; return end
+  Parts = {}
+  for _, p in ipairs(got) do
+    Parts[#Parts + 1] = { name = p.name, path = p.path, kind = "part", label = p.label or "", fstype = p.fstype or "",
+                          size = p.size or "", mounted = p.mounted or "", system = p.system, readonly = false }
+  end
+end
+function DiskMount(it)
+  DiskState[it.name] = { state = "mounting", detail = "" }
+  Vml("DiskMount", json.encode({ name = it.name, path = it.path, kind = it.kind, readonly = it.readonly }), "OnDisk")
+end
+
 -- what this device can do
 Can = json.decode(Vml("SshMethods") or "") or {}
-VERSION = Vml("GetProperty", "SshDrive", "Version") or "1.0"
+VERSION = Vml("GetProperty", "Mountie", "Version") or ""
+if VERSION == "" then VERSION = "1.1" end                 -- (a phone page may not know its window's Version)
 Vml("SetProperty", "lblVer", "Text", "v" .. VERSION)
 local can = Can
 if can.android then
@@ -419,13 +637,18 @@ if can.android then
   end
   Vml("SetProperty", "txtName", "Width", "432")
   Say("Connected drives are in the Files app (under Browse), and in every app's \"open file\".")
+  Show(TABS, false)                                                -- a phone has SSH drives only
 elseif can.windows and not can.winfsp then
   Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
 end
 Vml("SetProperty", "chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
 Refresh()
 for _, d in ipairs(Drives) do if d.automount ~= false then Mount(d) end end
-if Vml("LaunchedAtBoot") == "true" then Vml("HideForm", "SshDrive") end
+if not can.android then
+  for _, im in ipairs(Images) do if im.automount then DiskMount(im) end end
+end
+ShowTab("Ssh")
+if Vml("LaunchedAtBoot") == "true" then Vml("HideForm", "Mountie") end
 LUA
 
 @Script Closing
@@ -434,7 +657,7 @@ Interpreter=lua
 -- the window goes, the drives stay: say so the first time, so nobody wonders where it went
 if InTray and not ToldTray then
   ToldTray = true
-  Vml("TrayMessage", "SSH Drive is still running", "Your drives stay connected. To quit, use Quit on the tray icon's menu.")
+  Vml("TrayMessage", "Mountie is still running", "Your drives stay connected. To quit, use Quit on the hat's menu.")
 end
 LUA
 
@@ -507,13 +730,13 @@ LUA
 @Script About
 Interpreter=lua
 <<LUA
-Vml("InfoDialog", "SSH Drive " .. VERSION .. "\n\n"
-  .. "Folders on your SSH servers, as drives:\n"
-  .. "a drive letter on Windows, a folder in Files on Linux and macOS,\n"
-  .. "and in the Files app on Android.\n\n"
+Vml("InfoDialog", "Mountie " .. VERSION .. "\n\n"
+  .. "Everything you might open as a drive, in one place:\n"
+  .. "folders on your SSH servers, disk images (ISO, IMG, VHD, VHDX)\n"
+  .. "and the computer's own partitions. A drive letter on Windows,\n"
+  .. "a folder in Files on Linux and macOS, the Files app on Android.\n\n"
   .. "Your passwords and keys stay on this device.\n\n"
-  .. "Made by Steve (Wallisoft) and Claude, in Visualised.\n"
-  .. "ssh-drive.eur.bz", "About SSH Drive")
+  .. "Made by Steve (Wallisoft) and Claude, in Visualised.", "About Mountie")
 LUA
 
 @Script TrayClick
@@ -521,12 +744,15 @@ Interpreter=lua
 <<LUA
 local what = args[1] or ""
 if what == "open" or what == "Open" then
-  Vml("ShowForm", "SshDrive")
+  Vml("ShowForm", "Mountie")
 elseif what == "Connect all" then
   for _, d in ipairs(Drives) do if (State[d.name] or {}).state ~= "mounted" then Mount(d) end end
   Refresh()
 elseif what == "Disconnect all" then
   Vml("SshUnmount", "")
+  for _, im in ipairs(Images) do
+    if (DiskState[im.name] or {}).state == "mounted" then Vml("DiskUnmount", json.encode(im), "OnDisk") end
+  end
 elseif what == "About" then
   Vml("RunScript", "About")
 elseif what == "Quit" then
@@ -570,7 +796,7 @@ put("txtSecret", d.auth == "key" and d.passphrase or d.password)
 Vml("SetProperty", "cmbAuth", "SelectedIndex", d.auth == "password" and "0" or d.auth == "key" and "1" or "2")
 Vml("SetProperty", "chkAuto", "IsChecked", tostring(d.automount ~= false))
 Vml("SetProperty", "chkReadOnly", "IsChecked", tostring(d.readonly == true))
-Show(LIST, false); Show(FORM, true)
+Show(LIST, false); Show(TABS, false); Show(FOOT, false); Show(FORM, true)
 Vml("SetProperty", "btnAllow", "IsVisible", "false")          -- only when a Test finds sudo needs allowing
 Vml("RunScript", "AuthChanged")
 LUA
@@ -606,7 +832,7 @@ LUA
 @Script CloseForm
 Interpreter=lua
 <<LUA
-Show(FORM, false); Show(LIST, true)
+Show(FORM, false); Show(LIST, true); Show(FOOT, true); if not Can.android then Show(TABS, true) end
 Refresh()
 LUA
 
@@ -625,7 +851,7 @@ else
   Drives[#Drives + 1] = d
 end
 Keep()
-Show(FORM, false); Show(LIST, true)
+Show(FORM, false); Show(LIST, true); Show(FOOT, true); if not Can.android then Show(TABS, true) end
 Mount(d)
 Refresh()
 Vml("SetProperty", "lstDrives", "SelectedIndex", tostring((Find(d.name)) - 1))   -- the drive just saved, picked
@@ -706,11 +932,11 @@ LUA
 @Script AllowSudo
 Interpreter=lua
 <<LUA
--- once: a sudoers rule on the server letting this user run SSH Drive's file access as that user, no password after
+-- once: a sudoers rule on the server letting this user run Mountie's file access as that user, no password after
 local d = FormDrive()
 local pw = Vml("PromptDialog", "Allow it on the server",
   "Your sudo password on " .. d.host .. ", so " .. (d.user ~= "" and d.user or "you") .. " can work as " .. d.actas
-  .. " through SSH Drive.\nIt's used once and not kept.", "", "true") or ""
+  .. " through Mountie.\nIt's used once and not kept.", "", "true") or ""
 if pw == "" then return end
 Vml("SetProperty", "lblTest", "Text", "Setting it up on " .. d.host .. "...")
 Vml("SshAllowSudo", json.encode(d), pw, "OnAllowed")
@@ -727,4 +953,150 @@ if state == "ok" then
 else
   Vml("SetProperty", "lblTest", "Text", "✕ " .. detail)
 end
+LUA
+
+# --- the tabs --------------------------------------------------------------------
+
+@Script TabSsh
+Interpreter=lua
+<<LUA
+ShowTab("Ssh")
+LUA
+
+@Script TabIso
+Interpreter=lua
+<<LUA
+ShowTab("Iso")
+LUA
+
+@Script TabVhd
+Interpreter=lua
+<<LUA
+ShowTab("Vhd")
+LUA
+
+@Script TabPart
+Interpreter=lua
+<<LUA
+ShowTab("Part")
+LUA
+
+# --- disk images and partitions ---------------------------------------------------
+
+@Script DiskPicked
+Interpreter=lua
+<<LUA
+local it = DiskSelected()
+local s = it and DiskState[it.name] or {}
+local up = s.state == "mounted" or s.state == "mounting" or (Tab == "Part" and it and it.mounted ~= "")
+Vml("SetProperty", "btnDiskToggle", "Content", up and "Unmount" or "Mount")
+for _, n in ipairs({ "btnDiskToggle", "btnDiskOpen", "btnDiskRemove", "chkDiskRO", "chkDiskAuto" }) do
+  Vml("SetProperty", n, "IsEnabled", tostring(it ~= nil and not (n == "btnDiskToggle" and it.system)))
+end
+if it then
+  Vml("SetProperty", "chkDiskRO", "IsChecked", tostring(it.readonly == true))
+  Vml("SetProperty", "chkDiskAuto", "IsChecked", tostring(it.automount == true))
+  if s.state == "error" then Say("✕ " .. it.name .. ": " .. s.detail, true)
+  elseif s.state == "mounted" then Say(it.name .. ": " .. Places(s.detail) .. "\nDouble-click it to open it.")
+  elseif it.system then Say(it.name .. " is part of this computer's own system, so Mountie leaves it alone.")
+  elseif Tab ~= "Part" then Say(it.name .. ": " .. Tilde(it.path))
+  elseif Tab == "Part" and it.mounted ~= "" then Say(it.name .. " is at " .. it.mounted .. ". Double-click it to open it.") end
+end
+LUA
+
+@Script DiskToggle
+Interpreter=lua
+<<LUA
+local it = DiskSelected()
+if not it or it.system then return end
+local s = DiskState[it.name] or {}
+if s.state == "mounted" or s.state == "mounting" or (Tab == "Part" and it.mounted ~= "") then
+  Say("Unmounting " .. it.name .. "...")
+  Vml("DiskUnmount", json.encode({ name = it.name, path = it.path, kind = it.kind }), "OnDisk")
+else
+  Say("Mounting " .. it.name .. "...")
+  DiskMount(it)
+end
+RefreshDisk()
+LUA
+
+@Script OnDisk
+Interpreter=lua
+<<LUA
+local name, state, detail = args[1] or "", args[2] or "", args[3] or ""
+DiskState[name] = { state = state, detail = detail }
+if state == "mounted" then
+  Say(name .. ": " .. Places(detail) .. "\nDouble-click it to open it.")
+  Vml("TrayMessage", name .. " mounted", Places(detail))
+elseif state == "error" then
+  Say("✕ " .. name .. ": " .. detail, true)
+elseif state == "off" then
+  Say(name .. " unmounted.")
+  DiskState[name] = nil
+end
+if Tab == "Part" then ListParts() end
+if Tab ~= "Ssh" then RefreshDisk() else Refresh() end
+LUA
+
+@Script DiskOpen
+Interpreter=lua
+<<LUA
+local it = DiskSelected()
+if not it then return end
+local s = DiskState[it.name] or {}
+local where = s.state == "mounted" and Places(s.detail):match("^[^,]+") or (it.mounted ~= "" and it.mounted) or nil
+if not where then return Vml("RunScript", "DiskToggle") end    -- not mounted yet: mount it
+local why = Vml("OpenFolder", where) or ""
+if why ~= "" then Say("✕ " .. why, true) end
+LUA
+
+@Script DiskAdd
+Interpreter=lua
+<<LUA
+if Tab == "Part" then ListParts(); return RefreshDisk() end
+local iso = Tab == "Iso"
+local path = Vml("FileOpenDialog", iso and "Choose a disk image" or "Choose a virtual disk",
+  iso and "iso,img,dmg" or (Can.windows and "vhd,vhdx" or "vhd,vhdx,vmdk,qcow2,vdi"), (Can.home or "~") .. "/Downloads") or ""
+if path == "" then return end
+for _, im in ipairs(Images) do if im.path == path then return Say(im.name .. " is here already.") end end
+local name = path:match("[^/\\]+$") or path
+local n, base = 2, name
+while true do
+  local clash = false
+  for _, im in ipairs(Images) do if im.name == name then clash = true end end
+  if not clash then break end
+  name = base .. " (" .. n .. ")"; n = n + 1
+end
+local it = { name = name, path = path, kind = iso and "iso" or "vhd", readonly = iso, automount = false }
+Images[#Images + 1] = it
+KeepImages()
+RefreshDisk()
+local items = DiskItems()
+for i, x in ipairs(items) do if x.name == name then Vml("SetProperty", "lstDisk", "SelectedIndex", tostring(i - 1)) end end
+Vml("RunScript", "DiskPicked")
+Say(name .. " added. Mount it to open it" .. (iso and "." or " (Windows asks for admin for a VHD)."))
+LUA
+
+@Script DiskRemove
+Interpreter=lua
+<<LUA
+local it = DiskSelected()
+if not it or Tab == "Part" then return end
+if (DiskState[it.name] or {}).state == "mounted" then Vml("DiskUnmount", json.encode(it), "OnDisk") end
+for i, im in ipairs(Images) do if im.name == it.name then table.remove(Images, i) break end end
+KeepImages()
+Say(it.name .. " taken off the list (the file itself is left where it is).")
+RefreshDisk()
+LUA
+
+@Script DiskOptions
+Interpreter=lua
+<<LUA
+local it = DiskSelected()
+if not it then return end
+it.readonly = Vml("GetProperty", "chkDiskRO", "IsChecked") == "true"
+it.automount = Vml("GetProperty", "chkDiskAuto", "IsChecked") == "true"
+if Tab ~= "Part" then KeepImages() end
+if (DiskState[it.name] or {}).state == "mounted" then Say("Read only takes effect the next time " .. it.name .. " is mounted.") end
+RefreshDisk()
 LUA

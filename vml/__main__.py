@@ -103,6 +103,9 @@ def main():
         if not start:
             raise SystemExit(f"{a.vml} has no forms yet")
         a.vml = start
+    designer = Path(a.vml).resolve() == (Path(__file__).resolve().parent.parent / "designer" / "designer.vml").resolve()
+    if not a.db and not designer:                           # an app on its own keeps its settings, as on a phone
+        eng.keep_settings(a.vml)
     eng.load(a.vml)
     if a.shot:
         def snap():

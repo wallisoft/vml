@@ -12,6 +12,9 @@ Commands for apps that live beside the user's other programs: SSH drives, a tray
     SshStatus(name)             JSON {state, detail}, or of all of them by name
     SshTest(drive, handler)     try a drive without mounting it: handler gets (name, "ok", what it reached, the server's
                                 key) or (name, "error", what went wrong, "")
+    DiskList()                  the computer's partitions, as JSON
+    DiskMount(item, handler)    mount a disk image (ISO, IMG, VHD, VHDX...) or a partition: item {name, path, kind, readonly}
+    DiskUnmount(item, handler)  unmount it (a partition mounted elsewhere too)
     SshMethods()                JSON: what this computer can use (winfsp, webdav, sshfs), free drive letters, the user's
                                 likely key files (keys, likeliest first) and whether an SSH agent has keys (agent)
     OpenFolder(path)            show a folder (or a drive letter) in the file manager; answers "" or why not
@@ -213,6 +216,56 @@ class SystemCommands:
         if not os.path.isdir(p):
             return f"There's no folder at {p}."
         return "" if QDesktopServices.openUrl(QUrl.fromLocalFile(p)) else f"Couldn't open {p}."
+
+    # ── disk images and partitions (vml/diskmount.py) ──
+    def _disks(self):
+        if getattr(self, "_disk_mgr", None) is None:
+            from .diskmount import Disks
+            q = self._sys_queue()
+            self._disk_handlers = {}
+
+            def changed(name, state, detail):
+                h, origin = self._disk_handlers.get(name, ("", None))
+                q.put((h, (name, state, detail), origin))
+            self._disk_mgr = Disks(on_change=changed)
+            QApplication.instance().aboutToQuit.connect(self._disk_mgr.down_all)
+        return self._disk_mgr
+
+    def cmd_DiskList(self):
+        """The computer's partitions as JSON: [{path, name, label, fstype, size, mounted, removable, system}]."""
+        try:
+            from .diskmount import partitions
+            return json.dumps(partitions())
+        except Exception as exc:
+            return json.dumps({"error": str(exc)})
+
+    def cmd_DiskMount(self, item="{}", handler=""):
+        """Mount a disk image (ISO, IMG, VHD, VHDX...) or a partition: item is JSON {name, path, kind, readonly}.
+        handler gets (name, state, detail): mounting, mounted (detail: where, comma-separated, and how), error, off."""
+        try:
+            d = json.loads(item) if isinstance(item, str) else dict(item)
+        except ValueError:
+            return "That isn't JSON."
+        name = d.get("name") or os.path.basename(str(d.get("path", "")))
+        d["name"] = name
+        mgr = self._disks()
+        self._disk_handlers[name] = (str(handler or ""), self._script_stack[-1] if self._script_stack else None)
+        mgr.up(d)
+        return ""
+
+    def cmd_DiskUnmount(self, item="{}", handler=""):
+        """Unmount one (item JSON, or just its name); a partition mounted elsewhere is unmounted all the same."""
+        import threading
+        try:
+            d = json.loads(item) if str(item).strip().startswith("{") else {"name": str(item)}
+        except ValueError:
+            d = {"name": str(item)}
+        name = d.get("name") or os.path.basename(str(d.get("path", "")))
+        mgr = self._disks()
+        if handler:
+            self._disk_handlers[name] = (str(handler), self._script_stack[-1] if self._script_stack else None)
+        threading.Thread(target=mgr.down, args=(name, d), daemon=True).start()
+        return ""
 
     # ── the tray ──
     def cmd_Tray(self, tooltip="", menu="", handler=""):
