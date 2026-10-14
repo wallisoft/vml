@@ -239,6 +239,11 @@ class SystemCommands:
         except Exception as exc:
             return json.dumps({"error": str(exc)})
 
+    def cmd_DiskInfo(self, path=""):
+        """What a disk image is, as JSON: {size, size_text, format, label, partitions, folder} (read from the file)."""
+        from .diskmount import info
+        return json.dumps(info(os.path.expanduser(str(path))))
+
     def cmd_DiskMount(self, item="{}", handler=""):
         """Mount a disk image (ISO, IMG, VHD, VHDX...) or a partition: item is JSON {name, path, kind, readonly}.
         handler gets (name, state, detail): mounting, mounted (detail: where, comma-separated, and how), error, off."""

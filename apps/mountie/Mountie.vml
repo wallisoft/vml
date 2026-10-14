@@ -216,7 +216,7 @@ OnDoubleClick=DiskOpen
 Parent=c
 Canvas.Left=24
 Canvas.Top=366
-Width=132
+Width=104
 Height=40
 Background=#127A68
 Foreground=#FFFFFF
@@ -226,9 +226,9 @@ OnClick=DiskToggle
 
 @Button btnDiskAdd
 Parent=c
-Canvas.Left=164
+Canvas.Left=132
 Canvas.Top=366
-Width=92
+Width=74
 Height=40
 IsVisible=false
 Content=Add
@@ -236,19 +236,29 @@ OnClick=DiskAdd
 
 @Button btnDiskOpen
 Parent=c
-Canvas.Left=264
+Canvas.Left=210
 Canvas.Top=366
-Width=92
+Width=74
 Height=40
 IsVisible=false
 Content=Open
 OnClick=DiskOpen
 
+@Button btnDiskRename
+Parent=c
+Canvas.Left=288
+Canvas.Top=366
+Width=82
+Height=40
+IsVisible=false
+Content=Rename
+OnClick=DiskRename
+
 @Button btnDiskRemove
 Parent=c
-Canvas.Left=364
+Canvas.Left=374
 Canvas.Top=366
-Width=92
+Width=82
 Height=40
 IsVisible=false
 Content=Remove
@@ -258,20 +268,30 @@ OnClick=DiskRemove
 Parent=c
 Canvas.Left=24
 Canvas.Top=412
-Width=206
+Width=120
 Height=28
 IsVisible=false
 Content=Read only
 OnClick=DiskOptions
 
-@CheckBox chkDiskAuto
+@CheckBox chkDiskOn
 Parent=c
-Canvas.Left=240
+Canvas.Left=330
 Canvas.Top=412
-Width=216
+Width=126
 Height=28
 IsVisible=false
-Content=Mount it when Mountie starts
+Content=Enabled
+OnClick=DiskOptions
+
+@CheckBox chkDiskAuto
+Parent=c
+Canvas.Left=150
+Canvas.Top=412
+Width=170
+Height=28
+IsVisible=false
+Content=Mount at start
 OnClick=DiskOptions
 
 # --- adding or changing a drive (shown over the list) --------------------------
@@ -476,7 +496,8 @@ Editing = nil       -- index of the drive being changed (nil: a new one)
 LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove" }
 FOOT = { "chkBoot", "lblStatus" }
 TABS = { "btnTabSsh", "btnTabIso", "btnTabVhd", "btnTabPart" }
-DISK = { "lstDisk", "btnDiskToggle", "btnDiskAdd", "btnDiskOpen", "btnDiskRemove", "chkDiskRO", "chkDiskAuto" }
+DISK = { "lstDisk", "btnDiskToggle", "btnDiskAdd", "btnDiskOpen", "btnDiskRename", "btnDiskRemove", "chkDiskRO", "chkDiskAuto", "chkDiskOn" }
+Info = {}            -- path -> what the image is (format, size, label, partitions), read once
 Images = json.decode(Vml("GetSetting", "images") or "") or {}       -- {name, path, kind, readonly, automount}
 Parts = {}           -- the computer's partitions, as last listed
 DiskState = {}       -- name -> {state=, detail=}
@@ -508,7 +529,7 @@ Vml("SetProperty", "chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" 
 Refresh()
 for _, d in ipairs(Drives) do if d.automount ~= false then Mount(d) end end
 if not can.android then
-  for _, im in ipairs(Images) do if im.automount then DiskMount(im) end end
+  for _, im in ipairs(Images) do if im.automount and im.enabled ~= false then DiskMount(im) end end
 end
 ShowTab("Ssh")
 if Vml("LaunchedAtBoot") == "true" then Vml("HideForm", "Mountie") end
@@ -692,6 +713,12 @@ LUA
 Interpreter=lua
 <<LUA
 Disk.DiskAdd(args)
+LUA
+
+@Script DiskRename
+Interpreter=lua
+<<LUA
+Disk.DiskRename(args)
 LUA
 
 @Script DiskRemove

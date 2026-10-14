@@ -65,6 +65,50 @@ def vhd_type(path):
     return ""
 
 
+FORMAT_NAMES = {"fixed": "fixed VHD", "dynamic": "dynamic VHD", "differencing": "differencing VHD", "vhdx": "VHDX",
+                "qcow2": "QCOW2", "vmdk": "VMDK", "vdi": "VDI"}
+
+
+def info(path):
+    """What a disk image is, read from the file itself (so it works the same everywhere, and quickly):
+    {size, size_text, format, label, partitions, folder}. format: "ISO 9660", "raw disk", "fixed VHD", "VHDX"..."""
+    out = {"size": 0, "size_text": "", "format": "", "label": "", "partitions": 0, "folder": os.path.dirname(str(path))}
+    try:
+        out["size"] = os.path.getsize(path)
+        out["size_text"] = _size(out["size"])
+        fmt = vhd_type(path)
+        with open(path, "rb") as f:
+            f.seek(0x8000)
+            pvd = f.read(64)
+            if pvd[1:6] == b"CD001":                           # an ISO 9660 volume: its name is in the descriptor
+                out["format"] = "ISO 9660"
+                out["label"] = pvd[40:72].decode("ascii", "replace").strip()
+            if fmt and fmt != "fixed":
+                out["format"] = FORMAT_NAMES.get(fmt, fmt.upper())
+                return out                                     # (its partitions are inside its own layout)
+            f.seek(0)
+            mbr = f.read(512)
+            if mbr[510:512] == b"\x55\xaa":
+                types = [mbr[446 + 16 * i + 4] for i in range(4)]
+                if 0xEE in types:                              # GPT: count its used entries
+                    f.seek(512)
+                    hdr = f.read(92)
+                    if hdr[:8] == b"EFI PART":
+                        start = int.from_bytes(hdr[72:80], "little") * 512
+                        count = int.from_bytes(hdr[80:84], "little")
+                        size = int.from_bytes(hdr[84:88], "little") or 128
+                        f.seek(start)
+                        table = f.read(min(count, 256) * size)
+                        out["partitions"] = sum(1 for i in range(0, len(table), size) if any(table[i:i + 16]))
+                elif not out["format"]:
+                    out["partitions"] = sum(1 for t in types if t)
+            if not out["format"]:
+                out["format"] = FORMAT_NAMES["fixed"] if fmt == "fixed" else "raw disk"
+    except OSError as e:
+        out["error"] = str(e)
+    return out
+
+
 def _run(cmd, timeout=60, input=None):
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, input=input)

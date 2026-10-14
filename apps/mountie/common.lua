@@ -25,8 +25,9 @@ function ShowTab(t)
   Show(LIST, t == "Ssh"); Show(DISK, t ~= "Ssh"); Show(FOOT, true)
   if t ~= "Ssh" then
     Vml("SetProperty", "btnDiskAdd", "Content", t == "Part" and "Refresh" or "Add")
-    Vml("SetProperty", "btnDiskRemove", "IsVisible", tostring(t ~= "Part"))
-    Vml("SetProperty", "chkDiskAuto", "IsVisible", tostring(t ~= "Part"))
+    for _, n in ipairs({ "btnDiskRemove", "btnDiskRename", "chkDiskAuto", "chkDiskOn" }) do
+      Vml("SetProperty", n, "IsVisible", tostring(t ~= "Part"))
+    end
     if t == "Part" then ListParts() end
     RefreshDisk()
     Say(t == "Iso" and "Disk images (ISO, IMG, DMG). Add one, then Mount it: it opens like a CD or a stick."

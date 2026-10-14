@@ -23,6 +23,19 @@ end
 
 function Places(detail) return ((detail or ""):gsub(" %([^)]*%)$", "")) end
 
+-- what an image is (format, size, label, partitions), read from the file once
+function ImageInfo(it)
+  if not Info[it.path] then Info[it.path] = json.decode(Vml("DiskInfo", it.path) or "") or {} end
+  return Info[it.path]
+end
+function InfoLine(i)                       -- "ISO 9660 'Ubuntu 24.04 LTS', 5.8 GB" / "raw disk, 2 partitions, 20 GB"
+  local bits = { (i.format or "") ~= "" and i.format or "disk image" }
+  if (i.label or "") ~= "" then bits[1] = bits[1] .. " '" .. i.label .. "'" end
+  if (i.partitions or 0) > 0 then bits[#bits + 1] = i.partitions .. (i.partitions == 1 and " partition" or " partitions") end
+  if (i.size_text or "") ~= "" then bits[#bits + 1] = i.size_text end
+  return table.concat(bits, ", ")
+end
+
 function DiskLabel(it)
   local s = DiskState[it.name] or {}
   if Tab == "Part" then
@@ -31,7 +44,10 @@ function DiskLabel(it)
     return dot .. " " .. it.name .. "   " .. (it.label ~= "" and (it.label .. "  ") or "") .. it.fstype .. "  " .. it.size
       .. (where ~= "" and ("   →  " .. where) or "") .. (it.system and "  (this computer's own)" or "")
   end
-  local label = (DISKDOT[s.state] or "·") .. " " .. it.name .. (it.readonly and "   read only" or "")
+  local i = ImageInfo(it)
+  if it.enabled == false then return "–  " .. it.name .. "   (off)   " .. (i.format or "") .. "  " .. (i.size_text or "") end
+  local label = (DISKDOT[s.state] or "·") .. " " .. it.name .. "   " .. (i.format or "") .. "  " .. (i.size_text or "")
+    .. (it.readonly and "  read only" or "")
   if s.state == "mounted" then label = label .. "   →  " .. Tilde(Places(s.detail)):gsub(", ", "   ") end
   return label
 end
@@ -69,16 +85,23 @@ function Disk.DiskPicked(args)
   local s = it and DiskState[it.name] or {}
   local up = s.state == "mounted" or s.state == "mounting" or (Tab == "Part" and it and it.mounted ~= "")
   Vml("SetProperty", "btnDiskToggle", "Content", up and "Unmount" or "Mount")
-  for _, n in ipairs({ "btnDiskToggle", "btnDiskOpen", "btnDiskRemove", "chkDiskRO", "chkDiskAuto" }) do
-    Vml("SetProperty", n, "IsEnabled", tostring(it ~= nil and not (n == "btnDiskToggle" and it.system)))
+  for _, n in ipairs({ "btnDiskToggle", "btnDiskOpen", "btnDiskRename", "btnDiskRemove", "chkDiskRO", "chkDiskAuto", "chkDiskOn" }) do
+    local off = it ~= nil and it.enabled == false and (n == "btnDiskToggle" or n == "btnDiskOpen")
+    Vml("SetProperty", n, "IsEnabled", tostring(it ~= nil and not off and not (n == "btnDiskToggle" and it.system)))
   end
   if it then
     Vml("SetProperty", "chkDiskRO", "IsChecked", tostring(it.readonly == true))
     Vml("SetProperty", "chkDiskAuto", "IsChecked", tostring(it.automount == true))
+    Vml("SetProperty", "chkDiskOn", "IsChecked", tostring(it.enabled ~= false))
     if s.state == "error" then Say("✕ " .. it.name .. ": " .. s.detail, true)
-    elseif s.state == "mounted" then Say(it.name .. ": " .. Places(s.detail) .. "\nDouble-click it to open it.")
+    elseif s.state == "mounted" then
+      Say(it.name .. (Tab ~= "Part" and (": " .. InfoLine(ImageInfo(it))) or "") .. "\nMounted at " .. Places(s.detail)
+        .. ". Double-click it to open it.")
     elseif it.system then Say(it.name .. " is part of this computer's own system, so Mountie leaves it alone.")
-    elseif Tab ~= "Part" then Say(it.name .. ": " .. Tilde(it.path))
+    elseif Tab ~= "Part" then
+      local i = ImageInfo(it)
+      Say(it.name .. ": " .. InfoLine(i) .. "\n" .. Tilde(it.path)
+        .. (it.enabled == false and "\nOff: tick Enabled to use it." or ""), i.error ~= nil)
     elseif Tab == "Part" and it.mounted ~= "" then Say(it.name .. " is at " .. it.mounted .. ". Double-click it to open it.") end
   end
 end
@@ -87,6 +110,7 @@ function Disk.DiskToggle(args)
   args = args or {}
   local it = DiskSelected()
   if not it or it.system then return end
+  if it.enabled == false then return Say(it.name .. " is off: tick Enabled to use it.", true) end
   local s = DiskState[it.name] or {}
   if s.state == "mounted" or s.state == "mounting" or (Tab == "Part" and it.mounted ~= "") then
     Say("Unmounting " .. it.name .. "...")
@@ -142,7 +166,14 @@ function Disk.DiskAdd(args)
     if not clash then break end
     name = base .. " (" .. n .. ")"; n = n + 1
   end
-  local it = { name = name, path = path, kind = iso and "iso" or "vhd", readonly = iso, automount = false }
+  local given = (Vml("PromptDialog", "Name it", "What to call it in Mountie (" .. name .. "):", (name:gsub("%.%w+$", ""))) or "")
+    :match("^%s*(.-)%s*$")
+  if given ~= "" and given ~= name then
+    local taken = false
+    for _, im in ipairs(Images) do if im.name == given then taken = true end end
+    if not taken then name = given end
+  end
+  local it = { name = name, path = path, kind = iso and "iso" or "vhd", readonly = iso, automount = false, enabled = true }
   Images[#Images + 1] = it
   KeepImages()
   RefreshDisk()
@@ -169,7 +200,28 @@ function Disk.DiskOptions(args)
   if not it then return end
   it.readonly = Vml("GetProperty", "chkDiskRO", "IsChecked") == "true"
   it.automount = Vml("GetProperty", "chkDiskAuto", "IsChecked") == "true"
-  if Tab ~= "Part" then KeepImages() end
+  if Tab ~= "Part" then
+    local was = it.enabled ~= false
+    it.enabled = Vml("GetProperty", "chkDiskOn", "IsChecked") == "true"
+    if was and not it.enabled and (DiskState[it.name] or {}).state == "mounted" then
+      Vml("DiskUnmount", json.encode(it), "OnDisk")              -- switched off: unmounted too
+    end
+    KeepImages()
+  end
   if (DiskState[it.name] or {}).state == "mounted" then Say("Read only takes effect the next time " .. it.name .. " is mounted.") end
   RefreshDisk()
+end
+
+function Disk.DiskRename(args)
+  args = args or {}
+  local it = DiskSelected()
+  if not it or Tab == "Part" then return end
+  local new = (Vml("PromptDialog", "Rename", "A new name for " .. it.name .. ":", it.name) or ""):match("^%s*(.-)%s*$")
+  if new == "" or new == it.name then return end
+  for _, im in ipairs(Images) do if im.name == new then return Say("There's already one called " .. new .. ".", true) end end
+  if (DiskState[it.name] or {}).state == "mounted" then return Say("Unmount " .. it.name .. " first, then rename it.", true) end
+  it.name = new
+  KeepImages()
+  RefreshDisk()
+  Say("Renamed: " .. new .. ".")
 end
