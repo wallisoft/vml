@@ -7,6 +7,8 @@ name: Mountie release
 # (release.yml runs on tags starting "v" and no-stick-release.yml on "no-stick-v": none of them trigger each other.)
 #
 # Needs:  secret RELEASES_TOKEN with Contents read/write on wallisoft/mountie-releases (make that repo first)
+# Store:  variable MOUNTIE_MSIX_IDENTITY_NAME (Partner Center > Mountie > Product identity); the publisher comes from
+#         MSIX_PUBLISHER and MSIX_PUBLISHER_DISPLAY, as for Visualised. Without the identity, the MSIX step is skipped.
 
 on:
   push:
@@ -99,12 +101,32 @@ jobs:
           Copy-Item -Recurse build\mountie.dist stage\Mountie
           Copy-Item LICENSE stage\Mountie\LICENSE.txt
           Compress-Archive -Path stage\Mountie -DestinationPath Mountie-windows-x64.zip
+      - name: Mountie.msix (Microsoft Store)
+        if: vars.MOUNTIE_MSIX_IDENTITY_NAME != ''
+        shell: pwsh
+        env:
+          ID: ${{ vars.MOUNTIE_MSIX_IDENTITY_NAME }}
+          PUB: ${{ vars.MSIX_PUBLISHER }}
+          PUBDISP: ${{ vars.MSIX_PUBLISHER_DISPLAY }}
+        run: |
+          $p = "${{ needs.check.outputs.version }}".Split('.'); while ($p.Count -lt 3) { $p += '0' }
+          $v = "$($p[0]).$($p[1]).$($p[2]).0"
+          New-Item -ItemType Directory msix\Assets -Force | Out-Null
+          Copy-Item -Recurse build\mountie.dist\* msix\
+          Copy-Item msix\Mountie.exe msix\MountieAtBoot.exe       # what Windows starts at sign-in: straight to the tray
+          Copy-Item LICENSE msix\LICENSE.txt
+          python -c "from PIL import Image; im = Image.open('apps/mountie/mountie.png').convert('RGBA'); [im.resize((n, n), Image.LANCZOS).save(f'msix/Assets/{f}.png') for f, n in (('Square150x150Logo', 150), ('Square44x44Logo', 44), ('StoreLogo', 50))]"
+          (Get-Content packaging\mountie\AppxManifest.xml -Raw).Replace('@IDENTITY_NAME@', $env:ID).Replace('@PUBLISHER@', $env:PUB).Replace('@PUBLISHER_DISPLAY@', $env:PUBDISP).Replace('@VERSION@', $v) | Set-Content msix\AppxManifest.xml -Encoding utf8
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          & $makeappx.FullName pack /d msix /p Mountie.msix /o
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             packaging/mountie/Output/Mountie-Setup.exe
             Mountie-windows-x64.zip
+            Mountie.msix
+          if-no-files-found: warn
 
   linux:
     needs: check
@@ -160,6 +182,7 @@ jobs:
           for f in Mountie-Setup.exe Mountie-windows-x64.zip mountie-linux-x86_64.tar.gz install.sh; do
             find . -name "$f" | grep -q . || { echo "::error::$f is missing"; exit 1; }
           done
+          find . -name Mountie.msix | grep -q . && echo "Store package included" || echo "no Store package this time (set MOUNTIE_MSIX_IDENTITY_NAME)"
       - uses: softprops/action-gh-release@v2
         with:
           repository: wallisoft/mountie-releases
@@ -177,3 +200,4 @@ jobs:
             **/Mountie-windows-x64.zip
             **/mountie-linux-x86_64.tar.gz
             **/install.sh
+            **/Mountie.msix

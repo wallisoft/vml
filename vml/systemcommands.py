@@ -301,6 +301,7 @@ class SystemCommands:
             if old:
                 old.hide()
                 self._tray = None
+                self._tray_menu = None
             app.setQuitOnLastWindowClosed(True)
             return ""
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -315,7 +316,12 @@ class SystemCommands:
         origin = self._script_stack[-1] if self._script_stack else None
         handler = str(handler or "")
         q = self._sys_queue()
-        m = QMenu()
+        m = getattr(self, "_tray_menu", None)
+        fresh = m is None
+        if fresh:                             # one menu for good, refilled: a desktop panel shows the tray's menu
+            m = QMenu()                       # over D-Bus, and some never notice a new one swapped in
+            self._tray_menu = m               # (Qt doesn't keep the menu alive for us)
+        m.clear()
         for item in [x.strip() for x in str(menu or "").split("|") if x.strip()]:
             if item == "-":
                 m.addSeparator()
@@ -323,8 +329,8 @@ class SystemCommands:
             act = QAction(item.replace("&", "&&"), m)            # (& would underline the next letter)
             act.triggered.connect(lambda _=False, t=item: q.put((handler, (t,), origin)))
             m.addAction(act)
-        tray.setContextMenu(m)
-        self._tray_menu = m                   # (Qt doesn't keep the menu alive for us)
+        if fresh or tray.contextMenu() is not m:
+            tray.setContextMenu(m)
         try:
             tray.activated.disconnect()
         except (TypeError, RuntimeError):
@@ -370,6 +376,12 @@ class SystemCommands:
     def cmd_StartAtBoot(self, on="true"):
         on = str(on).lower() not in ("false", "0", "no", "off", "")
         name, cmd = self._boot_name(), self._launch_command()
+        if _store_app():                      # a Store app: Windows' own startup switch (see its AppxManifest.xml)
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl("ms-settings:startupapps"))
+            return (f"In the Settings that just opened, switch {name} on (or off) under Startup apps: "
+                    "a Store app starts with Windows only from there.")
         try:
             if sys.platform.startswith("win"):
                 import winreg
@@ -406,7 +418,13 @@ class SystemCommands:
         return "on" if on else "off"
 
     def cmd_LaunchedAtBoot(self):
-        return "true" if AT_BOOT in sys.argv else "false"
+        at_boot = AT_BOOT in sys.argv or Path(sys.executable).stem.lower().endswith("atboot")   # (a Store app's
+        return "true" if at_boot else "false"                                                 # startup copy)
+
+
+def _store_app():
+    """Installed from the Microsoft Store (an MSIX package: it runs from WindowsApps)?"""
+    return sys.platform.startswith("win") and "\\windowsapps\\" in sys.executable.lower()
 
 
 def _sh(a):

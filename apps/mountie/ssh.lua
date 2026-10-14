@@ -58,7 +58,14 @@ function Refresh()
   local up = 0
   for _, s in pairs(State) do if s.state == "mounted" then up = up + 1 end end
   for _, s in pairs(DiskState) do if s.state == "mounted" then up = up + 1 end end
-  InTray = (Vml("Tray", "Mountie: " .. up .. " mounted", TrayMenu(), "TrayClick") or "") == ""
+  local why = Vml("Tray", "Mountie: " .. up .. " mounted", TrayMenu(), "TrayClick") or ""
+  InTray = why == ""
+  if not InTray and not TrayWarned and not (Can and Can.android) then
+    TrayWarned = true                                -- without a tray, closing the window quits: say so
+    TrayNote = why .. " Closing this window quits Mountie" .. (Can.windows and "." or
+      " (on Ubuntu, the \"AppIndicator\" GNOME extension gives it one).")
+    Say(TrayNote)
+  end
 end
 
 -- the tray's menu: who made it, Exit, then every drive with a dot for how it is (picking one mounts or unmounts it)

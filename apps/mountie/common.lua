@@ -51,6 +51,6 @@ function ShowTab(t)
       .. "). Each partition inside becomes a drive."))
   else
     Refresh()
-    Say(#Drives == 0 and "Add a folder on one of your servers to start: Add, then Test, then Save." or "")
+    Say(#Drives == 0 and "Add a folder on one of your servers to start: Add, then Test, then Save." or (TrayNote or ""))
   end
 end
