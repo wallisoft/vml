@@ -353,10 +353,12 @@ class SystemCommands:
             m.addAction(act)
         if fresh or tray.contextMenu() is not m:
             tray.setContextMenu(m)
-        try:
-            tray.activated.disconnect()
-        except (TypeError, RuntimeError):
-            pass
+        if getattr(self, "_tray_hooked", None) is tray:          # (once: disconnecting nothing makes PySide warn)
+            try:
+                tray.activated.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+        self._tray_hooked = tray
         tray.activated.connect(lambda reason: q.put((handler, ("open",), origin))
                                if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
         tray.show()
@@ -374,7 +376,13 @@ class SystemCommands:
         return ""
 
     def cmd_Quit(self):
-        QTimer.singleShot(0, QApplication.instance().quit)
+        """Quit (the app's own Exit). The tray icon goes first, and the quitting a moment later: a desktop panel
+        that sent "this menu item was picked" waits for the answer, and spins until it gives up if the app has
+        already gone."""
+        tray = getattr(self, "_tray", None)
+        if tray:
+            tray.hide()
+        QTimer.singleShot(300, QApplication.instance().quit)
         return ""
 
     # ── starting with the computer ──
