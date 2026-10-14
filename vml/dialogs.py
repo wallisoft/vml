@@ -192,7 +192,37 @@ def choose(parent, title, text, buttons, edge=""):
 
 
 SHOW_KINDS = (("folders", "Folders", True), ("files", "Files", True), ("links", "Links", True),
-              ("hidden", "Hidden", False), ("noignored", "Hide git-ignored", False))
+              ("hidden", "Hidden", False), ("noignored", "+ .gitignore", False))
+
+
+def _patterns(text):
+    """The Hide box's patterns: separated by spaces, commas or new lines, as in a .gitignore (# starts a comment)."""
+    import re
+    return [p for p in re.split(r"[\s,]+", re.sub(r"#[^\n]*", "", text)) if p]
+
+
+def _hidden_by(text, name, is_dir):
+    """Does a pattern in the Hide box hide this? `*.log`, `node_modules`, `build/` (folders only), `!keep.log`
+    (never hide this one, whatever came before), as .gitignore reads them."""
+    from fnmatch import fnmatchcase
+    hidden = False
+    for p in _patterns(text):
+        keep = p.startswith("!")
+        p = p[1:] if keep else p
+        if p.endswith("/"):
+            if not is_dir:
+                continue
+            p = p.rstrip("/")
+        if fnmatchcase(name, p.lstrip("/")):
+            hidden = not keep
+    return hidden
+
+
+def _found(text, name):
+    """The Find box: a pattern (with * or ?) matches the whole name, anything else any part of it; any case."""
+    from fnmatch import fnmatch
+    t = text.lower()
+    return fnmatch(name.lower(), t) if any(c in t for c in "*?[") else t in name.lower()
 
 
 class _Showing:
@@ -206,6 +236,8 @@ class _Showing:
         self.on = {k: str(self.settings.value(k, d)).lower() in ("true", "1") for k, _, d in SHOW_KINDS}
         self.fd = fd
         self.ignored = {}                                      # folder -> the names git ignores there (or None: no repo)
+        self.find = ""                                         # the Find box: part of a name, or a pattern like *.iso
+        self.hide = str(self.settings.value("hide", "") or "")   # the Hide box: patterns, as a .gitignore has them
         outer = self
 
         class Proxy(QSortFilterProxyModel):
@@ -231,7 +263,12 @@ class _Showing:
             return False
         if (info.fileName().startswith(".") or info.isHidden()) and not self.on["hidden"]:
             return False
-        if self.on["noignored"] and info.fileName() in (self._ignored(os.path.dirname(path)) or ()):
+        name = info.fileName()
+        if self.hide and _hidden_by(self.hide, name, info.isDir()):
+            return False
+        if self.on["noignored"] and name in (self._ignored(os.path.dirname(path)) or ()):
+            return False
+        if self.find and not _found(self.find, name):
             return False
         return True
 
@@ -252,6 +289,15 @@ class _Showing:
             pass
         self.ignored[folder] = names
         return names
+
+    def set_find(self, text):
+        self.find = str(text or "").strip()
+        self.proxy.invalidateFilter()
+
+    def set_hide(self, text):
+        self.hide = str(text or "").strip()
+        self.settings.setValue("hide", self.hide)
+        self.proxy.invalidateFilter()
 
     def set(self, key, on):
         self.on[key] = bool(on)
@@ -304,8 +350,8 @@ class FileBox(_Framed, QDialog):
         from PySide6.QtWidgets import QCheckBox
         self.boxes = {}
         for key, label, _ in SHOW_KINDS:
-            if mode == "folder" and key in ("files", "folders"):
-                continue
+            if (mode == "folder" and key in ("files", "folders")) or key == "noignored":
+                continue                                       # (+ .gitignore sits with the Hide box)
             box = QCheckBox(label)
             box.setChecked(self.showing.on[key])
             box.toggled.connect(lambda on, k=key: self.showing.set(k, on))
@@ -313,6 +359,30 @@ class FileBox(_Framed, QDialog):
             self.boxes[key] = box
         row.addStretch(1)
         frame.addLayout(row)
+        row2 = QHBoxLayout()                                   # Find: [   ]   Hide: [*.log  node_modules  build/]
+        row2.setContentsMargins(12, 0, 12, 10)
+        row2.setSpacing(10)
+        row2.addWidget(QLabel("Find:"))
+        self.find_box = QLineEdit()
+        self.find_box.setPlaceholderText("part of a name, or *.iso")
+        self.find_box.setClearButtonEnabled(True)
+        self.find_box.setFixedWidth(220)
+        self.find_box.textChanged.connect(self.showing.set_find)
+        row2.addWidget(self.find_box)
+        row2.addSpacing(12)
+        row2.addWidget(QLabel("Hide:"))
+        self.hide_box = QLineEdit(self.showing.hide)
+        self.hide_box.setPlaceholderText("as a .gitignore: *.log  node_modules  build/  !keep.log")
+        self.hide_box.setClearButtonEnabled(True)
+        self.hide_box.textChanged.connect(self.showing.set_hide)
+        row2.addWidget(self.hide_box, 1)
+        git = QCheckBox("+ .gitignore")
+        git.setToolTip("Also hide what the folder's .gitignore hides")
+        git.setChecked(self.showing.on["noignored"])
+        git.toggled.connect(lambda on: self.showing.set("noignored", on))
+        row2.addWidget(git)
+        self.boxes["noignored"] = git
+        frame.addLayout(row2)
         import os
         from PySide6.QtCore import QUrl
         home = os.path.expanduser("~")                         # the usual places, Downloads among them, to one side
