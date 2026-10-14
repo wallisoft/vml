@@ -32,9 +32,10 @@ TEMPLATE = next((d / "android-template.apk" for d in (Path(__file__).resolve().p
 PUSH_TEMPLATE = TEMPLATE.with_name("android-template-push.apk")
 PUSH = "com.google.android.c2dm.permission.RECEIVE"   # what an app that hears pushes must declare (and the sign of one)
 LISTEN = "visualised.LISTEN_NOTIFICATIONS"   # not a permission: says the app keeps Heard (reading messaging apps' notices)
+DRIVES = "visualised.SSH_DRIVES"            # not a permission: says the app keeps SshDrives (SSH folders in the Files app)
 # Parts of the template only some apps keep: (the component's class, what the app must keep for it).
 OPTIONAL_PARTS = {"io.visualised.app.Arriving": "android.permission.RECEIVE_SMS", "io.visualised.app.Heard": LISTEN,
-                  "io.visualised.app.Booted": "android.permission.RECEIVE_BOOT_COMPLETED"}
+                  "io.visualised.app.Booted": "android.permission.RECEIVE_BOOT_COMPLETED", "io.visualised.app.SshDrives": DRIVES}
 ANDROID = "http://schemas.android.com/apk/res/android"
 
 # What each thing a script can ask of a phone needs the app to declare (a name with no dots is android.permission.NAME). (Commands are named in scripts as
@@ -60,6 +61,7 @@ NEEDS = {
     "RECEIVE_BOOT_COMPLETED": ("RunInBackground",),
     PUSH: ("OnPush",),
     LISTEN: ("OnMessages",),
+    DRIVES: ("SshMount",),
 }
 ALWAYS = ("INTERNET", "ACCESS_NETWORK_STATE")
 
@@ -213,8 +215,8 @@ def rewrite_manifest(data, package, label, version, code, permissions):
             if name == "uses-permission" and (m.value(attrs.get("name", (0, 0, 0))) or "") not in keep:
                 m.remove(place)
                 break
-            if name in ("receiver", "service") and OPTIONAL_PARTS.get(m.value(attrs.get("name", (0, 0, 0))) or "", "") not in ("", *keep):
-                m.remove(place)                     # a part of the template this app doesn't use (texts, notices)
+            if name in ("receiver", "service", "provider") and OPTIONAL_PARTS.get(m.value(attrs.get("name", (0, 0, 0))) or "", "") not in ("", *keep):
+                m.remove(place)                     # a part of the template this app doesn't use (texts, notices, drives)
                 break
             if name == "intent-filter":             # what belongs to Visualised's own app: opening links and files sent to it
                 inside = [m.value(a.get("name", (0, 0, 0))) for p, n, d, a in m.elements() if p > place and n == "action" and d == depth + 1
@@ -236,6 +238,8 @@ def rewrite_manifest(data, package, label, version, code, permissions):
         elif name == "provider" and (m.value(attrs.get("authorities", (0, 0, 0))) or "").endswith(".given"):
             m.set_string(place, attrs["authorities"], package + ".given")
             done.add("provider")
+        elif name == "provider" and (m.value(attrs.get("authorities", (0, 0, 0))) or "").endswith(".sshdrives"):
+            m.set_string(place, attrs["authorities"], package + ".sshdrives")   # two apps can't share one
     if done != {"manifest", "application", "provider"}:
         raise ApkError("the template's manifest isn't laid out as expected (is the template the Visualised app?)")
     return m.bytes()

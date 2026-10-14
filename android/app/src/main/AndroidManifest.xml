@@ -98,6 +98,19 @@
             android:exported="false"
             android:grantUriPermissions="true" />
 
+        <!-- folders on SSH servers in the phone's Files app, added by an app's SshMount (SshDrives.java). Only the
+             phone's own Files app (which holds MANAGE_DOCUMENTS) can ask it anything, and only for what the user opens. -->
+        <provider
+            android:name=".SshDrives"
+            android:authorities="io.visualised.app.sshdrives"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <!-- keeps the app on screen alive when it has asked to run in the background; there is always a notice saying so -->
         <service
             android:name=".Running"

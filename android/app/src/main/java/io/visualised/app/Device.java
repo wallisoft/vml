@@ -60,6 +60,29 @@ final class Device {
     Device(MainActivity activity) {
         this.activity = activity;
         this.texts = new Texts(activity);
+        SshDrives.listener = activity::tell;
+    }
+
+    /**
+     * A folder on an SSH server, in the phone's Files app (and every app's "open file"), as the drive's JSON says
+     * (vml/sshdrive.py has what it holds). The page hears vmlFromPhone("sshdrive", name, state + "|" + detail):
+     * connecting, mounted, offline, error, off; and "hostkey|" + fingerprint the first time a server is met.
+     */
+    @JavascriptInterface
+    public void sshMount(String drive) {
+        SshDrives.mount(activity, drive);
+    }
+
+    /** Take a drive out of the Files app ("" for all of them). */
+    @JavascriptInterface
+    public void sshUnmount(String name) {
+        SshDrives.unmount(activity, name);
+    }
+
+    /** {state, detail} of one drive as JSON, or of all of them by name. */
+    @JavascriptInterface
+    public String sshStatus(String name) {
+        return SshDrives.status(activity, name);
     }
 
     /**

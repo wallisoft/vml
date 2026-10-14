@@ -65,6 +65,11 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    packaging {
+        // the libraries' own Java metadata (JSch and Bouncy Castle both carry it), of no use on a phone
+        resources { excludes += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/versions/**/OSGI-INF/**", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "org/bouncycastle/**"] }
+    }
+
     lint {
         abortOnError false
         checkReleaseBuilds false
@@ -73,5 +78,7 @@ android {
 
 dependencies {
     implementation "com.google.zxing:core:3.5.3"      // reads QR codes; plain Java, nothing else comes with it
+    implementation "com.github.mwiede:jsch:0.2.20"    // SFTP, for SshMount's drives in the Files app (plain Java)
+    implementation "org.bouncycastle:bcprov-jdk18on:1.78.1"   // only its Ed25519/X25519, which a phone's Java lacks (R8 keeps just those)
     pushImplementation "com.google.firebase:firebase-messaging:24.1.0"   // the push template only
 }
