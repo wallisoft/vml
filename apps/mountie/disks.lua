@@ -142,6 +142,51 @@ end
 
 -- the events
 
+-- right-click on an image, a folder, a RAM disk or a partition
+function Disk.MenuShow(args)
+  local it = DiskSelected()
+  if not it then return end
+  local s = DiskState[it.name] or {}
+  local where = s.state == "mounted" and Places(s.detail):match("^[^,]+") or (it.mounted ~= nil and it.mounted ~= "" and it.mounted)
+    or (it.kind == "folder" and it.path) or nil
+  TermAt = where
+  local items = DiskItems()
+  local first, last = items[1] == it, items[#items] == it
+  Vml("SetProperty", "mnuDiskTerm", "IsEnabled", tostring(where ~= nil))
+  Vml("SetProperty", "mnuDiskTerm", "Text", where and "Open a terminal there" or "Open a terminal there (mount it first)")
+  for _, n in ipairs({ "mnuDiskUp", "mnuDiskDown", "mnuDiskRename", "mnuDiskRemove", "mnuDiskSep2" }) do
+    Vml("SetProperty", n, "IsVisible", tostring(Tab ~= "Part"))
+  end
+  Vml("SetProperty", "mnuDiskUp", "IsEnabled", tostring(not first))
+  Vml("SetProperty", "mnuDiskDown", "IsEnabled", tostring(not last))
+  Vml("ShowContextMenu", "DiskMenu")
+end
+
+function Disk.Term(args)
+  if not TermAt then return end
+  local why = Vml("OpenTerminal", TermAt) or ""
+  if why ~= "" then Say("✕ " .. why, true) end
+end
+
+function Disk.Move(step)
+  local it = DiskSelected()
+  if not it or Tab == "Part" then return end
+  if not MoveIn(Images, it, step, function(x) return x.kind == it.kind end) then return end
+  KeepImages()
+  RefreshDisk()
+  Select(it.name)
+end
+
+function Disk.RemoveAsk(args)
+  local it = DiskSelected()
+  if not it or Tab == "Part" then return end
+  local what = it.kind == "ram" and "\n(What's on it goes too, unless it's kept.)" or "\n(The " .. (it.kind == "folder" and "folder" or "file")
+    .. " itself is left where it is.)"
+  if Vml("ChoiceDialog", "Remove " .. it.name .. " from Mountie?" .. what, "Remove", "Remove|Cancel") == "Remove" then
+    Disk.DiskRemove()
+  end
+end
+
 function Disk.DiskShows(args)
   local it = DiskSelected()
   if not it or not Local() then return Say("Pick a drive in the list first.", true) end

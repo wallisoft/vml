@@ -16,6 +16,7 @@ Commands for apps that live beside the user's other programs: SSH drives, a tray
     DiskMount(item, handler)    mount a disk image (ISO, IMG, VHD, VHDX...) or a partition: item {name, path, kind, readonly}
     DiskUnmount(item, handler)  unmount it (a partition mounted elsewhere too)
                                 (kind "folder": {path, hide, showonly, readonly}; kind "ram": {size MB, keep zip})
+    OpenTerminal(folder, drive) a terminal in a folder, or (drive JSON) an ssh session in that drive's folder
     FolderPreview(path, hide, showonly)   what a folder drive would show, as JSON
     IgnoreUsual()               the ready-made ignore lists, as JSON
     SshMethods()                JSON: what this computer can use (winfsp, webdav, sshfs), free drive letters, the user's
@@ -246,6 +247,17 @@ class SystemCommands:
         """What a disk image is, as JSON: {size, size_text, format, label, partitions, folder} (read from the file)."""
         from .diskmount import info
         return json.dumps(info(os.path.expanduser(str(path))))
+
+    def cmd_OpenTerminal(self, folder="", drive=""):
+        """A terminal in a folder; or, given an SSH drive (JSON), an ssh session to it, in its folder. "" or why not."""
+        from . import terminal
+        if str(drive or "").strip().startswith("{"):
+            try:
+                d = json.loads(drive)
+            except ValueError:
+                return "That isn't JSON."
+            return terminal.open_terminal("", terminal.ssh_argv(d))
+        return terminal.open_terminal(str(folder or ""))
 
     def cmd_FolderPreview(self, path="", hide="", showonly="0"):
         """What a folder drive would show, as JSON {shown, hidden, names (the first shown)}: for the ignore box."""

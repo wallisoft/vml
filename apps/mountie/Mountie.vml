@@ -61,31 +61,6 @@ FontSize=12
 Foreground=#6B7280
 Text=
 
-@Button btnLog
-Parent=c
-Canvas.Left=322
-Canvas.Top=20
-Width=64
-Height=28
-BorderThickness=0
-Background=#F3F5F4
-Foreground=#6B7280
-Content=Log
-ToolTip=What happened to the drives
-OnClick=ShowLog
-
-@Button btnAbout
-Parent=c
-Canvas.Left=392
-Canvas.Top=20
-Width=64
-Height=28
-BorderThickness=0
-Background=#F3F5F4
-Foreground=#127A68
-Content=About
-OnClick=About
-
 @TextBlock lblAbout
 Parent=c
 Canvas.Left=84
@@ -93,7 +68,8 @@ Canvas.Top=50
 Width=372
 Height=36
 TextWrapping=Wrap
-Foreground=#555555
+FontWeight=SemiBold
+Foreground=#374151
 Text=Servers, disk images, folders and RAM, as drives.
 
 # --- the tabs ---------------------------------------------------------------------
@@ -181,6 +157,7 @@ Width=432
 Height=220
 SelectionChanged=Picked
 OnDoubleClick=OpenDrive
+OnContextMenu=DriveMenuShow
 
 @Button btnToggle
 Parent=c
@@ -234,7 +211,7 @@ Parent=c
 Canvas.Left=24
 Canvas.Top=480
 Width=432
-Height=190
+Height=172
 TextWrapping=Wrap
 FontSize=13
 Foreground=#374151
@@ -252,6 +229,7 @@ Height=220
 IsVisible=false
 SelectionChanged=DiskPicked
 OnDoubleClick=DiskOpen
+OnContextMenu=DiskMenuShow
 
 @Button btnDiskToggle
 Parent=c
@@ -532,6 +510,133 @@ Foreground=#374151
 IsVisible=false
 Text=
 
+# --- the status bar ---------------------------------------------------------
+
+@Canvas barStatus
+Parent=c
+Canvas.Left=0
+Canvas.Top=662
+Width=480
+Height=38
+Background=#E4EAE8
+
+@TextBlock lblBar
+Parent=barStatus
+Canvas.Left=24
+Canvas.Top=10
+Width=250
+Height=20
+FontSize=12
+Foreground=#374151
+Text=
+
+@Button btnLog
+Parent=barStatus
+Canvas.Left=300
+Canvas.Top=5
+Width=76
+Height=28
+BorderThickness=0
+Background=#E4EAE8
+Foreground=#4B5563
+Content=Log
+ToolTip=What happened to the drives
+OnClick=ShowLog
+
+@Button btnAbout
+Parent=barStatus
+Canvas.Left=384
+Canvas.Top=5
+Width=72
+Height=28
+BorderThickness=0
+Background=#E4EAE8
+Foreground=#127A68
+Content=About
+OnClick=About
+
+# --- right-click on a drive -----------------------------------------------------
+
+@ContextMenu DriveMenu
+
+@MenuItem mnuDriveTerm
+Parent=DriveMenu
+Text=Open a terminal there (ssh)
+OnClick=DriveTerm
+
+@MenuItem mnuDriveOpen
+Parent=DriveMenu
+Text=Open
+OnClick=OpenDrive
+
+@MenuItem mnuDriveSep1
+Parent=DriveMenu
+IsSeparator=true
+
+@MenuItem mnuDriveUp
+Parent=DriveMenu
+Text=Move up
+OnClick=DriveUp
+
+@MenuItem mnuDriveDown
+Parent=DriveMenu
+Text=Move down
+OnClick=DriveDown
+
+@MenuItem mnuDriveSep2
+Parent=DriveMenu
+IsSeparator=true
+
+@MenuItem mnuDriveEdit
+Parent=DriveMenu
+Text=Change...
+OnClick=EditDrive
+
+@MenuItem mnuDriveRemove
+Parent=DriveMenu
+Text=Remove...
+OnClick=DriveRemoveAsk
+
+@ContextMenu DiskMenu
+
+@MenuItem mnuDiskTerm
+Parent=DiskMenu
+Text=Open a terminal there
+OnClick=DiskTerm
+
+@MenuItem mnuDiskOpen
+Parent=DiskMenu
+Text=Open
+OnClick=DiskOpen
+
+@MenuItem mnuDiskSep1
+Parent=DiskMenu
+IsSeparator=true
+
+@MenuItem mnuDiskUp
+Parent=DiskMenu
+Text=Move up
+OnClick=DiskUp
+
+@MenuItem mnuDiskDown
+Parent=DiskMenu
+Text=Move down
+OnClick=DiskDown
+
+@MenuItem mnuDiskSep2
+Parent=DiskMenu
+IsSeparator=true
+
+@MenuItem mnuDiskRename
+Parent=DiskMenu
+Text=Rename...
+OnClick=DiskRename
+
+@MenuItem mnuDiskRemove
+Parent=DiskMenu
+Text=Remove...
+OnClick=DiskRemoveAsk
+
 # ============================================================================
 # Scripts: Start sets things up; each event calls its handler in ssh.lua or
 # disks.lua, the project's modules (see Mountie.vmlproj).
@@ -810,4 +915,64 @@ LUA
 Interpreter=lua
 <<LUA
 ShowLog()
+LUA
+
+@Script DriveMenuShow
+Interpreter=lua
+<<LUA
+Ssh.MenuShow(args)
+LUA
+
+@Script DriveTerm
+Interpreter=lua
+<<LUA
+Ssh.Term(args)
+LUA
+
+@Script DriveUp
+Interpreter=lua
+<<LUA
+Ssh.Move(-1)
+LUA
+
+@Script DriveDown
+Interpreter=lua
+<<LUA
+Ssh.Move(1)
+LUA
+
+@Script DriveRemoveAsk
+Interpreter=lua
+<<LUA
+Ssh.RemoveAsk(args)
+LUA
+
+@Script DiskMenuShow
+Interpreter=lua
+<<LUA
+Disk.MenuShow(args)
+LUA
+
+@Script DiskTerm
+Interpreter=lua
+<<LUA
+Disk.Term(args)
+LUA
+
+@Script DiskUp
+Interpreter=lua
+<<LUA
+Disk.Move(-1)
+LUA
+
+@Script DiskDown
+Interpreter=lua
+<<LUA
+Disk.Move(1)
+LUA
+
+@Script DiskRemoveAsk
+Interpreter=lua
+<<LUA
+Disk.RemoveAsk(args)
 LUA

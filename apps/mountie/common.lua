@@ -29,8 +29,8 @@ end
 function LogButton()
   local new = Unseen > 0
   Vml("SetProperty", "btnLog", "Content", new and ("⚠ " .. Unseen) or "Log")
-  Vml("SetProperty", "btnLog", "Background", new and "#FEF3C7" or "#F3F5F4")
-  Vml("SetProperty", "btnLog", "Foreground", new and "#92400E" or "#6B7280")
+  Vml("SetProperty", "btnLog", "Background", new and "#FEF3C7" or "#E4EAE8")
+  Vml("SetProperty", "btnLog", "Foreground", new and "#92400E" or "#4B5563")
   Vml("SetProperty", "btnLog", "ToolTip", new and (Unseen .. " new problem" .. (Unseen == 1 and "" or "s") .. ": click to see")
     or "What happened to the drives")
 end
@@ -44,6 +44,23 @@ function ShowLog()
     LOG = {}
     Vml("SetSetting", "log", "[]")
   end
+end
+
+-- the status bar: how many are mounted
+function BarText(up)
+  Vml("SetProperty", "lblBar", "Text", up == 0 and "Nothing mounted" or (up == 1 and "● 1 drive mounted" or ("● " .. up .. " drives mounted")))
+end
+
+-- a list's item moved one place up (-1) or down (1) among those of its kind; returns its new place or nil
+function MoveIn(list, item, step, same)
+  local at
+  for i, x in ipairs(list) do if x == item then at = i end end
+  if not at then return end
+  local j = at + step
+  while list[j] and not same(list[j]) do j = j + step end
+  if not list[j] then return end
+  list[at], list[j] = list[j], list[at]
+  return j
 end
 
 -- ── tabs ──
@@ -69,7 +86,7 @@ function ShowTab(t)
   Vml("SetProperty", "btnDiskShows", "Content", t == "Ram" and "Size and keeping..." or "What it shows...")
   Vml("SetControlPosition", "chkBoot", "24", Local() and "490" or "446")      -- room for the button above
   Vml("SetControlPosition", "lblStatus", "24", Local() and "524" or "480")
-  Vml("SetProperty", "lblStatus", "Height", Local() and "146" or "190")
+  Vml("SetProperty", "lblStatus", "Height", Local() and "128" or "172")
   if t ~= "Ssh" then
     Vml("SetProperty", "btnDiskAdd", "Content", t == "Part" and "Refresh" or "Add")
     for _, n in ipairs({ "btnDiskRemove", "btnDiskRename", "chkDiskAuto", "chkDiskOn" }) do

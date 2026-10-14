@@ -58,6 +58,7 @@ function Refresh()
   local up = 0
   for _, s in pairs(State) do if s.state == "mounted" then up = up + 1 end end
   for _, s in pairs(DiskState) do if s.state == "mounted" then up = up + 1 end end
+  BarText(up)
   local why = Vml("Tray", "Mountie: " .. up .. " mounted", TrayMenu(), "TrayClick") or ""
   InTray = why == ""
   if not InTray and not TrayWarned and not (Can and Can.android) then
@@ -301,6 +302,44 @@ function Ssh.SaveDrive(args)
   Refresh()
   Vml("SetProperty", "lstDrives", "SelectedIndex", tostring((Find(d.name)) - 1))   -- the drive just saved, picked
   Ssh.Picked()
+end
+
+-- right-click on a drive
+function Ssh.MenuShow(args)
+  local i, d = Selected()
+  if not d then return end
+  local up = (State[d.name] or {}).state == "mounted"
+  Vml("SetProperty", "mnuDriveOpen", "IsEnabled", tostring(up))
+  Vml("SetProperty", "mnuDriveUp", "IsEnabled", tostring(i > 1))
+  Vml("SetProperty", "mnuDriveDown", "IsEnabled", tostring(i < #Drives))
+  Vml("SetProperty", "mnuDriveTerm", "Text", "Open a terminal there (ssh"
+    .. ((d.actas or "") ~= "" and (", as " .. d.actas) or "") .. ")")
+  Vml("ShowContextMenu", "DriveMenu")
+end
+
+function Ssh.Term(args)
+  local _, d = Selected()
+  if not d then return end
+  local why = Vml("OpenTerminal", "", json.encode(d)) or ""
+  if why ~= "" then Say("✕ " .. why, true) else Say("A terminal on " .. d.host .. (d.auth == "password" and ": it asks for the password there." or ".")) end
+end
+
+function Ssh.Move(step)
+  local _, d = Selected()
+  if not d then return end
+  local j = MoveIn(Drives, d, step, function() return true end)
+  if not j then return end
+  Keep()
+  Refresh()
+  Vml("SetProperty", "lstDrives", "SelectedIndex", tostring(j - 1))
+end
+
+function Ssh.RemoveAsk(args)
+  local _, d = Selected()
+  if not d then return end
+  if Vml("ChoiceDialog", "Remove " .. d.name .. " from Mountie?\n(Nothing on the server is touched.)", "Remove", "Remove|Cancel") == "Remove" then
+    Ssh.RemoveDrive()
+  end
 end
 
 function Ssh.RemoveDrive(args)

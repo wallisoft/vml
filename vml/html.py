@@ -1078,6 +1078,7 @@ const commands = {
   DiskInfo(path = "") { return "{}"; },
   FolderPreview(path = "") { return "{\"error\":\"Not in a browser\"}"; },
   IgnoreUsual() { return "[]"; },
+  OpenTerminal() { return "Not in a browser."; },
   DiskMount(item = "{}", handler = "") {
     let d = {}; try { d = JSON.parse(String(item)); } catch (e) { return "That isn't JSON."; }
     if (handler) setTimeout(() => run(handler, [String(d.name || ""), "error", "Disk images open in the computer app."]), 0);
