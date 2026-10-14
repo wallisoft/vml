@@ -410,8 +410,8 @@ class ProjectCommands:
 
     # ------------------------------------------------------------------ choosing a folder
     def cmd_FolderDialog(self, title="Choose a folder", start=""):
-        from PySide6.QtWidgets import QFileDialog
-        return QFileDialog.getExistingDirectory(self._parent_window(), str(title), os.path.expanduser(str(start)))
+        from . import dialogs
+        return dialogs.choose_folder(self._parent_window(), str(title), os.path.expanduser(str(start)), edge=self._edge())
 
     # ------------------------------------------------------------------ importing a whole project from another tool
     def cmd_ImportProject(self, kind, path, folder):

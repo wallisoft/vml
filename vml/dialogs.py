@@ -45,7 +45,36 @@ class _Bar(QWidget):
             handle.startSystemMove()                            # the desktop moves it: works on Windows, X11 and Wayland
 
 
-class Box(QDialog):
+class _Framed:
+    """What every box of ours shares: the edge drawn all the way round, and staying in front while it waits."""
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        p = QPainter(self)
+        w, h = self.width(), self.height()
+        for r in ((0, 0, w, 1), (0, h - 1, w, 1), (0, 0, 1, h), (w - 1, 0, 1, h)):
+            p.fillRect(*r, self.edge)
+        p.end()
+
+    def eventFilter(self, watched, event):
+        """While this is waiting for an answer, the rest of the app is held. If the user goes to another of its
+        windows (clicking it, or its close button), this comes to the front to show them why nothing happens."""
+        if event.type() == QEvent.WindowActivate and watched is not self and getattr(watched, "isWindow", lambda: False)() \
+                and not self.isAncestorOf(watched):
+            QTimer.singleShot(0, self.front)
+        return False
+
+    def front(self):
+        """Come to the front and take the keyboard: a question nobody can see holds the whole app up."""
+        try:
+            self.raise_()
+            self.activateWindow()
+            QApplication.alert(self)                            # where a desktop won't let a window push forward, it can still ask
+        except RuntimeError:
+            pass
+
+
+class Box(_Framed, QDialog):
     def __init__(self, parent, title, message, buttons=("OK",), edge="", ask=None, picture=None):
         super().__init__(parent if parent is not None else QApplication.activeWindow())     # never adrift: it stays in front of a window
         self.setWindowTitle(str(title))
@@ -127,31 +156,6 @@ class Box(QDialog):
         self.answer = label
         self.accept()
 
-    def paintEvent(self, e):
-        super().paintEvent(e)
-        p = QPainter(self)
-        w, h = self.width(), self.height()
-        for r in ((0, 0, w, 1), (0, h - 1, w, 1), (0, 0, 1, h), (w - 1, 0, 1, h)):
-            p.fillRect(*r, self.edge)
-        p.end()
-
-    def eventFilter(self, watched, event):
-        """While this is waiting for an answer, the rest of the app is held. If the user goes to another of its
-        windows (clicking it, or its close button), this comes to the front to show them why nothing happens."""
-        if event.type() == QEvent.WindowActivate and watched is not self and getattr(watched, "isWindow", lambda: False)() \
-                and not self.isAncestorOf(watched):
-            QTimer.singleShot(0, self.front)
-        return False
-
-    def front(self):
-        """Come to the front and take the keyboard: a question nobody can see holds the whole app up."""
-        try:
-            self.raise_()
-            self.activateWindow()
-            QApplication.alert(self)                            # where a desktop won't let a window push forward, it can still ask
-        except RuntimeError:
-            pass
-
     def run(self):
         """Show it and wait. Returns the button pressed ("" if it was closed another way)."""
         QTimer.singleShot(0, self.front)                        # once it is on screen
@@ -185,3 +189,77 @@ def prompt(parent, title, text, default="", edge="", secret=False):
 def choose(parent, title, text, buttons, edge=""):
     """A question with answers of your own. Returns the one pressed ("" if the box was closed another way)."""
     return Box(parent, title, text, tuple(buttons), edge).run()
+
+
+class FileBox(_Framed, QDialog):
+    """Choosing a file or folder, in the same frame as the boxes above: our own title bar (with its close button)
+    and edge. Qt's own file dialog sits inside it, so it looks and behaves the same everywhere, title bar or none
+    from the desktop (GNOME on Wayland gives Qt's dialogs none)."""
+
+    def __init__(self, parent, title, start="", filters="All files (*)", mode="open", edge="", name=""):
+        from PySide6.QtWidgets import QFileDialog
+        super().__init__(parent if parent is not None else QApplication.activeWindow())
+        self.setWindowTitle(str(title))
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(True)
+        self.edge = QColor(edge or NEUTRAL)
+        self.path = ""
+        frame = QVBoxLayout(self)
+        frame.setContentsMargins(1, 1, 1, 1)
+        frame.setSpacing(0)
+        self.bar = _Bar(self, title, self.edge)
+        frame.addWidget(self.bar)
+        fd = QFileDialog(self, str(title), str(start or ""), str(filters or "All files (*)"))
+        fd.setOption(QFileDialog.DontUseNativeDialog, True)    # a desktop's own would come with its own window again
+        fd.setWindowFlags(Qt.Widget)                           # a part of this box, not a window of its own
+        if mode == "save":
+            fd.setAcceptMode(QFileDialog.AcceptSave)
+            fd.setFileMode(QFileDialog.AnyFile)
+            if name:
+                fd.selectFile(str(name))
+                QTimer.singleShot(0, lambda: self._name_box() and not self._name_box().text() and self._name_box().setText(str(name)))
+        elif mode == "folder":
+            fd.setFileMode(QFileDialog.Directory)
+            fd.setOption(QFileDialog.ShowDirsOnly, True)
+        else:
+            fd.setFileMode(QFileDialog.ExistingFile)
+        fd.accepted.connect(self._took)
+        fd.rejected.connect(self.reject)
+        frame.addWidget(fd)
+        self.fd = fd
+        self.resize(820, 520)
+
+    def _name_box(self):
+        return self.fd.findChild(QLineEdit, "fileNameEdit")
+
+    def _took(self):
+        files = self.fd.selectedFiles()
+        self.path = files[0] if files else ""
+        self.accept()
+
+    def run(self):
+        """Show it and wait. Returns the path chosen, or "" if the user closed it."""
+        QTimer.singleShot(0, self.front)
+        app = QApplication.instance()
+        app.installEventFilter(self)
+        try:
+            self.exec()
+        finally:
+            app.removeEventFilter(self)
+        self.hide()
+        self.deleteLater()
+        return self.path
+
+
+def open_file(parent, title, start="", filters="All files (*)", edge=""):
+    return FileBox(parent, title, start, filters, "open", edge).run()
+
+
+def save_file(parent, title, name="", filters="All files (*)", edge=""):
+    import os
+    start = os.path.dirname(str(name)) if os.path.dirname(str(name)) else ""
+    return FileBox(parent, title, start, filters, "save", edge, name=os.path.basename(str(name)) if start else str(name)).run()
+
+
+def choose_folder(parent, title, start="", edge=""):
+    return FileBox(parent, title, start, "", "folder", edge).run()

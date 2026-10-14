@@ -274,7 +274,7 @@ Parent=c
 Canvas.Left=24
 Canvas.Top=420
 Width=432
-Height=90
+Height=200
 TextWrapping=Wrap
 FontSize=13
 Foreground=#374151
@@ -565,13 +565,17 @@ Interpreter=lua
 <<LUA
 local name, state, detail, key = args[1] or "", args[2] or "", args[3] or "", args[4] or ""
 Vml("SetProperty", "btnTest", "IsEnabled", "true")
+local function marked(mark, text)                -- each step of the way comes with its own mark; a plain answer gets one
+  if text:find("^✓") or text:find("^✕") then return text end
+  return mark .. " " .. text
+end
 if state == "ok" then
   local d = FormDrive()
   Tested = { host = d.host, port = d.port, hostkey = key }
   local seen = (d.hostkey and d.hostkey ~= key) and "" or ("\nThe server's key: " .. key .. (d.hostkey == key and " (as before)" or " (remembered when you save)"))
-  Vml("SetProperty", "lblTest", "Text", "✓ " .. detail .. (key ~= "" and seen or ""))
+  Vml("SetProperty", "lblTest", "Text", marked("✓", detail) .. (key ~= "" and seen or ""))
 else
-  Vml("SetProperty", "lblTest", "Text", "✕ " .. detail)
+  Vml("SetProperty", "lblTest", "Text", marked("✕", detail))
 end
 LUA
 

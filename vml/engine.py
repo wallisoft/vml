@@ -2483,7 +2483,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     def cmd_SaveFile(self, name, text=""):
         """Give the user a file: on a phone it goes to Downloads, in a browser it downloads, on a computer the
         user is asked where to put it. Returns where it went, or "" if it didn't."""
-        path = QFileDialog.getSaveFileName(self._parent_window(), "Save", str(name))[0]
+        path = dialogs.save_file(self._parent_window(), "Save", str(name), edge=self._edge())
         if not path:
             return ""
         Path(path).write_text(str(text), encoding="utf-8")
@@ -2924,8 +2924,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     def cmd_PickPhoto(self, image, handler=""):
         """Put a picture the user chooses into an Image, then run handler (if given) with the Image's name.
         Returns the file chosen here; on a phone the answer comes later, so use the handler."""
-        path = QFileDialog.getOpenFileName(self._parent_window(), "Choose a picture", "",
-                                           "Pictures (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All files (*)")[0]
+        path = dialogs.open_file(self._parent_window(), "Choose a picture", "",
+                                 "Pictures (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All files (*)", edge=self._edge())
         if not path:
             return ""
         self.cmd_SetProperty(image, "Source", path)
@@ -2945,12 +2945,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             filt = f"{' and '.join(k.upper() for k in kinds)} files ({' '.join('*.' + k for k in kinds)});;All files (*)"
         else:
             filt = f"{ext.upper()} files (*.{ext});;All files (*)" if ext else "All files (*)"
-        return QFileDialog.getOpenFileName(self._parent_window(), str(title), os.path.expanduser(str(start or "")), filt)[0]
+        return dialogs.open_file(self._parent_window(), str(title), os.path.expanduser(str(start or "")), filt, edge=self._edge())
 
     def cmd_FileSaveDialog(self, title="Save", default="", ext=""):
         filt = f"{ext.upper()} files (*.{ext});;All files (*)" if ext else "All files (*)"
         name = f"{default}.{ext}" if default and ext and not str(default).endswith("." + ext) else str(default)
-        return QFileDialog.getSaveFileName(self._parent_window(), str(title), name, filt)[0]
+        return dialogs.save_file(self._parent_window(), str(title), name, filt, edge=self._edge())
 
     # --- app
     def cmd_AppExit(self):

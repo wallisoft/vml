@@ -164,8 +164,8 @@ class SystemCommands:
     def cmd_PickTextFile(self, handler="", title="Open", start=""):
         """The user picks a file; handler gets (its path, its text, why not). On a phone the same command opens the
         phone's file picker (and the name is just the file's name)."""
-        from PySide6.QtWidgets import QFileDialog
-        path = QFileDialog.getOpenFileName(QApplication.activeWindow(), str(title or "Open"), os.path.expanduser(str(start or "")))[0]
+        from . import dialogs
+        path = dialogs.open_file(self._parent_window(), str(title or "Open"), os.path.expanduser(str(start or "")), edge=self._edge())
         if path and handler:
             try:
                 if os.path.getsize(path) > 1048576:

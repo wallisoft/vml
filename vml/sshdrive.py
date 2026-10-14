@@ -1147,13 +1147,96 @@ def agent_available():
         return False
 
 
+# Cloudflare's proxy addresses (cloudflare.com/ips): a name behind them reaches web servers only, never SSH.
+CLOUDFLARE = ("173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18",
+              "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17",
+              "162.158.0.0/15", "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+              "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32",
+              "2a06:98c0::/29", "2c0f:f248::/32")
+
+
+def behind_cloudflare(ip):
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(ip)
+        return any(a in ipaddress.ip_network(n) for n in CLOUDFLARE if ipaddress.ip_network(n).version == a.version)
+    except ValueError:
+        return False
+
+
+def diagnose(drive, wait=6):
+    """The road to a server, a step at a time, before any signing in: does the name exist, is it Cloudflare's proxy
+    (which carries no SSH), does anything answer on the port, and is it SSH that answers. Returns (ok, lines)."""
+    d = dict(DRIVE_DEFAULTS, **drive)
+    host, port = d["host"], int(d["port"] or 22)
+    lines = []
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False, [f"✕ There's no server called {host} (check the spelling, or the internet)."]
+    ips = list(dict.fromkeys(i[4][0] for i in infos))
+    if ips != [host]:
+        lines.append(f"✓ {host} is {', '.join(ips[:2])}")
+    if all(behind_cloudflare(ip) for ip in ips):
+        lines.append(f"✕ {'That' if ips != [host] else host} is Cloudflare's proxy, which carries web pages, not SSH. Use the server's own address, "
+                     f"or a name for it that isn't proxied (grey cloud in Cloudflare).")
+        return False, lines
+    sock = None
+    try:
+        sock = socket.create_connection((host, port), timeout=wait)
+    except ConnectionRefusedError:
+        lines.append(f"✕ Nothing answers on port {port} (is SSH on another port?).")
+        return False, lines
+    except (socket.timeout, TimeoutError):
+        lines.append(f"✕ No answer on port {port}: a firewall, or the server has blocked this computer for a while "
+                     f"(fail2ban, after failed sign-ins).")
+        return False, lines
+    except OSError as e:
+        lines.append(f"✕ Couldn't reach port {port}: {e.strerror or e}.")
+        return False, lines
+    try:
+        sock.settimeout(wait)
+        banner = b""
+        while b"\n" not in banner and len(banner) < 512:
+            got = sock.recv(256)
+            if not got:
+                break
+            banner += got
+        said = banner.decode("latin-1").strip().splitlines()[-1] if banner.strip() else ""
+        if said.startswith("SSH-"):
+            lines.append(f"✓ port {port} answers: {said[8:] or said}")
+        elif said:
+            lines.append(f"✕ Port {port} answers, but not with SSH (it said \"{said[:60]}\").")
+            return False, lines
+        else:
+            lines.append(f"✕ Port {port} takes the connection, then hangs up: the server is turning new connections "
+                         f"away (too many at once, or this computer is blocked for a while).")
+            return False, lines
+    except (socket.timeout, TimeoutError):
+        lines.append(f"✕ Port {port} takes the connection but says nothing: the server is busy or limiting new connections.")
+        return False, lines
+    except OSError as e:
+        lines.append(f"✕ Port {port} hung up: {e.strerror or e}.")
+        return False, lines
+    finally:
+        try:
+            sock.sendall(b"SSH-2.0-SSHDrive_check\r\n")   # a polite goodbye: not "no identification", which fail2ban counts
+        except OSError:
+            pass
+        sock.close()
+    return True, lines
+
+
 def test(drive):
     """Try a drive without mounting it. Returns (ok, detail, hostkey): the folder it reaches, or what went wrong."""
     d = dict(DRIVE_DEFAULTS, **drive)
+    ok, lines = diagnose(d)
+    if not ok:
+        return False, "\n".join(lines), ""
     try:
         r = SftpRemote(d)
     except Exception as e:
-        return False, str(e), ""
+        return False, "\n".join(lines + ["✕ " + str(e)]), ""
     try:
         root = r._root
         try:
@@ -1162,7 +1245,7 @@ def test(drive):
             files = -1
         where = f"{d['user'] + '@' if d['user'] else ''}{d['host']}:{root}"
         there = "" if files < 0 else " (empty)" if files == 0 else f" ({files} thing{'' if files == 1 else 's'} there)"
-        return True, f"Connected to {where}{there}", r.d.get("hostkey", "")
+        return True, "\n".join(lines + [f"✓ Connected to {where}{there}"]), r.d.get("hostkey", "")
     finally:
         r.close()
 
@@ -1228,7 +1311,15 @@ class Drives:
                     self.running[name] = drv
                 self._say(name, "mounted", f"{drv.mountpoint} ({drv.method})")
             except RemoteError as e:
-                self._say(name, "error" if e.kind != "offline" else "offline", str(e))
+                why = str(e)
+                if e.kind == "offline":                   # say which step of the way failed
+                    ok, lines = diagnose(drive)
+                    if not ok:
+                        why = lines[-1].lstrip("✕ ")
+                    if "Cloudflare" in why:               # trying again won't help: wait for the user
+                        self._say(name, "error", why)
+                        return
+                self._say(name, "error" if e.kind != "offline" else "offline", why)
             except Exception as e:
                 self._say(name, "error", str(e))
         threading.Thread(target=go, daemon=True).start()
