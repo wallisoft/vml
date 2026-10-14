@@ -131,7 +131,7 @@ function Disk.DiskAdd(args)
   if Tab == "Part" then ListParts(); return RefreshDisk() end
   local iso = Tab == "Iso"
   local path = Vml("FileOpenDialog", iso and "Choose a disk image" or "Choose a virtual disk",
-    iso and "iso,img,dmg" or (Can.windows and "vhd,vhdx" or "vhd,vhdx,vmdk,qcow2,vdi"), (Can.home or "~") .. "/Downloads") or ""
+    iso and "iso,img,dmg" or (Can.windows and "vhd,vhdx" or "vhd,vhdx,img,raw,vmdk,qcow2,vdi"), (Can.home or "~") .. "/Downloads") or ""
   if path == "" then return end
   for _, im in ipairs(Images) do if im.path == path then return Say(im.name .. " is here already.") end end
   local name = path:match("[^/\\]+$") or path

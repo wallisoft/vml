@@ -30,7 +30,7 @@ function ShowTab(t)
     if t == "Part" then ListParts() end
     RefreshDisk()
     Say(t == "Iso" and "Disk images (ISO, IMG, DMG). Add one, then Mount it: it opens like a CD or a stick."
-        or t == "Vhd" and "Virtual disks (VHD, VHDX" .. (Can.windows and "" or ", VMDK, QCOW2") .. "). Each partition inside becomes a drive."
+        or t == "Vhd" and "Virtual disks (VHD, VHDX" .. (Can.windows and "" or ", IMG as no-stick makes them, VMDK, QCOW2") .. "). Each partition inside becomes a drive."
         or "This computer's disks and sticks. The ones it runs from are left alone.")
   else
     Refresh()

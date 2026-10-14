@@ -182,8 +182,9 @@ def mount(item):
         return _mac_partition(path) if kind == "part" else _mac_image(path, ro)
     if kind == "part":
         return _linux_partition(path, ro)
-    fmt = vhd_type(path) if kind == "vhd" else ""
-    plain = kind == "iso" or fmt in ("fixed",)                  # a loop device can show these as they are
+    fmt = vhd_type(path)
+    plain = fmt in ("", "fixed")                               # a raw disk (no-stick's .img), an ISO, or a fixed VHD:
+                                                               # a loop device shows these as they are
     if plain:
         if shutil.which("udisksctl") and not _root():
             return _udisks_image(path, ro)
@@ -264,6 +265,11 @@ def _udisks_image(path, ro):
     code, out, err = _run(cmd)
     m = re.search(r"as (/dev/loop\d+)", out)
     if code or not m:
+        net = _on_network(path)
+        if net:
+            raise DiskError(f"{os.path.basename(path)} is on a network drive ({net}), and this computer couldn't open it "
+                            f"as a disk from there. Copy it here first, or open it on the computer it's on. "
+                            f"({_plain(err or out, path)})")
         raise DiskError(_plain(err or out, path))
     loop = m.group(1)
     mounts = _udisks_mount_all(loop)
@@ -295,6 +301,21 @@ def _udisks_mount_all(dev):
                 mps = next((x[2] for x in _children(part) if x[0] == part), [])
         places += [(part, mp) for mp in mps]
     return places
+
+
+def _on_network(path):
+    """The filesystem a file is on, when it's a network or FUSE one (an SSH drive...), else ""."""
+    try:
+        best, kind = "", ""
+        real = os.path.realpath(path)
+        for line in open("/proc/mounts"):
+            dev, mp, fs = line.split()[:3]
+            mp = mp.replace("\\040", " ")
+            if (real == mp or real.startswith(mp.rstrip("/") + "/")) and len(mp) > len(best):
+                best, kind = mp, fs
+        return kind if kind.startswith("fuse") or kind in ("nfs", "nfs4", "cifs", "smb3", "9p") else ""
+    except OSError:
+        return ""
 
 
 def _plain(text, path=""):
