@@ -205,9 +205,18 @@ public final class SshDrives extends DocumentsProvider {
                 if (d.optString("host").isEmpty()) {
                     throw new Problem("Which server? (Server is empty)", false, OsConstants.EINVAL);
                 }
+                StringBuilder way = new StringBuilder();
+                if (!diagnose(d, way)) {
+                    throw new Problem(way.toString().trim(), true, OsConstants.EHOSTUNREACH);
+                }
                 k = new Conn(c, d);
                 k.trial = true;
-                String base = k.base();
+                String base;
+                try {
+                    base = k.base();
+                } catch (Problem p) {
+                    throw new Problem(way + "✕ " + p.getMessage(), p.offline, p.errno);
+                }
                 int things = k.run(s -> {
                     int n = 0;
                     for (Object e : s.ls(base)) {
@@ -219,7 +228,7 @@ public final class SshDrives extends DocumentsProvider {
                     return n;
                 });
                 String user = d.optString("user");
-                tellTest(name, "ok|" + k.seenKey + "|Connected to " + (user.isEmpty() ? "" : user + "@") + d.optString("host")
+                tellTest(name, "ok|" + k.seenKey + "|" + way + "✓ Connected to " + (user.isEmpty() ? "" : user + "@") + d.optString("host")
                         + ":" + base + (things <= 0 ? " (empty)" : " (" + things + (things == 1 ? " thing" : " things") + " there)"));
             } catch (Problem p) {
                 tellTest(name, "error|" + p.getMessage());
@@ -231,6 +240,107 @@ public final class SshDrives extends DocumentsProvider {
                 }
             }
         });
+    }
+
+    // Cloudflare's proxy addresses (cloudflare.com/ips): a name behind them reaches web servers only, never SSH.
+    private static final String[] CLOUDFLARE = {"173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+            "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17",
+            "162.158.0.0/15", "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22", "2400:cb00::/32",
+            "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32"};
+
+    static boolean behindCloudflare(java.net.InetAddress a) {
+        byte[] ip = a.getAddress();
+        for (String net : CLOUDFLARE) {
+            try {
+                String[] p = net.split("/");
+                byte[] base = java.net.InetAddress.getByName(p[0]).getAddress();
+                int bits = Integer.parseInt(p[1]);
+                if (base.length != ip.length) {
+                    continue;
+                }
+                boolean in = true;
+                for (int i = 0; i < bits && in; i++) {
+                    int mask = 0x80 >> (i % 8);
+                    in = (ip[i / 8] & mask) == (base[i / 8] & mask);
+                }
+                if (in) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The road to a server, a step at a time, before any signing in: does the name exist, is it Cloudflare's proxy
+     * (which carries no SSH), does anything answer on the port, and is it SSH that answers. Lines go into `way`.
+     */
+    static boolean diagnose(JSONObject d, StringBuilder way) {
+        String host = d.optString("host");
+        int port = d.optInt("port", 22);
+        java.net.InetAddress[] all;
+        try {
+            all = java.net.InetAddress.getAllByName(host);
+        } catch (java.net.UnknownHostException e) {
+            way.append("✕ There's no server called ").append(host).append(" (check the spelling, or the internet).\n");
+            return false;
+        }
+        String first = all[0].getHostAddress();
+        if (!first.equals(host)) {
+            way.append("✓ ").append(host).append(" is ").append(first).append("\n");
+        }
+        boolean proxied = true;
+        for (java.net.InetAddress a : all) {
+            proxied &= behindCloudflare(a);
+        }
+        if (proxied) {
+            way.append("✕ ").append(first.equals(host) ? host : "That").append(" is Cloudflare's proxy, which carries web pages, not SSH. "
+                    + "Use the server's own address, or a name for it that isn't proxied (grey cloud in Cloudflare).\n");
+            return false;
+        }
+        boolean connected = false;
+        try (java.net.Socket s = new java.net.Socket()) {
+            s.connect(new java.net.InetSocketAddress(all[0], port), 6000);
+            connected = true;
+            s.setSoTimeout(6000);
+            InputStream in = s.getInputStream();
+            StringBuilder said = new StringBuilder();
+            int ch;
+            while (said.length() < 255 && (ch = in.read()) >= 0 && ch != '\n') {
+                said.append((char) ch);
+            }
+            String line = said.toString().trim();
+            try {
+                s.getOutputStream().write("SSH-2.0-SSHDrive_check\r\n".getBytes(StandardCharsets.US_ASCII));   // a polite goodbye
+            } catch (IOException ignored) {
+            }
+            if (line.startsWith("SSH-")) {
+                way.append("✓ port ").append(port).append(" answers: ").append(line.length() > 8 ? line.substring(8) : line).append("\n");
+                return true;
+            }
+            if (line.isEmpty()) {
+                way.append("✕ Port ").append(port).append(" takes the connection, then hangs up: the server is turning new "
+                        + "connections away (too many at once, or this phone is blocked for a while).\n");
+            } else {
+                way.append("✕ Port ").append(port).append(" answers, but not with SSH (it said \"")
+                        .append(line.length() > 60 ? line.substring(0, 60) : line).append("\").\n");
+            }
+            return false;
+        } catch (java.net.ConnectException e) {
+            way.append("✕ Nothing answers on port ").append(port).append(" (is SSH on another port?).\n");
+        } catch (java.net.SocketTimeoutException e) {
+            if (connected) {
+                way.append("✕ Port ").append(port).append(" takes the connection but says nothing: the server is busy or "
+                        + "limiting new connections.\n");
+                return false;
+            }
+            way.append("✕ No answer on port ").append(port).append(": a firewall, or the server has blocked this phone for a while "
+                    + "(fail2ban, after failed sign-ins).\n");
+        } catch (IOException e) {
+            way.append("✕ Couldn't reach port ").append(port).append(": ").append(e.getMessage()).append(".\n");
+        }
+        return false;
     }
 
     private static void tellTest(String name, String b) {
