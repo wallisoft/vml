@@ -18,6 +18,7 @@ Version=1.0
 Width=480
 Height=640
 OnOpened=Start
+OnClosing=Closing
 
 @Canvas c
 Parent=SshDrive
@@ -356,7 +357,7 @@ function Refresh()
   Vml("RunScript", "Picked")
   local up = 0
   for _, s in pairs(State) do if s.state == "mounted" then up = up + 1 end end
-  Vml("Tray", "SSH Drive: " .. up .. " of " .. #Drives .. " connected", "Open|Connect all|Disconnect all|-|Quit", "TrayClick")
+  InTray = (Vml("Tray", "SSH Drive: " .. up .. " of " .. #Drives .. " connected", "Open|Connect all|Disconnect all|-|Quit", "TrayClick") or "") == ""
 end
 function Mount(d) State[d.name] = { state = "connecting", detail = "" }; Vml("SshMount", json.encode(d), "OnDrive") end
 
@@ -376,6 +377,16 @@ Vml("SetProperty", "chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" 
 Refresh()
 for _, d in ipairs(Drives) do if d.automount ~= false then Mount(d) end end
 if Vml("LaunchedAtBoot") == "true" then Vml("HideForm", "SshDrive") end
+LUA
+
+@Script Closing
+Interpreter=lua
+<<LUA
+-- the window goes, the drives stay: say so the first time, so nobody wonders where it went
+if InTray and not ToldTray then
+  ToldTray = true
+  Vml("TrayMessage", "SSH Drive is still running", "Your drives stay connected. To quit, use Quit on the tray icon's menu.")
+end
 LUA
 
 @Script OnDrive

@@ -2968,4 +2968,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             target.widget.close()
 
     def run(self):
+        # Ctrl-C (and a plain kill) in the terminal close the app properly, drives unmounted and all: Qt keeps Python
+        # from seeing signals while it waits, so a timer gives Python a moment to notice them.
+        import signal
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                signal.signal(sig, lambda *_: self.app.quit())
+            except (ValueError, OSError):
+                pass
+        self._signal_tick = QTimer()
+        self._signal_tick.timeout.connect(lambda: None)
+        self._signal_tick.start(300)
         return self.app.exec()

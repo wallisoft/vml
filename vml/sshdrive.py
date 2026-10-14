@@ -1081,9 +1081,20 @@ class SshfsDrive:
             raise RemoteError("io", (r.stderr or r.stdout).strip() or "sshfs failed")
 
     def stop(self):
-        for cmd in (["fusermount3", "-u", self.mountpoint], ["fusermount", "-u", self.mountpoint], ["umount", self.mountpoint]):
-            if shutil.which(cmd[0]) and subprocess.run(cmd, capture_output=True).returncode == 0:
-                return
+        """Unmount; if something has it open (a file manager window), or the server has gone, unmount it lazily:
+        it goes as soon as it's let go, and nothing is left hanging meanwhile."""
+        mp = self.mountpoint
+        for flags in ("-u", "-uz"):
+            for tool in ("fusermount3", "fusermount"):
+                if shutil.which(tool):
+                    try:
+                        if subprocess.run([tool, flags, mp], capture_output=True, timeout=8).returncode == 0:
+                            return
+                    except subprocess.TimeoutExpired:
+                        pass
+                    break
+        if sys.platform == "darwin":
+            subprocess.run(["umount", "-f", mp], capture_output=True, timeout=8)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1336,9 +1347,15 @@ class Drives:
                 r.close()
         self._say(name, "off")
 
-    def down_all(self):
-        for n in list(self.wanted) + list(self.running):
-            self.down(n)
+    def down_all(self, wait=8.0):
+        """Every drive down, side by side, giving up after `wait` seconds (quitting must never hang on a server)."""
+        names = list(dict.fromkeys(list(self.wanted) + list(self.running)))
+        threads = [threading.Thread(target=self.down, args=(n,), daemon=True) for n in names]
+        for t in threads:
+            t.start()
+        end = time.time() + wait
+        for t in threads:
+            t.join(max(0.0, end - time.time()))
 
     def _start_watch(self):
         if self._watch:

@@ -217,6 +217,9 @@ class SystemCommands:
                                if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
         tray.show()
         self._tray = tray
+        if not getattr(self, "_tray_quit_hooked", False):          # gone before Qt is (no icon left behind)
+            app.aboutToQuit.connect(lambda: getattr(self, "_tray", None) and self._tray.hide())
+            self._tray_quit_hooked = True
         app.setQuitOnLastWindowClosed(False)  # closing the window leaves it in the tray
         return ""
 
