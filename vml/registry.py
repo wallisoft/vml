@@ -894,13 +894,22 @@ register(ControlType("ComboBox", lambda n: QComboBox(), events={"SelectionChange
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentIndex()),
           Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item)])
 
+def set_alternating(node, value):
+    """Every other line a shade darker, so a long line can be followed across."""
+    on = truthy(value) if value not in (None, "") else False
+    node.widget.setAlternatingRowColors(on)
+    node.widget.setStyleSheet("QListWidget { alternate-background-color: #E8EEEC; } QListWidget::item { padding: 3px 2px; }" if on else "")
+
+
 register(ControlType("ListBox", lambda n: QListWidget(),
                      events={"SelectionChanged": on_signal("currentRowChanged"), "OnDoubleClick": on_signal("itemDoubleClicked"),
                              "OnContextMenu": on_context_menu, **KEY_EVENTS}),
          COMMON, ATTACHED, DATA,
          [Prop("Items", "list", "Common", apply=set_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentRow()),
-          Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item)])
+          Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item),
+          Prop("AlternatingRows", "bool", "Appearance", apply=set_alternating)])
+
 
 class SplitterBar(QFrame):
     """A bar between two docked panes that is dragged to resize the one before it (or the one named in Target).

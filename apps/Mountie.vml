@@ -133,6 +133,7 @@ OnClick=TabPart
 
 @ListBox lstDrives
 Parent=c
+AlternatingRows=true
 Canvas.Left=24
 Canvas.Top=136
 Width=432
@@ -202,6 +203,7 @@ Text=
 
 @ListBox lstDisk
 Parent=c
+AlternatingRows=true
 Canvas.Left=24
 Canvas.Top=136
 Width=432

@@ -274,7 +274,8 @@ class Page:
             sel = int(num(p.get("SelectedIndex"), -1))
             opts = "".join(f'<option{" selected" if i == sel else ""}>{esc(t)}</option>' for i, t in enumerate(items))
             size = ' size="6"' if ctype == "ListBox" else ""
-            return f'<select {attrs}{size} style="{";".join(css)}"{disabled}>{opts}</select>'
+            alt = ' class="alt"' if ctype == "ListBox" and str(p.get("AlternatingRows", "")).lower() == "true" else ""
+            return f'<select {attrs}{size}{alt} style="{";".join(css)}"{disabled}>{opts}</select>'
         if ctype == "Timer":                                    # not seen: it ticks (see wire() in the page)
             on = "false" if str(p.get("IsEnabled", "true")).lower() == "false" else "true"
             return f'<span {attrs} data-interval="{int(num(p.get("Interval"), 1000))}" data-on="{on}" hidden></span>'
@@ -499,6 +500,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   #vml_window > .menubar { flex: 0 0 auto; }
   button { font: inherit; padding: 4px 10px; border: 1px solid #c4c8cf; border-radius: 4px; background: #f7f7f8; cursor: pointer; }
   button:hover { border-color: #9ca3af; } button:active { background: #e5e7eb; }
+  select.alt option:nth-child(even) { background: #E8EEEC; }
+  select.alt option { padding: 3px 2px; }
   input[type=text], input[type=password], textarea, select { font: inherit; box-sizing: border-box; border: 1px solid #c4c8cf; border-radius: 3px; padding: 3px 5px; background: #fff; }
   .grid, .tree { box-sizing: border-box; border: 1px solid #c4c8cf; background: #fff; overflow: auto; outline: none; }
   .grid table { border-collapse: collapse; width: 100%; }

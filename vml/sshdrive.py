@@ -1298,8 +1298,11 @@ def _sudo_sftp(ssh, login, actas, path):
         except Exception:
             pass
         chan.close()
+        said = " ".join(why.strip().split())[:160]
         if "unknown user" in why:
             raise RemoteError("auth", f"There's no user {actas} on this server.")
+        if why.strip() and "password is required" not in why and "a terminal is required" not in why:
+            raise RemoteError("sudo", f"sudo wouldn't run the file server as {actas} (sudo said: {said}).")
         raise RemoteError("sudo", f"sudo won't let {login} act as {actas} without a password. "
                                   f"\"Allow it on the server\" sets that up (it asks for your sudo password once).")
 
@@ -1323,13 +1326,14 @@ def allow_sudo(drive, password):
         command = f"sudo -S -p '' sh -c {shlex.quote(script)} sshdrive {shlex.quote(rule)} {shlex.quote(where)}"
         status, out, err = _run(ssh, command, stdin=(password or "") + "\n")
         low = err.lower()
+        said = " ".join((err or out).strip().split())[:200]
         if status == 0:
             return True, f"Done: {login} can now work as {actas} through SSH Drive (the rule is in {where})."
         if "incorrect password" in low or "sorry, try again" in low or "no password was provided" in low:
-            return False, f"That isn't {login}'s sudo password on {d['host']}."
+            return False, f"That isn't {login}'s sudo password on {d['host']} (sudo said: {said})."
         if "not in the sudoers" in low or "not allowed" in low:
-            return False, f"{login} isn't allowed to use sudo on {d['host']}."
-        return False, (err.strip() or out.strip() or f"It didn't work (exit {status}).")[:300]
+            return False, f"{login} isn't allowed to use sudo on {d['host']} (sudo said: {said})."
+        return False, f"It didn't work (exit {status}): {said or 'nothing was said'}"
     finally:
         r.close()
 
