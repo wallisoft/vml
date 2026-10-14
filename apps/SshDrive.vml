@@ -1,0 +1,483 @@
+# ============================================================================
+# SSH Drive: folders on your servers as drives on this computer, or in your
+# phone's Files app.
+#
+#   Windows   a drive letter (WinFsp when it's installed, Windows' own WebDAV
+#             client when it isn't). Linux and macOS: a folder (sshfs).
+#   Android   each drive appears in the Files app and in every app's "open".
+#
+#   Sign in with a password, a key or the SSH agent. The server's own key is
+#   remembered the first time and a changed one is refused, as ssh does.
+#   Lives in the tray, mounts its drives by itself and can start with the
+#   computer. Everything is kept on this device only.
+# ============================================================================
+
+@Window SshDrive
+Title=SSH Drive
+Version=1.0
+Width=480
+Height=640
+OnOpened=Start
+
+@Canvas c
+Parent=SshDrive
+Background=#F3F5F4
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=24
+Canvas.Top=18
+Width=432
+Height=32
+FontSize=22
+FontWeight=Bold
+Foreground=#127A68
+Text=SSH Drive
+
+@TextBlock lblAbout
+Parent=c
+Canvas.Left=24
+Canvas.Top=52
+Width=432
+Height=36
+TextWrapping=Wrap
+Foreground=#555555
+Text=Folders on your servers, as drives here.
+
+# --- the drives ---------------------------------------------------------------
+
+@ListBox lstDrives
+Parent=c
+Canvas.Left=24
+Canvas.Top=92
+Width=432
+Height=220
+SelectionChanged=Picked
+OnDoubleClick=Toggle
+
+@Button btnToggle
+Parent=c
+Canvas.Left=24
+Canvas.Top=322
+Width=132
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+Content=Connect
+OnClick=Toggle
+
+@Button btnAdd
+Parent=c
+Canvas.Left=164
+Canvas.Top=322
+Width=92
+Height=40
+Content=Add
+OnClick=AddDrive
+
+@Button btnEdit
+Parent=c
+Canvas.Left=264
+Canvas.Top=322
+Width=92
+Height=40
+Content=Change
+OnClick=EditDrive
+
+@Button btnRemove
+Parent=c
+Canvas.Left=364
+Canvas.Top=322
+Width=92
+Height=40
+Content=Remove
+OnClick=RemoveDrive
+
+@CheckBox chkBoot
+Parent=c
+Canvas.Left=24
+Canvas.Top=376
+Width=432
+Height=28
+Content=Start with the computer, in the tray
+OnClick=BootChanged
+
+@TextBlock lblStatus
+Parent=c
+Canvas.Left=24
+Canvas.Top=410
+Width=432
+Height=200
+TextWrapping=Wrap
+FontSize=13
+Foreground=#374151
+Text=
+
+# --- adding or changing a drive (shown over the list) --------------------------
+
+@TextBlock lblForm
+Parent=c
+Canvas.Left=24
+Canvas.Top=92
+Width=432
+Height=24
+FontWeight=Bold
+IsVisible=false
+Text=A drive
+
+@TextBox txtName
+Parent=c
+Canvas.Left=24
+Canvas.Top=120
+Width=206
+Height=34
+IsVisible=false
+Watermark=Name (e.g. Web server)
+
+@TextBox txtMount
+Parent=c
+Canvas.Left=240
+Canvas.Top=120
+Width=216
+Height=34
+IsVisible=false
+Watermark=Drive letter or folder (blank: any)
+
+@TextBox txtHost
+Parent=c
+Canvas.Left=24
+Canvas.Top=162
+Width=300
+Height=34
+IsVisible=false
+Watermark=Server (e.g. tiny-web.uk)
+
+@TextBox txtPort
+Parent=c
+Canvas.Left=334
+Canvas.Top=162
+Width=122
+Height=34
+IsVisible=false
+Watermark=Port (22)
+
+@TextBox txtUser
+Parent=c
+Canvas.Left=24
+Canvas.Top=204
+Width=206
+Height=34
+IsVisible=false
+Watermark=User
+
+@TextBox txtRemote
+Parent=c
+Canvas.Left=240
+Canvas.Top=204
+Width=216
+Height=34
+IsVisible=false
+Watermark=Folder on the server (blank: home)
+
+@ComboBox cmbAuth
+Parent=c
+Canvas.Left=24
+Canvas.Top=246
+Width=206
+Height=34
+IsVisible=false
+Items=Password,Key file,SSH agent
+SelectionChanged=AuthChanged
+
+@TextBox txtSecret
+Parent=c
+Canvas.Left=240
+Canvas.Top=246
+Width=216
+Height=34
+IsVisible=false
+IsPassword=true
+Watermark=Password
+
+@TextBox txtKey
+Parent=c
+Canvas.Left=24
+Canvas.Top=288
+Width=432
+Height=34
+IsVisible=false
+Watermark=Key file (e.g. ~/.ssh/id_ed25519) or, on a phone, the key itself
+
+@CheckBox chkAuto
+Parent=c
+Canvas.Left=24
+Canvas.Top=330
+Width=206
+Height=28
+IsVisible=false
+Content=Connect by itself
+IsChecked=true
+
+@CheckBox chkReadOnly
+Parent=c
+Canvas.Left=240
+Canvas.Top=330
+Width=216
+Height=28
+IsVisible=false
+Content=Read only
+
+@Button btnSave
+Parent=c
+Canvas.Left=24
+Canvas.Top=370
+Width=206
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+IsVisible=false
+Content=Save and connect
+OnClick=SaveDrive
+
+@Button btnCancel
+Parent=c
+Canvas.Left=240
+Canvas.Top=370
+Width=216
+Height=40
+IsVisible=false
+Content=Cancel
+OnClick=CloseForm
+
+# ============================================================================
+# Scripts
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+Drives = json.decode(Vml("GetSetting", "drives") or "") or {}
+State = {}          -- name -> {state=, detail=}
+Editing = nil       -- index of the drive being changed (nil: a new one)
+LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove", "chkBoot", "lblStatus" }
+FORM = { "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
+         "txtKey", "chkAuto", "chkReadOnly", "btnSave", "btnCancel" }
+
+function Show(names, on) for _, n in ipairs(names) do Vml("SetProperty", n, "IsVisible", tostring(on)) end end
+function Say(text) Vml("SetProperty", "lblStatus", "Text", text) end
+function Keep() Vml("SetSetting", "drives", json.encode(Drives)) end
+function Find(name) for i, d in ipairs(Drives) do if d.name == name then return i, d end end end
+function Selected()
+  local i = tonumber(Vml("GetProperty", "lstDrives", "SelectedIndex") or "-1") or -1
+  if i >= 0 and Drives[i + 1] then return i + 1, Drives[i + 1] end
+end
+local DOT = { mounted = "●", connecting = "◌", offline = "○", error = "✕" }
+function Refresh()
+  local rows = {}
+  for _, d in ipairs(Drives) do
+    local s = State[d.name] or {}
+    local where = d.user ~= "" and (d.user .. "@" .. d.host) or d.host
+    local label = (DOT[s.state] or "·") .. " " .. d.name .. "   " .. where .. ":" .. (d.remote ~= "" and d.remote or "~")
+    if s.state == "mounted" then label = label .. "   →  " .. (s.detail or ""):gsub(" %(.*%)", "") end
+    rows[#rows + 1] = label:gsub(",", " ")
+  end
+  local keep = Vml("GetProperty", "lstDrives", "SelectedIndex")
+  Vml("SetProperty", "lstDrives", "Items", table.concat(rows, ","))
+  if keep and keep ~= "-1" then Vml("SetProperty", "lstDrives", "SelectedIndex", keep) end
+  Vml("RunScript", "Picked")
+  local up = 0
+  for _, s in pairs(State) do if s.state == "mounted" then up = up + 1 end end
+  Vml("Tray", "SSH Drive: " .. up .. " of " .. #Drives .. " connected", "Open|Connect all|Disconnect all|-|Quit", "TrayClick")
+end
+function Mount(d) State[d.name] = { state = "connecting", detail = "" }; Vml("SshMount", json.encode(d), "OnDrive") end
+
+-- what this device can do
+Can = json.decode(Vml("SshMethods") or "") or {}
+local can = Can
+if can.android then
+  Vml("SetProperty", "chkBoot", "IsVisible", "false")       -- a phone keeps its drives in Files by itself
+  table.remove(LIST, 6)
+  Say("Connected drives are in the Files app (under Browse), and in every app's \"open file\".")
+elseif can.windows and not can.winfsp then
+  Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
+end
+Vml("SetProperty", "chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
+Refresh()
+for _, d in ipairs(Drives) do if d.automount ~= false then Mount(d) end end
+if Vml("LaunchedAtBoot") == "true" then Vml("HideForm", "SshDrive") end
+LUA
+
+@Script OnDrive
+Interpreter=lua
+<<LUA
+local name, state, detail = args[1] or "", args[2] or "", args[3] or ""
+local i, d = Find(name)
+if state == "hostkey" then
+  if d then d.hostkey = detail; Keep() end           -- remembered: a different key next time is refused
+  return
+end
+State[name] = { state = state, detail = detail }
+if state == "mounted" then
+  Vml("TrayMessage", name .. " connected", (detail:gsub(" %(.*%)", "")))
+elseif state == "error" then
+  Say(name .. ": " .. detail)
+  Vml("TrayMessage", name .. " didn't connect", detail)
+elseif state == "offline" then
+  Say(name .. " is out of reach; it keeps trying. (" .. detail .. ")")
+end
+Refresh()
+LUA
+
+@Script Picked
+Interpreter=lua
+<<LUA
+local i, d = Selected()
+local s = d and State[d.name] or {}
+local up = s.state == "mounted" or s.state == "connecting" or s.state == "offline"
+Vml("SetProperty", "btnToggle", "Content", up and "Disconnect" or "Connect")
+for _, n in ipairs({ "btnToggle", "btnEdit", "btnRemove" }) do Vml("SetProperty", n, "IsEnabled", tostring(d ~= nil)) end
+if d and s.detail and s.detail ~= "" and s.state == "mounted" then Say(d.name .. ": " .. s.detail) end
+LUA
+
+@Script Toggle
+Interpreter=lua
+<<LUA
+local i, d = Selected()
+if not d then return end
+local s = State[d.name] or {}
+if s.state == "mounted" or s.state == "connecting" or s.state == "offline" then
+  Vml("SshUnmount", d.name)
+else
+  Mount(d)
+end
+Refresh()
+LUA
+
+@Script TrayClick
+Interpreter=lua
+<<LUA
+local what = args[1] or ""
+if what == "open" or what == "Open" then
+  Vml("ShowForm", "SshDrive")
+elseif what == "Connect all" then
+  for _, d in ipairs(Drives) do if (State[d.name] or {}).state ~= "mounted" then Mount(d) end end
+  Refresh()
+elseif what == "Disconnect all" then
+  Vml("SshUnmount", "")
+elseif what == "Quit" then
+  Vml("Quit")
+end
+LUA
+
+@Script BootChanged
+Interpreter=lua
+<<LUA
+local on = Vml("GetProperty", "chkBoot", "IsChecked") == "true"
+local now = Vml("StartAtBoot", tostring(on))
+if now == "on" or now == "off" then
+  Vml("SetSetting", "at_boot", now)
+else
+  Say(now)
+end
+LUA
+
+# --- adding, changing and removing --------------------------------------------
+
+@Script OpenForm
+Interpreter=lua
+<<LUA
+local d = Editing and Drives[Editing] or { port = 22, auth = Can.android and "password" or "agent", automount = true }
+Vml("SetProperty", "lblForm", "Text", Editing and ("Change " .. d.name) or "A new drive")
+local function put(box, v) Vml("SetProperty", box, "Text", v == nil and "" or tostring(v)) end
+put("txtName", d.name); put("txtMount", d.mount); put("txtHost", d.host); put("txtPort", d.port ~= 22 and d.port or "")
+put("txtUser", d.user); put("txtRemote", d.remote); put("txtKey", d.key or d.keytext)
+put("txtSecret", d.auth == "key" and d.passphrase or d.password)
+Vml("SetProperty", "cmbAuth", "SelectedIndex", d.auth == "password" and "0" or d.auth == "key" and "1" or "2")
+Vml("SetProperty", "chkAuto", "IsChecked", tostring(d.automount ~= false))
+Vml("SetProperty", "chkReadOnly", "IsChecked", tostring(d.readonly == true))
+Show(LIST, false); Show(FORM, true)
+Vml("RunScript", "AuthChanged")
+LUA
+
+@Script AuthChanged
+Interpreter=lua
+<<LUA
+local a = tostring(Vml("GetProperty", "cmbAuth", "SelectedIndex"))
+Vml("SetProperty", "txtSecret", "Watermark", a == "1" and "Key passphrase (if it has one)" or "Password")
+Vml("SetProperty", "txtSecret", "IsVisible", tostring(a ~= "2" and Vml("GetProperty", "btnSave", "IsVisible") == "true"))
+Vml("SetProperty", "txtKey", "IsVisible", tostring(a == "1" and Vml("GetProperty", "btnSave", "IsVisible") == "true"))
+LUA
+
+@Script AddDrive
+Interpreter=lua
+<<LUA
+Editing = nil
+Vml("RunScript", "OpenForm")
+LUA
+
+@Script EditDrive
+Interpreter=lua
+<<LUA
+Editing = Selected()
+if Editing then Vml("RunScript", "OpenForm") end
+LUA
+
+@Script CloseForm
+Interpreter=lua
+<<LUA
+Show(FORM, false); Show(LIST, true)
+Refresh()
+LUA
+
+@Script SaveDrive
+Interpreter=lua
+<<LUA
+local function get(box) return (Vml("GetProperty", box, "Text") or ""):match("^%s*(.-)%s*$") end
+local host = get("txtHost")
+if host == "" then return Vml("SetProperty", "lblForm", "Text", "Which server? (Server is empty)") end
+local a = tostring(Vml("GetProperty", "cmbAuth", "SelectedIndex"))
+local auth = a == "0" and "password" or a == "1" and "key" or "agent"
+local d = {
+  name = get("txtName") ~= "" and get("txtName") or host,
+  host = host, port = tonumber(get("txtPort")) or 22, user = get("txtUser"), remote = get("txtRemote"),
+  mount = get("txtMount"), auth = auth,
+  automount = Vml("GetProperty", "chkAuto", "IsChecked") == "true",
+  readonly = Vml("GetProperty", "chkReadOnly", "IsChecked") == "true",
+}
+if auth == "password" then d.password = get("txtSecret") end
+if auth == "key" then
+  local k = get("txtKey")
+  if k:find("PRIVATE KEY") then d.keytext = k else d.key = k end      -- a phone has no key files: the key itself
+  d.passphrase = get("txtSecret")
+end
+local old = Editing and Drives[Editing]
+if old then
+  if old.host == d.host and old.port == d.port then d.hostkey = old.hostkey end   -- same server: keep its key
+  Vml("SshUnmount", old.name)
+  State[old.name] = nil
+  Drives[Editing] = d
+else
+  if Find(d.name) then return Vml("SetProperty", "lblForm", "Text", "There's already a drive called " .. d.name) end
+  Drives[#Drives + 1] = d
+end
+Keep()
+Show(FORM, false); Show(LIST, true)
+Mount(d)
+Refresh()
+Vml("SetProperty", "lstDrives", "SelectedIndex", tostring((Find(d.name)) - 1))   -- the drive just saved, picked
+Vml("RunScript", "Picked")
+LUA
+
+@Script RemoveDrive
+Interpreter=lua
+<<LUA
+local i, d = Selected()
+if not d then return end
+Vml("SshUnmount", d.name)
+State[d.name] = nil
+table.remove(Drives, i)
+Keep()
+Say(d.name .. " removed.")
+Refresh()
+LUA

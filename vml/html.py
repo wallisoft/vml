@@ -1046,6 +1046,27 @@ const commands = {
   },
   // Adds to the phone's address book or changes it: a new contact (oldName blank), or oldName renamed to name, with
   // number added if given. The handler gets the name, or a blank and why not. An app exported for Android only.
+  // A folder on an SSH server. On a phone it appears in the Files app (and every app's "open file"), as Google Drive
+  // does; on a computer it is a drive (vml/sshdrive.py). handler gets (name, state, detail): connecting, mounted,
+  // offline, error, off, and (name, "hostkey", fingerprint) the first time a server is met. In the Visualised app on a
+  // phone, or an app exported for Android.
+  SshMount(drive = "{}", handler = "") {
+    let d = {}; try { d = JSON.parse(String(drive)); } catch (e) { return "That drive isn't JSON."; }
+    const name = String(d.name || d.host || "");
+    if (handler) onSshDrive = String(handler);
+    if (DEV && DEV.sshMount) DEV.sshMount(JSON.stringify(Object.assign(d, { name })));
+    else if (handler) setTimeout(() => run(handler, [name, "error", "SSH drives need the computer app, or one exported for an Android phone."]), 0);
+    return "";
+  },
+  SshUnmount(name = "") { if (DEV && DEV.sshUnmount) DEV.sshUnmount(String(name)); return ""; },
+  SshStatus(name = "") { return DEV && DEV.sshStatus ? String(DEV.sshStatus(String(name))) : (name ? '{"state":"off","detail":""}' : "{}"); },
+  SshMethods() { return JSON.stringify({ android: !!(DEV && DEV.sshMount), winfsp: false, webdav: false, sshfs: false, windows: false, letters: [] }); },
+  // A tray icon and starting with the computer belong to computers: on a phone and in a browser they quietly do nothing.
+  Tray(tooltip = "", menu = "", handler = "") { return ""; },
+  TrayMessage(title = "", text = "") { return ""; },
+  StartAtBoot(on = "true") { return "off"; },
+  LaunchedAtBoot() { return "false"; },
+  Quit() { if (DEV && DEV.quit) DEV.quit(); return ""; },
   SaveContact(name = "", number = "", oldName = "", handler = "") {
     const id = String(++asked);
     if (DEV && DEV.saveContact) { if (handler) waitingFor[id] = handler; DEV.saveContact(id, String(name), String(number), String(oldName)); }
@@ -1348,7 +1369,7 @@ const commands = {
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
-let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false;
+let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false, onSshDrive = "";
 // Visualised's own push service (OnPush with no firebase of the app's own; PushSend). The Firebase values are the
 // public ones every app carries; sending is done by tiny-web, never by the app.
 const PUSH_RELAY = "https://tiny-web.uk/api/push.php";
@@ -1394,6 +1415,7 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
   if (what === "push" && onPush && pushRelay) pushHeard(a, b);
   else if (what === "push" && onPush) run(onPush, [a, b]);
   if (what === "messages" && onMessages) run(onMessages, [a, b]);
+  if (what === "sshdrive" && onSshDrive) { const i = b.indexOf("|"); run(onSshDrive, [a, i < 0 ? b : b.slice(0, i), i < 0 ? "" : b.slice(i + 1)]); }
   if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:") || what.startsWith("contact:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];
     if (typeof h === "function") h(a, b); else if (h) run(h, [a, b]);

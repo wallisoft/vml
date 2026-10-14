@@ -1,0 +1,1234 @@
+"""
+SSH drives: a folder on any SSH server, shown as a drive on this computer.
+
+    Windows   a drive letter. Through WinFsp when it's installed (fast, no size limits: the same driver SSHFS-Win uses),
+              otherwise through Windows' own WebDAV client (nothing to install; slower, and Windows caps files at
+              50 MB until FileSizeLimitInBytes is raised).
+    Linux     a folder, through the system's sshfs when it's there, otherwise WebDAV on 127.0.0.1 for the file manager.
+    macOS     sshfs (macFUSE) when it's there.
+
+Nothing here needs the engine: `python -m vml.sshdrive mount ...` runs one drive from a terminal, and the engine's
+SshMount command runs the same code. A drive is a plain dict (see DRIVE_DEFAULTS), kept by the app in its settings.
+
+Sign-in is a password, a key file (with its passphrase, if it has one), or the SSH agent. The server's own key is
+remembered the first time (its fingerprint goes back in the drive's "hostkey") and a changed key is refused, as
+ssh itself does.
+"""
+import base64
+import errno
+import hashlib
+import io
+import os
+import posixpath
+import shutil
+import socket
+import stat as _stat
+import subprocess
+import sys
+import threading
+import time
+
+DRIVE_DEFAULTS = {
+    "name": "",            # shown in the app and as the volume label
+    "host": "",
+    "port": 22,
+    "user": "",
+    "auth": "agent",       # "password", "key" or "agent"
+    "password": "",
+    "key": "",             # path to a private key file
+    "passphrase": "",
+    "remote": "",          # folder on the server ("" is the user's home)
+    "mount": "",           # Windows: a drive letter like "S:"; elsewhere a folder
+    "automount": True,
+    "readonly": False,
+    "hostkey": "",         # "ssh-ed25519 SHA256:..." once known
+    "method": "auto",      # "auto", "winfsp", "webdav" or "sshfs"
+}
+
+WINDOWS = sys.platform.startswith("win")
+CACHE_SECONDS = 2.0
+
+
+class RemoteError(Exception):
+    """kind: notfound, exists, notempty, notdir, isdir, denied, hostkey, auth, offline, io"""
+
+    def __init__(self, kind, message=""):
+        super().__init__(message or kind)
+        self.kind = kind
+
+
+class Entry:
+    __slots__ = ("name", "is_dir", "size", "mtime", "atime", "mode")
+
+    def __init__(self, name, is_dir, size=0, mtime=0.0, atime=0.0, mode=0):
+        self.name, self.is_dir, self.size, self.mtime, self.atime, self.mode = name, is_dir, size, mtime, atime, mode
+
+    def __repr__(self):
+        return f"Entry({self.name!r}, {'dir' if self.is_dir else self.size})"
+
+
+def _from_attr(name, a):
+    mode = a.st_mode or 0
+    return Entry(name, _stat.S_ISDIR(mode), a.st_size or 0, float(a.st_mtime or 0), float(a.st_atime or a.st_mtime or 0), mode)
+
+
+def _kind(exc):
+    """What a remote failure means, from errno (paramiko maps SFTP status codes onto errno)."""
+    if isinstance(exc, RemoteError):
+        return exc.kind
+    e = getattr(exc, "errno", None)
+    if e == errno.ENOENT:
+        return "notfound"
+    if e == errno.EEXIST:
+        return "exists"
+    if e in (errno.EACCES, errno.EPERM):
+        return "denied"
+    if e == errno.ENOTEMPTY:
+        return "notempty"
+    if e == errno.ENOTDIR:
+        return "notdir"
+    if e == errno.EISDIR:
+        return "isdir"
+    return "io"
+
+
+def _clean(rel):
+    """A path inside the drive, always "/..." with forward slashes, never escaping its root."""
+    rel = str(rel or "/").replace("\\", "/")
+    parts = []
+    for p in rel.split("/"):
+        if p in ("", "."):
+            continue
+        if p == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(p)
+    return "/" + "/".join(parts)
+
+
+class _Cache:
+    """Remembers stat and listing answers for a couple of seconds: Explorer asks the same question many times over."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._stat, self._dirs = {}, {}
+
+    def get_stat(self, rel):
+        with self._lock:
+            v = self._stat.get(rel)
+            return v[1] if v and time.monotonic() - v[0] < CACHE_SECONDS else None
+
+    def put_stat(self, rel, entry):
+        with self._lock:
+            self._stat[rel] = (time.monotonic(), entry)
+
+    def get_dir(self, rel):
+        with self._lock:
+            v = self._dirs.get(rel)
+            return v[1] if v and time.monotonic() - v[0] < CACHE_SECONDS else None
+
+    def put_dir(self, rel, entries):
+        with self._lock:
+            now = time.monotonic()
+            self._dirs[rel] = (now, entries)
+            for e in entries:
+                self._stat[posixpath.join(rel, e.name)] = (now, e)
+
+    def forget(self, *rels):
+        with self._lock:
+            for rel in rels:
+                self._stat.pop(rel, None)
+                self._dirs.pop(rel, None)
+                self._dirs.pop(posixpath.dirname(rel) or "/", None)
+
+
+class BaseRemote:
+    """What the drive backends need from a remote. SftpRemote is the real one; LocalRemote stands in for tests."""
+
+    readonly = False
+
+    def __init__(self):
+        self.cache = _Cache()
+
+    # each takes a drive path ("/a/b")
+    def stat(self, rel): raise NotImplementedError
+    def listdir(self, rel): raise NotImplementedError
+    def open(self, rel, mode): raise NotImplementedError      # a file object: read/write/seek/truncate/flush/close
+    def mkdir(self, rel): raise NotImplementedError
+    def remove(self, rel): raise NotImplementedError
+    def rmdir(self, rel): raise NotImplementedError
+    def rename(self, old, new): raise NotImplementedError     # replaces new if it's there
+    def truncate(self, rel, size): raise NotImplementedError
+    def set_times(self, rel, atime, mtime): raise NotImplementedError
+
+    def space(self):
+        return (1 << 40, 1 << 39)    # (total, free) when the server won't say
+
+    def close(self): pass
+
+    # cached versions the backends use
+    def cstat(self, rel):
+        rel = _clean(rel)
+        e = self.cache.get_stat(rel)
+        if e is None:
+            e = self.stat(rel)
+            self.cache.put_stat(rel, e)
+        return e
+
+    def clistdir(self, rel):
+        rel = _clean(rel)
+        es = self.cache.get_dir(rel)
+        if es is None:
+            es = sorted(self.listdir(rel), key=lambda e: e.name.lower())
+            self.cache.put_dir(rel, es)
+        return es
+
+    def exists(self, rel):
+        try:
+            self.cstat(rel)
+            return True
+        except RemoteError as e:
+            if e.kind == "notfound":
+                return False
+            raise
+
+
+class LocalRemote(BaseRemote):
+    """A local folder behaving like a remote: lets the drive backends be tested without a server."""
+
+    def __init__(self, root):
+        super().__init__()
+        self.root = os.path.abspath(root)
+
+    def _p(self, rel):
+        return os.path.join(self.root, _clean(rel).lstrip("/"))
+
+    def _wrap(self, fn, *a):
+        try:
+            return fn(*a)
+        except OSError as e:
+            raise RemoteError(_kind(e), str(e))
+
+    def stat(self, rel):
+        st = self._wrap(os.stat, self._p(rel))
+        return Entry(posixpath.basename(_clean(rel)) or "/", _stat.S_ISDIR(st.st_mode), st.st_size, st.st_mtime, st.st_atime, st.st_mode)
+
+    def listdir(self, rel):
+        base = self._p(rel)
+        out = []
+        for n in self._wrap(os.listdir, base):
+            try:
+                st = os.stat(os.path.join(base, n))
+            except OSError:
+                continue
+            out.append(Entry(n, _stat.S_ISDIR(st.st_mode), st.st_size, st.st_mtime, st.st_atime, st.st_mode))
+        return out
+
+    def open(self, rel, mode):
+        if "w" in mode or "a" in mode:
+            self.cache.forget(_clean(rel))
+        return self._wrap(open, self._p(rel), mode)
+
+    def mkdir(self, rel):
+        self.cache.forget(_clean(rel))
+        self._wrap(os.mkdir, self._p(rel))
+
+    def remove(self, rel):
+        self.cache.forget(_clean(rel))
+        self._wrap(os.remove, self._p(rel))
+
+    def rmdir(self, rel):
+        self.cache.forget(_clean(rel))
+        self._wrap(os.rmdir, self._p(rel))
+
+    def rename(self, old, new):
+        self.cache.forget(_clean(old), _clean(new))
+        self._wrap(os.replace, self._p(old), self._p(new))
+
+    def truncate(self, rel, size):
+        self.cache.forget(_clean(rel))
+        self._wrap(os.truncate, self._p(rel), size)
+
+    def set_times(self, rel, atime, mtime):
+        self.cache.forget(_clean(rel))
+        self._wrap(os.utime, self._p(rel), (atime, mtime))
+
+    def space(self):
+        u = shutil.disk_usage(self.root)
+        return (u.total, u.free)
+
+
+def fingerprint(key):
+    """"ssh-ed25519 SHA256:..." the way ssh shows it."""
+    digest = base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip("=")
+    return f"{key.get_name()} SHA256:{digest}"
+
+
+class SftpRemote(BaseRemote):
+    """A folder on an SSH server, over SFTP. Reconnects by itself when the line drops."""
+
+    def __init__(self, drive, on_hostkey=None):
+        super().__init__()
+        self.d = dict(DRIVE_DEFAULTS, **drive)
+        self.readonly = bool(self.d.get("readonly"))
+        self.on_hostkey = on_hostkey          # called with the fingerprint the first time a server is seen
+        self._lock = threading.RLock()
+        self._ssh = self._sftp = None
+        self._root = None
+        self.connect()
+
+    # ── connection ──
+    def connect(self):
+        import paramiko
+        with self._lock:
+            self.close()
+            d = self.d
+            ssh = paramiko.SSHClient()
+            seen = {}
+
+            class Pin(paramiko.MissingHostKeyPolicy):
+                def missing_host_key(self, client, hostname, key):
+                    seen["fp"] = fingerprint(key)
+
+            ssh.set_missing_host_key_policy(Pin())
+            kw = dict(hostname=d["host"], port=int(d["port"] or 22), username=d["user"] or None, timeout=15,
+                      banner_timeout=15, auth_timeout=20, allow_agent=False, look_for_keys=False)
+            auth = d.get("auth") or "agent"
+            if auth == "password":
+                kw["password"] = d["password"]
+            elif auth == "key":
+                kw["pkey"] = self._load_key(d["key"], d.get("passphrase") or None)
+            else:
+                kw["allow_agent"], kw["look_for_keys"] = True, True
+            try:
+                ssh.connect(**kw)
+            except paramiko.AuthenticationException as e:
+                raise RemoteError("auth", f"The server didn't accept the sign-in for {d['user']}@{d['host']}: {e}")
+            except (socket.error, paramiko.SSHException, EOFError) as e:
+                if "authentication" in str(e).lower():          # e.g. no password, no key and no agent
+                    raise RemoteError("auth", f"No way to sign in to {d['host']}: {e}. Give a password or a key.")
+                raise RemoteError("offline", f"Couldn't reach {d['host']}: {e}")
+            fp = fingerprint(ssh.get_transport().get_remote_server_key())
+            if d.get("hostkey") and d["hostkey"] != fp:
+                ssh.close()
+                raise RemoteError("hostkey", f"{d['host']} has a different key from last time ({fp}, expected {d['hostkey']}). "
+                                             "If the server was rebuilt, clear the remembered key and connect again.")
+            if not d.get("hostkey"):
+                d["hostkey"] = fp
+                if self.on_hostkey:
+                    try:
+                        self.on_hostkey(fp)
+                    except Exception:
+                        pass
+            ssh.get_transport().set_keepalive(30)
+            self._ssh, self._sftp = ssh, ssh.open_sftp()
+            root = (d.get("remote") or "").strip() or "."
+            self._root = self._sftp.normalize(root)
+            self.cache = _Cache()
+
+    @staticmethod
+    def _load_key(path, passphrase):
+        import paramiko
+        path = os.path.expanduser(path)
+        last = None
+        for cls in (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey):
+            try:
+                return cls.from_private_key_file(path, password=passphrase)
+            except paramiko.PasswordRequiredException:
+                raise RemoteError("auth", "That key needs its passphrase.")
+            except Exception as e:
+                last = e
+        raise RemoteError("auth", f"Couldn't read the key {path}: {last}")
+
+    def close(self):
+        with self._lock:
+            for c in (self._sftp, self._ssh):
+                try:
+                    if c:
+                        c.close()
+                except Exception:
+                    pass
+            self._ssh = self._sftp = None
+
+    @property
+    def connected(self):
+        t = self._ssh.get_transport() if self._ssh else None
+        return bool(t and t.is_active())
+
+    def _p(self, rel):
+        return posixpath.join(self._root, _clean(rel).lstrip("/")) if _clean(rel) != "/" else self._root
+
+    def _do(self, fn):
+        """Run fn(sftp); once more after reconnecting if the connection had dropped.
+        (An SFTP refusal and a dropped line are both OSErrors in Python 3: whether the connection is still up
+        is what tells them apart.)"""
+        for attempt in (1, 2):
+            try:
+                if not self.connected:
+                    self.connect()
+                return fn(self._sftp)
+            except RemoteError:
+                raise
+            except Exception as e:
+                if self.connected and isinstance(e, OSError) and not isinstance(e, (ConnectionError, socket.timeout)):
+                    raise RemoteError(_kind(e), str(e))       # the server said no
+                if attempt == 2:
+                    raise RemoteError("offline", str(e))
+                time.sleep(0.5)
+
+    # ── operations ──
+    def stat(self, rel):
+        a = self._do(lambda s: s.stat(self._p(rel)))
+        return _from_attr(posixpath.basename(_clean(rel)) or "/", a)
+
+    def listdir(self, rel):
+        return [_from_attr(a.filename, a) for a in self._do(lambda s: s.listdir_attr(self._p(rel)))
+                if a.filename not in (".", "..")]
+
+    def open(self, rel, mode):
+        writing = "w" in mode or "a" in mode or "+" in mode
+        if writing:
+            self.cache.forget(_clean(rel))
+            # no local buffer: every write goes straight out, pipelined, so a size asked for right after (on the same
+            # channel, so answered in order) is already right; Windows trusts the size it's told after each write
+            f = self._do(lambda s: s.open(self._p(rel), mode, bufsize=0))
+            f.set_pipelined(True)
+        else:
+            f = self._do(lambda s: s.open(self._p(rel), mode, bufsize=1 << 16))
+            try:
+                if self.cstat(rel).size <= 16 << 20:
+                    f.prefetch()          # small files: fetch it all at once; big ones (videos...) only what's read
+            except RemoteError:
+                pass
+        return _SftpFile(f, self, rel)
+
+    def mkdir(self, rel):
+        self.cache.forget(_clean(rel))
+        self._do(lambda s: s.mkdir(self._p(rel)))
+
+    def remove(self, rel):
+        self.cache.forget(_clean(rel))
+        self._do(lambda s: s.remove(self._p(rel)))
+
+    def rmdir(self, rel):
+        self.cache.forget(_clean(rel))
+        try:
+            self._do(lambda s: s.rmdir(self._p(rel)))
+        except RemoteError as e:
+            if e.kind == "io" and self.listdir(rel):     # SFTP reports a non-empty folder as a plain failure
+                raise RemoteError("notempty", str(e))
+            raise
+
+    def rename(self, old, new):
+        self.cache.forget(_clean(old), _clean(new))
+        po, pn = self._p(old), self._p(new)
+
+        def go(s):
+            try:
+                s.posix_rename(po, pn)          # OpenSSH: replaces new atomically
+            except IOError as e:
+                if getattr(e, "errno", None) not in (None, errno.EOPNOTSUPP):
+                    raise
+                try:
+                    s.remove(pn)
+                except IOError:
+                    pass
+                s.rename(po, pn)
+        self._do(go)
+
+    def truncate(self, rel, size):
+        self.cache.forget(_clean(rel))
+        self._do(lambda s: s.truncate(self._p(rel), size))
+
+    def set_times(self, rel, atime, mtime):
+        self.cache.forget(_clean(rel))
+        self._do(lambda s: s.utime(self._p(rel), (atime, mtime)))
+
+    def space(self):
+        try:
+            out = self._do(lambda s: self._ssh.exec_command(f"df -Pk '{self._root}'", timeout=10)[1].read().decode())
+            parts = out.strip().splitlines()[-1].split()
+            return (int(parts[1]) * 1024, int(parts[3]) * 1024)
+        except Exception:
+            return super().space()
+
+
+class _SftpFile:
+    """A remote file that remembers which drive path it belongs to, so writes clear the cache."""
+
+    def __init__(self, f, remote, rel):
+        self.f, self.remote, self.rel = f, remote, _clean(rel)
+
+    def read(self, n=-1):
+        return self.f.read(n)
+
+    def write(self, b):
+        self.remote.cache.forget(self.rel)
+        return self.f.write(b)
+
+    def seek(self, pos, whence=0):
+        return self.f.seek(pos, whence)
+
+    def tell(self):
+        return self.f.tell()
+
+    def truncate(self, size):
+        self.remote.cache.forget(self.rel)
+        return self.f.truncate(size)
+
+    def flush(self):
+        return self.f.flush()
+
+    def close(self):
+        try:
+            self.f.close()
+        finally:
+            self.remote.cache.forget(self.rel)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+#  Windows: WinFsp
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+def winfsp_available():
+    if not WINDOWS:
+        return False
+    try:
+        import winfspy  # noqa: F401  (loads winfsp-x64.dll; fails if WinFsp isn't installed)
+        return True
+    except Exception:
+        return False
+
+
+EPOCH_AS_FILETIME = 116444736000000000
+
+
+def _ft(t):
+    return int(t * 10_000_000) + EPOCH_AS_FILETIME
+
+
+def _unix(ft):
+    return (ft - EPOCH_AS_FILETIME) / 10_000_000
+
+
+def _winfsp_operations():
+    """Built on first use, so this module imports fine where winfspy isn't installed."""
+    from winfspy import (BaseFileSystemOperations, FILE_ATTRIBUTE, CREATE_FILE_CREATE_OPTIONS, NTStatusError,
+                         NTStatusObjectNameNotFound, NTStatusObjectNameCollision, NTStatusAccessDenied,
+                         NTStatusNotADirectory, NTStatusEndOfFile, NTStatusDirectoryNotEmpty,
+                         NTStatusMediaWriteProtected)
+    from winfspy.plumbing.security_descriptor import SecurityDescriptor
+    from winfspy.plumbing.status import NTSTATUS
+
+    NT = {"notfound": NTStatusObjectNameNotFound, "exists": NTStatusObjectNameCollision, "denied": NTStatusAccessDenied,
+          "notdir": NTStatusNotADirectory, "notempty": NTStatusDirectoryNotEmpty}
+    DELETE, SET_WRITE_TIME = 0x01, 0x40
+
+    def nt(fn):
+        def wrapper(self, *a, **kw):
+            try:
+                return fn(self, *a, **kw)
+            except RemoteError as e:
+                if e.kind in NT:
+                    raise NT[e.kind]()
+                if e.kind == "offline":
+                    raise NTStatusError(NTSTATUS.STATUS_NETWORK_UNREACHABLE)
+                raise NTStatusError(NTSTATUS.STATUS_UNEXPECTED_IO_ERROR)
+        wrapper.__name__ = fn.__name__
+        return wrapper
+
+    class Ctx:
+        def __init__(self, rel, is_dir):
+            self.rel, self.is_dir, self.f, self.writing = rel, is_dir, None, False
+
+    class SshOperations(BaseFileSystemOperations):
+        def __init__(self, remote, label):
+            super().__init__()
+            self.r = remote
+            self.label = (label or "SSH")[:31]
+            self.sd = SecurityDescriptor.from_string("O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;WD)")
+            self._lock = threading.RLock()
+
+        @staticmethod
+        def _rel(file_name):
+            return _clean(str(file_name))
+
+        def _attrs(self, e):
+            a = FILE_ATTRIBUTE.FILE_ATTRIBUTE_DIRECTORY if e.is_dir else FILE_ATTRIBUTE.FILE_ATTRIBUTE_ARCHIVE
+            if e.name.startswith(".") and e.name not in (".", ".."):
+                a |= FILE_ATTRIBUTE.FILE_ATTRIBUTE_HIDDEN
+            if self.r.readonly:
+                a |= FILE_ATTRIBUTE.FILE_ATTRIBUTE_READONLY
+            return a
+
+        def _info(self, e):
+            alloc = (e.size + 4095) // 4096 * 4096
+            return {"file_attributes": self._attrs(e), "allocation_size": alloc, "file_size": e.size,
+                    "creation_time": _ft(e.mtime), "last_access_time": _ft(e.atime or e.mtime),
+                    "last_write_time": _ft(e.mtime), "change_time": _ft(e.mtime), "index_number": 0}
+
+        def _ro(self):
+            if self.r.readonly:
+                raise NTStatusMediaWriteProtected()
+
+        @nt
+        def get_volume_info(self):
+            total, free = self.r.space()
+            return {"total_size": total, "free_size": free, "volume_label": self.label}
+
+        def set_volume_label(self, volume_label):
+            self.label = volume_label[:31]
+
+        @nt
+        def get_security_by_name(self, file_name):
+            e = self.r.cstat(self._rel(file_name))
+            return (self._attrs(e), self.sd.handle, self.sd.size)
+
+        @nt
+        def create(self, file_name, create_options, granted_access, file_attributes, security_descriptor, allocation_size):
+            self._ro()
+            rel = self._rel(file_name)
+            parent = posixpath.dirname(rel) or "/"
+            if not self.r.cstat(parent).is_dir:
+                raise NTStatusNotADirectory()
+            if self.r.exists(rel):
+                raise NTStatusObjectNameCollision()
+            if create_options & CREATE_FILE_CREATE_OPTIONS.FILE_DIRECTORY_FILE:
+                self.r.mkdir(rel)
+                return Ctx(rel, True)
+            c = Ctx(rel, False)
+            c.f, c.writing = self.r.open(rel, "w+b"), True
+            return c
+
+        @nt
+        def open(self, file_name, create_options, granted_access):
+            rel = self._rel(file_name)
+            return Ctx(rel, self.r.cstat(rel).is_dir)
+
+        def _handle(self, c, write):
+            with self._lock:
+                if c.f and (c.writing or not write):
+                    return c.f
+                if c.f:
+                    c.f.close()
+                c.f, c.writing = self.r.open(c.rel, "r+b" if write else "rb"), write
+                return c.f
+
+        def close(self, file_context):
+            if file_context.f:
+                try:
+                    file_context.f.close()
+                except Exception:
+                    pass
+                file_context.f = None
+
+        @nt
+        def get_file_info(self, file_context):
+            return self._info(self.r.cstat(file_context.rel))
+
+        @nt
+        def get_security(self, file_context):
+            return self.sd
+
+        def set_security(self, file_context, security_information, modification_descriptor):
+            pass      # the server's own permissions are what count
+
+        @nt
+        def read(self, file_context, offset, length):
+            size = self.r.cstat(file_context.rel).size
+            if offset >= size:
+                raise NTStatusEndOfFile()
+            f = self._handle(file_context, False)
+            with self._lock:
+                f.seek(offset)
+                return f.read(min(length, size - offset))
+
+        @nt
+        def write(self, file_context, buffer, offset, write_to_end_of_file, constrained_io):
+            self._ro()
+            data = bytes(buffer)
+            # the size only matters for appends and constrained writes: plain writes skip the round trip
+            size = self.r.cstat(file_context.rel).size if (write_to_end_of_file or constrained_io) else 0
+            if write_to_end_of_file:
+                if file_context.f:
+                    file_context.f.flush()
+                    size = self.r.stat(file_context.rel).size
+                offset = size
+            if constrained_io:
+                if offset >= size:
+                    return 0
+                data = data[:size - offset]
+            f = self._handle(file_context, True)
+            with self._lock:
+                f.seek(offset)
+                f.write(data)
+            return len(data)
+
+        @nt
+        def flush(self, file_context):
+            if file_context and file_context.f:
+                file_context.f.flush()
+
+        @nt
+        def set_file_size(self, file_context, new_size, set_allocation_size):
+            self._ro()
+            if set_allocation_size:
+                return        # allocation is the server's business
+            if file_context.f and file_context.writing:
+                file_context.f.truncate(new_size)
+            else:
+                self.r.truncate(file_context.rel, new_size)
+
+        @nt
+        def overwrite(self, file_context, file_attributes, replace_file_attributes, allocation_size):
+            self._ro()
+            f = self._handle(file_context, True)
+            f.truncate(0)
+
+        @nt
+        def set_basic_info(self, file_context, file_attributes, creation_time, last_access_time, last_write_time,
+                           change_time, file_info):
+            if last_write_time and not self.r.readonly:
+                a = _unix(last_access_time) if last_access_time else _unix(last_write_time)
+                try:
+                    if file_context.f:
+                        file_context.f.flush()
+                    self.r.set_times(file_context.rel, a, _unix(last_write_time))
+                except RemoteError:
+                    pass      # some servers won't set times: not worth failing the copy for
+            return self._info(self.r.cstat(file_context.rel))
+
+        @nt
+        def can_delete(self, file_context, file_name):
+            self._ro()
+            if file_context.is_dir and self.r.clistdir(file_context.rel):
+                raise NTStatusDirectoryNotEmpty()
+
+        @nt
+        def cleanup(self, file_context, file_name, flags):
+            if flags & DELETE:
+                self.close(file_context)
+                if file_context.is_dir:
+                    self.r.rmdir(file_context.rel)
+                else:
+                    self.r.remove(file_context.rel)
+
+        @nt
+        def rename(self, file_context, file_name, new_file_name, replace_if_exists):
+            self._ro()
+            old, new = self._rel(file_name), self._rel(new_file_name)
+            if self.r.exists(new) and old.lower() != new.lower():
+                if not replace_if_exists:
+                    raise NTStatusObjectNameCollision()
+                if self.r.cstat(new).is_dir:
+                    raise NTStatusAccessDenied()
+            self.close(file_context)
+            self.r.rename(old, new)
+            file_context.rel = new
+
+        @nt
+        def read_directory(self, file_context, marker):
+            if not file_context.is_dir:
+                raise NTStatusNotADirectory()
+            rel = file_context.rel
+            out = []
+            if rel != "/":
+                me = self.r.cstat(rel)
+                up = self.r.cstat(posixpath.dirname(rel) or "/")
+                out += [{"file_name": ".", **self._info(me)}, {"file_name": "..", **self._info(up)}]
+            out += [{"file_name": e.name, **self._info(e)} for e in self.r.clistdir(rel)]
+            out.sort(key=lambda x: x["file_name"])
+            if marker is None:
+                return out
+            return [x for x in out if x["file_name"] > marker]
+
+        @nt
+        def get_dir_info_by_name(self, file_context, file_name):
+            e = self.r.cstat(posixpath.join(file_context.rel, file_name))
+            return {"file_name": file_name, **self._info(e)}
+
+    return SshOperations
+
+
+class WinFspDrive:
+    method = "winfsp"
+
+    def __init__(self, remote, mountpoint, label):
+        from winfspy import FileSystem
+        from winfspy.plumbing.win32_filetime import filetime_now
+        ops = _winfsp_operations()(remote, label)
+        mp = mountpoint.rstrip("\\/")
+        self.mountpoint = mp
+        self.fs = FileSystem(mp, ops, sector_size=512, sectors_per_allocation_unit=8, volume_creation_time=filetime_now(),
+                             volume_serial_number=int(hashlib.md5(label.encode()).hexdigest()[:8], 16), file_info_timeout=1000,
+                             case_sensitive_search=1, case_preserved_names=1, unicode_on_disk=1, persistent_acls=1,
+                             post_cleanup_when_modified_only=1, um_file_context_is_user_context2=1,
+                             file_system_name="SSHDrive", prefix="", reject_irp_prior_to_transact0=False,
+                             read_only_volume=bool(remote.readonly))
+        self.fs.start()
+
+    def stop(self):
+        try:
+            self.fs.stop()
+        except Exception:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+#  Everywhere: WebDAV on 127.0.0.1 (Windows maps it to a letter with its own WebDAV client)
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+def _dav_provider_class():
+    from wsgidav.dav_provider import DAVProvider, DAVCollection, DAVNonCollection
+    from wsgidav.dav_error import (DAVError, HTTP_NOT_FOUND, HTTP_FORBIDDEN, HTTP_CONFLICT, HTTP_INTERNAL_ERROR,
+                                   HTTP_PRECONDITION_FAILED)
+
+    def dav(fn):
+        def wrapper(*a, **kw):
+            try:
+                return fn(*a, **kw)
+            except RemoteError as e:
+                raise DAVError({"notfound": HTTP_NOT_FOUND, "denied": HTTP_FORBIDDEN, "exists": HTTP_PRECONDITION_FAILED,
+                                "notempty": HTTP_CONFLICT}.get(e.kind, HTTP_INTERNAL_ERROR), str(e))
+        return wrapper
+
+    class Writer(io.RawIOBase):
+        """Upload body goes straight to the remote file."""
+
+        def __init__(self, f):
+            self.f = f
+
+        def writable(self):
+            return True
+
+        def write(self, b):
+            self.f.write(bytes(b))
+            return len(b)
+
+        def close(self):
+            if not self.closed:
+                self.f.close()
+            super().close()
+
+    class Folder(DAVCollection):
+        def __init__(self, path, environ, remote):
+            super().__init__(path, environ)
+            self.r = remote
+
+        def _rel(self):
+            return _clean(self.path)
+
+        @dav
+        def get_member_names(self):
+            return [e.name for e in self.r.clistdir(self._rel())]
+
+        def get_member(self, name):
+            return self.provider.get_resource_inst(posixpath.join(self.path, name), self.environ)
+
+        def get_display_info(self):
+            return {"type": "Directory"}
+
+        @dav
+        def get_last_modified(self):
+            return self.r.cstat(self._rel()).mtime
+
+        def get_creation_date(self):
+            return self.get_last_modified()
+
+        @dav
+        def create_empty_resource(self, name):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            rel = posixpath.join(self._rel(), name)
+            self.r.open(rel, "wb").close()
+            return self.provider.get_resource_inst(posixpath.join(self.path, name), self.environ)
+
+        @dav
+        def create_collection(self, name):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            self.r.mkdir(posixpath.join(self._rel(), name))
+
+        @dav
+        def delete(self):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            self._rmtree(self._rel())
+            self.remove_all_properties(recursive=True)
+            self.remove_all_locks(recursive=True)
+
+        def _rmtree(self, rel):
+            for e in self.r.listdir(rel):
+                p = posixpath.join(rel, e.name)
+                self._rmtree(p) if e.is_dir else self.r.remove(p)
+            self.r.rmdir(rel)
+
+        def support_recursive_move(self, dest_path):
+            return True
+
+        @dav
+        def move_recursive(self, dest_path):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            self.r.rename(self._rel(), _clean(dest_path))
+
+        @dav
+        def copy_move_single(self, dest_path, *, is_move):
+            if is_move:
+                self.r.rename(self._rel(), _clean(dest_path))
+            else:
+                self.r.mkdir(_clean(dest_path))
+
+    class File(DAVNonCollection):
+        def __init__(self, path, environ, remote, entry):
+            super().__init__(path, environ)
+            self.r, self.e = remote, entry
+
+        def _rel(self):
+            return _clean(self.path)
+
+        def get_content_length(self):
+            return self.e.size
+
+        def get_content_type(self):
+            import mimetypes
+            return mimetypes.guess_type(self.path)[0] or "application/octet-stream"
+
+        def get_creation_date(self):
+            return self.e.mtime
+
+        def get_last_modified(self):
+            return self.e.mtime
+
+        def get_etag(self):
+            return f"{int(self.e.mtime)}-{self.e.size}"
+
+        def support_etag(self):
+            return True
+
+        def support_ranges(self):
+            return True
+
+        def get_display_name(self):
+            return self.name
+
+        @dav
+        def get_content(self):
+            return self.r.open(self._rel(), "rb")
+
+        @dav
+        def begin_write(self, *, content_type=None):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            return Writer(self.r.open(self._rel(), "wb"))
+
+        @dav
+        def delete(self):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            self.r.remove(self._rel())
+            self.remove_all_properties(recursive=True)
+            self.remove_all_locks(recursive=True)
+
+        def support_recursive_move(self, dest_path):
+            return True
+
+        @dav
+        def move_recursive(self, dest_path):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            self.r.rename(self._rel(), _clean(dest_path))
+
+        @dav
+        def copy_move_single(self, dest_path, *, is_move):
+            if self.r.readonly:
+                raise DAVError(HTTP_FORBIDDEN)
+            if is_move:
+                self.r.rename(self._rel(), _clean(dest_path))
+                return
+            with self.r.open(self._rel(), "rb") as src, self.r.open(_clean(dest_path), "wb") as dst:
+                while True:
+                    b = src.read(1 << 16)
+                    if not b:
+                        break
+                    dst.write(b)
+
+    class SshProvider(DAVProvider):
+        def __init__(self, remote):
+            super().__init__()
+            self.r = remote
+
+        def is_readonly(self):
+            return self.r.readonly
+
+        def get_resource_inst(self, path, environ):
+            self._count_get_resource_inst += 1
+            try:
+                e = self.r.cstat(_clean(path))
+            except RemoteError as err:
+                if err.kind == "notfound":
+                    return None
+                raise
+            return Folder(path, environ, self.r) if e.is_dir else File(path, environ, self.r, e)
+
+    return SshProvider
+
+
+def free_port():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+class WebDavDrive:
+    method = "webdav"
+
+    def __init__(self, remote, mountpoint, label, port=0, map_drive=True):
+        from cheroot import wsgi
+        from wsgidav.wsgidav_app import WsgiDAVApp
+        self.port = port or free_port()
+        self.url = f"http://127.0.0.1:{self.port}/"
+        self.mountpoint = mountpoint
+        app = WsgiDAVApp({
+            "provider_mapping": {"/": _dav_provider_class()(remote)},
+            "simple_dc": {"user_mapping": {"*": True}},     # 127.0.0.1 only, so no sign-in on top of SSH's
+            "verbose": 1, "logging": {"enable": False}, "lock_storage": True,
+            "hotfixes": {"emulate_win32_lastmod": True, "re_encode_path_info": True},
+            "dir_browser": {"enable": True},
+        })
+        self.server = wsgi.Server(("127.0.0.1", self.port), app, numthreads=8)
+        self.thread = threading.Thread(target=self.server.safe_start, daemon=True, name=f"webdav-{label}")
+        self.thread.start()
+        for _ in range(50):
+            if self.server.ready:
+                break
+            time.sleep(0.1)
+        self.mapped = False
+        if map_drive and WINDOWS and mountpoint:
+            letter = mountpoint.rstrip("\\/:")[:1] + ":"
+            unc = rf"\\127.0.0.1@{self.port}\DavWWWRoot"
+            subprocess.run(["net", "use", letter, "/delete", "/y"], capture_output=True, creationflags=_NO_WINDOW)
+            r = subprocess.run(["net", "use", letter, unc, "/persistent:no"], capture_output=True, text=True,
+                               creationflags=_NO_WINDOW)
+            if r.returncode:
+                self.stop()
+                raise RemoteError("io", "Windows wouldn't map the drive: " + (r.stderr or r.stdout).strip() +
+                                  " (is the WebClient service running?)")
+            self.mapped = True
+            self.mountpoint = letter
+
+    def stop(self):
+        if self.mapped:
+            subprocess.run(["net", "use", self.mountpoint, "/delete", "/y"], capture_output=True, creationflags=_NO_WINDOW)
+        try:
+            self.server.stop()
+        except Exception:
+            pass
+
+
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+#  Linux / macOS: the system's sshfs
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+class SshfsDrive:
+    method = "sshfs"
+
+    def __init__(self, drive, mountpoint):
+        d = dict(DRIVE_DEFAULTS, **drive)
+        if not shutil.which("sshfs"):
+            raise RemoteError("io", "sshfs isn't installed (on Ubuntu: sudo apt install sshfs)")
+        mp = os.path.expanduser(mountpoint or os.path.join("~", "SSH", d["name"] or d["host"]))
+        os.makedirs(mp, exist_ok=True)
+        self.mountpoint = mp
+        target = f"{d['user'] + '@' if d['user'] else ''}{d['host']}:{d.get('remote') or ''}"
+        opts = ["reconnect", "ServerAliveInterval=15", "ServerAliveCountMax=3", "follow_symlinks",
+                f"volname={d['name'] or d['host']}"]
+        if d.get("readonly"):
+            opts.append("ro")
+        if d.get("auth") == "key" and d.get("key"):
+            opts.append("IdentityFile=" + os.path.expanduser(d["key"]))
+        env = dict(os.environ)
+        cmd = ["sshfs", target, mp, "-p", str(d.get("port") or 22), "-o", ",".join(opts)]
+        if d.get("auth") == "password":
+            cmd[1:1] = []
+            cmd += ["-o", "password_stdin"]
+        r = subprocess.run(cmd, input=(d.get("password", "") + "\n") if d.get("auth") == "password" else None,
+                           capture_output=True, text=True, env=env, timeout=40)
+        if r.returncode:
+            raise RemoteError("io", (r.stderr or r.stdout).strip() or "sshfs failed")
+
+    def stop(self):
+        for cmd in (["fusermount3", "-u", self.mountpoint], ["fusermount", "-u", self.mountpoint], ["umount", self.mountpoint]):
+            if shutil.which(cmd[0]) and subprocess.run(cmd, capture_output=True).returncode == 0:
+                return
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+#  Mounting
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+def free_letter():
+    """The highest unused drive letter, Z: downwards."""
+    import string
+    used = set()
+    if WINDOWS:
+        import ctypes
+        mask = ctypes.windll.kernel32.GetLogicalDrives()
+        used = {string.ascii_uppercase[i] for i in range(26) if mask >> i & 1}
+    for L in reversed(string.ascii_uppercase[3:]):
+        if L not in used:
+            return L + ":"
+    raise RemoteError("io", "No free drive letters")
+
+
+def mount(drive, on_hostkey=None):
+    """Mounts one drive. Returns the running drive (with .stop(), .method and .mountpoint)."""
+    d = dict(DRIVE_DEFAULTS, **drive)
+    method = d.get("method") or "auto"
+    if method == "sshfs" or (method == "auto" and not WINDOWS and shutil.which("sshfs") and d.get("auth") != "password"):
+        return SshfsDrive(d, d.get("mount"))
+    remote = SftpRemote(d, on_hostkey=on_hostkey)
+    label = d.get("name") or d.get("host")
+    if WINDOWS:
+        mp = d.get("mount") or free_letter()
+        if method in ("auto", "winfsp") and winfsp_available():
+            try:
+                drv = WinFspDrive(remote, mp, label)
+                drv.remote = remote
+                return drv
+            except Exception:
+                if method == "winfsp":
+                    remote.close()
+                    raise
+        drv = WebDavDrive(remote, mp, label)
+    else:
+        drv = WebDavDrive(remote, "", label, map_drive=False)
+        drv.mountpoint = drv.url
+    drv.remote = remote
+    return drv
+
+
+class Drives:
+    """The running drives, by name, with a watchdog that remounts any that drop (laptop asleep, Wi-Fi gone...)."""
+
+    def __init__(self, on_change=None, on_hostkey=None):
+        self.running, self.wanted, self.status = {}, {}, {}
+        self.on_change, self.on_hostkey = on_change, on_hostkey
+        self._lock = threading.Lock()
+        self._watch = None
+
+    def _say(self, name, state, detail=""):
+        self.status[name] = {"state": state, "detail": detail}
+        if self.on_change:
+            try:
+                self.on_change(name, state, detail)
+            except Exception:
+                pass
+
+    def up(self, drive):
+        name = drive.get("name") or drive.get("host")
+        self.wanted[name] = dict(drive)
+        self._say(name, "connecting")
+
+        def go():
+            try:
+                with self._lock:
+                    old = self.running.pop(name, None)
+                if old:
+                    old.stop()
+                drv = mount(drive, on_hostkey=lambda fp: self.on_hostkey and self.on_hostkey(name, fp))
+                with self._lock:
+                    self.running[name] = drv
+                self._say(name, "mounted", f"{drv.mountpoint} ({drv.method})")
+            except RemoteError as e:
+                self._say(name, "error" if e.kind != "offline" else "offline", str(e))
+            except Exception as e:
+                self._say(name, "error", str(e))
+        threading.Thread(target=go, daemon=True).start()
+        self._start_watch()
+
+    def down(self, name):
+        self.wanted.pop(name, None)
+        with self._lock:
+            drv = self.running.pop(name, None)
+        if drv:
+            drv.stop()
+            r = getattr(drv, "remote", None)
+            if r:
+                r.close()
+        self._say(name, "off")
+
+    def down_all(self):
+        for n in list(self.wanted) + list(self.running):
+            self.down(n)
+
+    def _start_watch(self):
+        if self._watch:
+            return
+
+        def loop():
+            while True:
+                time.sleep(20)
+                for name, d in list(self.wanted.items()):
+                    drv = self.running.get(name)
+                    r = getattr(drv, "remote", None)
+                    if drv is None and self.status.get(name, {}).get("state") in ("offline", "error"):
+                        if self.status[name]["state"] == "offline":
+                            self.up(d)            # try again; real errors (password, host key) wait for the user
+                    elif r is not None and not r.connected:
+                        try:
+                            r.connect()
+                            self._say(name, "mounted", f"{drv.mountpoint} ({drv.method})")
+                        except RemoteError as e:
+                            self._say(name, "offline", str(e))
+        self._watch = threading.Thread(target=loop, daemon=True, name="sshdrive-watch")
+        self._watch.start()
+
+
+def main(argv=None):
+    import argparse
+    import getpass
+    import json
+    ap = argparse.ArgumentParser(prog="python -m vml.sshdrive", description="A folder on an SSH server as a drive.")
+    ap.add_argument("target", help="user@host:/folder")
+    ap.add_argument("mount", nargs="?", default="", help="drive letter (Windows) or folder")
+    ap.add_argument("-p", "--port", type=int, default=22)
+    ap.add_argument("-i", "--key", default="")
+    ap.add_argument("--password", action="store_true", help="ask for a password")
+    ap.add_argument("--method", default="auto", choices=["auto", "winfsp", "webdav", "sshfs"])
+    ap.add_argument("--readonly", action="store_true")
+    a = ap.parse_args(argv)
+    user, _, rest = a.target.rpartition("@")
+    host, _, remote = rest.partition(":")
+    d = dict(DRIVE_DEFAULTS, name=host, host=host, port=a.port, user=user, remote=remote, mount=a.mount,
+             method=a.method, readonly=a.readonly)
+    if a.password:
+        d.update(auth="password", password=getpass.getpass(f"{user}@{host}'s password: "))
+    elif a.key:
+        d.update(auth="key", key=a.key)
+    drv = mount(d, on_hostkey=lambda fp: print("server key:", fp))
+    print(f"mounted at {drv.mountpoint} ({drv.method}); Ctrl+C to stop")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        drv.stop()
+        print("stopped")
+
+
+if __name__ == "__main__":
+    main()

@@ -461,7 +461,8 @@ def dock_place(parent, child):
 def canvas_add(parent, child):
     child.host.setParent(parent.widget)
     canvas_place(parent, child)
-    child.host.show()
+    if str(getattr(child, "scope", "")).startswith("design:") or str(child.props.get("IsVisible", "true")).lower() != "false":
+        child.host.show()                      # (a control that starts hidden stays hidden)
 
 
 ANCHORS = ("Top,Left", "Top,Right", "Bottom,Left", "Bottom,Right", "Top,Left,Right", "Bottom,Left,Right",

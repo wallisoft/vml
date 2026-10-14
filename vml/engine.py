@@ -32,6 +32,7 @@ from .store import LUA_DIR, PARSER_LOG, Store
 from .data import DataCommands
 from .projects import ProjectCommands
 from .library import LibraryCommands
+from .systemcommands import SystemCommands
 from . import dialogs, licence as licences
 
 # Every Python script starts with this: Vml() talks straight to the engine over its local socket.
@@ -93,7 +94,7 @@ class Template:
         self.root = self.parts[0][0] if self.parts else None
 
 
-class Engine(DataCommands, ProjectCommands, LibraryCommands):
+class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     log_line = staticmethod(log)
 
     def __init__(self, db_path=None, lua_paths=()):
