@@ -241,10 +241,29 @@ IsVisible=false
 Content=Browse
 OnClick=BrowseKey
 
-@CheckBox chkAuto
+@TextBox txtActAs
 Parent=c
 Canvas.Left=24
 Canvas.Top=330
+Width=206
+Height=34
+IsVisible=false
+Watermark=Act as (blank: you; or root, www-data)
+
+@Button btnAllow
+Parent=c
+Canvas.Left=240
+Canvas.Top=330
+Width=216
+Height=34
+IsVisible=false
+Content=Allow it on the server
+OnClick=AllowSudo
+
+@CheckBox chkAuto
+Parent=c
+Canvas.Left=24
+Canvas.Top=372
 Width=206
 Height=28
 IsVisible=false
@@ -254,7 +273,7 @@ IsChecked=true
 @CheckBox chkReadOnly
 Parent=c
 Canvas.Left=240
-Canvas.Top=330
+Canvas.Top=372
 Width=216
 Height=28
 IsVisible=false
@@ -263,7 +282,7 @@ Content=Read only
 @Button btnTest
 Parent=c
 Canvas.Left=24
-Canvas.Top=370
+Canvas.Top=412
 Width=132
 Height=40
 IsVisible=false
@@ -273,7 +292,7 @@ OnClick=TestDrive
 @Button btnSave
 Parent=c
 Canvas.Left=164
-Canvas.Top=370
+Canvas.Top=412
 Width=160
 Height=40
 Background=#127A68
@@ -285,7 +304,7 @@ OnClick=SaveDrive
 @Button btnCancel
 Parent=c
 Canvas.Left=332
-Canvas.Top=370
+Canvas.Top=412
 Width=124
 Height=40
 IsVisible=false
@@ -295,9 +314,9 @@ OnClick=CloseForm
 @TextBlock lblTest
 Parent=c
 Canvas.Left=24
-Canvas.Top=420
+Canvas.Top=462
 Width=432
-Height=200
+Height=170
 TextWrapping=Wrap
 FontSize=13
 Foreground=#374151
@@ -317,7 +336,7 @@ State = {}          -- name -> {state=, detail=}
 Editing = nil       -- index of the drive being changed (nil: a new one)
 LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove", "chkBoot", "lblStatus" }
 FORM = { "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
-         "txtKey", "btnBrowse", "chkAuto", "chkReadOnly", "btnTest", "btnSave", "btnCancel", "lblTest" }
+         "txtKey", "btnBrowse", "txtActAs", "chkAuto", "chkReadOnly", "btnTest", "btnSave", "btnCancel", "lblTest" }
 Tested = nil        -- the last good Test: {host, port, hostkey}, so saving keeps the key it was shown
 PickedKey = nil     -- a key picked on a phone: its text (a one-line box can't hold it), shown by name
 
@@ -337,7 +356,7 @@ function FormDrive()
   local d = {
     name = get("txtName") ~= "" and get("txtName") or host,
     host = host, port = tonumber(get("txtPort")) or 22, user = get("txtUser"), remote = get("txtRemote"),
-    mount = get("txtMount"), auth = auth,
+    mount = get("txtMount"), auth = auth, actas = get("txtActAs"),
     automount = Vml("GetProperty", "chkAuto", "IsChecked") == "true",
     readonly = Vml("GetProperty", "chkReadOnly", "IsChecked") == "true",
   }
@@ -373,6 +392,7 @@ function Refresh()
     local s = State[d.name] or {}
     local where = d.user ~= "" and (d.user .. "@" .. d.host) or d.host
     local label = (DOT[s.state] or "·") .. " " .. d.name .. "   " .. where .. ":" .. (d.remote ~= "" and d.remote or "~")
+      .. ((d.actas or "") ~= "" and ("  as " .. d.actas) or "")
     if s.state == "mounted" then label = label .. "   →  " .. (s.detail or ""):gsub(" %(.*%)", "") end
     rows[#rows + 1] = label:gsub(",", " ")
   end
@@ -394,7 +414,9 @@ local can = Can
 if can.android then
   Vml("SetProperty", "chkBoot", "IsVisible", "false")       -- a phone keeps its drives in Files by itself
   table.remove(LIST, 6)
-  for i, n in ipairs(FORM) do if n == "txtMount" then table.remove(FORM, i) break end end   -- no drive letters on a phone
+  for _, gone in ipairs({ "txtMount", "txtActAs" }) do                -- no drive letters on a phone; sudo from a computer
+    for i, n in ipairs(FORM) do if n == gone then table.remove(FORM, i) break end end
+  end
   Vml("SetProperty", "txtName", "Width", "432")
   Say("Connected drives are in the Files app (under Browse), and in every app's \"open file\".")
 elseif can.windows and not can.winfsp then
@@ -537,7 +559,7 @@ Vml("SetProperty", "lblTest", "Text", "")
 Vml("SetProperty", "lblForm", "Text", Editing and ("Change " .. d.name) or "A new drive")
 local function put(box, v) Vml("SetProperty", box, "Text", v == nil and "" or tostring(v)) end
 put("txtName", d.name); put("txtMount", d.mount); put("txtHost", d.host); put("txtPort", d.port ~= 22 and d.port or "")
-put("txtUser", d.user); put("txtRemote", d.remote)
+put("txtUser", d.user); put("txtRemote", d.remote); put("txtActAs", d.actas)
 if d.keytext and d.keytext ~= "" then
   PickedKey = { label = "(the key saved with this drive)", text = d.keytext }
   put("txtKey", PickedKey.label)
@@ -549,6 +571,7 @@ Vml("SetProperty", "cmbAuth", "SelectedIndex", d.auth == "password" and "0" or d
 Vml("SetProperty", "chkAuto", "IsChecked", tostring(d.automount ~= false))
 Vml("SetProperty", "chkReadOnly", "IsChecked", tostring(d.readonly == true))
 Show(LIST, false); Show(FORM, true)
+Vml("SetProperty", "btnAllow", "IsVisible", "false")          -- only when a Test finds sudo needs allowing
 Vml("RunScript", "AuthChanged")
 LUA
 
@@ -648,6 +671,7 @@ if state == "ok" then
   Vml("SetProperty", "lblTest", "Text", marked("✓", detail) .. (key ~= "" and seen or ""))
 else
   Vml("SetProperty", "lblTest", "Text", marked("✕", detail))
+  if detail:find("Allow it on the server", 1, true) then Vml("SetProperty", "btnAllow", "IsVisible", "true") end
 end
 LUA
 
@@ -677,4 +701,30 @@ else
   Vml("SetProperty", "txtKey", "Text", Tilde(path))
 end
 Vml("SetProperty", "lblTest", "Text", "Picked. If the key has a passphrase, put it in the box beside the sign-in choice, then Test.")
+LUA
+
+@Script AllowSudo
+Interpreter=lua
+<<LUA
+-- once: a sudoers rule on the server letting this user run SSH Drive's file access as that user, no password after
+local d = FormDrive()
+local pw = Vml("PromptDialog", "Allow it on the server",
+  "Your sudo password on " .. d.host .. ", so " .. (d.user ~= "" and d.user or "you") .. " can work as " .. d.actas
+  .. " through SSH Drive.\nIt's used once and not kept.", "", "true") or ""
+if pw == "" then return end
+Vml("SetProperty", "lblTest", "Text", "Setting it up on " .. d.host .. "...")
+Vml("SshAllowSudo", json.encode(d), pw, "OnAllowed")
+LUA
+
+@Script OnAllowed
+Interpreter=lua
+<<LUA
+local name, state, detail = args[1] or "", args[2] or "", args[3] or ""
+if state == "ok" then
+  Vml("SetProperty", "btnAllow", "IsVisible", "false")
+  Vml("SetProperty", "lblTest", "Text", "✓ " .. detail .. "\nTesting again...")
+  Vml("RunScript", "TestDrive")
+else
+  Vml("SetProperty", "lblTest", "Text", "✕ " .. detail)
+end
 LUA

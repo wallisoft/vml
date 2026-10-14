@@ -43,6 +43,7 @@ DRIVE_DEFAULTS = {
     "automount": True,
     "readonly": False,
     "hostkey": "",         # "ssh-ed25519 SHA256:..." once known
+    "actas": "",           # "" (yourself), or "root", "www-data"...: the drive works as that user, through sudo
     "method": "auto",      # "auto", "winfsp", "webdav" or "sshfs"
 }
 
@@ -330,7 +331,14 @@ class SftpRemote(BaseRemote):
                     except Exception:
                         pass
             ssh.get_transport().set_keepalive(30)
-            self._ssh, self._sftp = ssh, ssh.open_sftp()
+            self._ssh = ssh
+            actas = (d.get("actas") or "").strip()
+            login = ssh.get_transport().get_username()
+            if actas and actas != login:
+                self.sftp_path = sftp_server_path(ssh)
+                self._sftp = _sudo_sftp(ssh, login, actas, self.sftp_path)
+            else:
+                self._sftp = ssh.open_sftp()
             root = (d.get("remote") or "").strip() or "."
             self._root = self._sftp.normalize(root)
             self.cache = _Cache()
@@ -1111,7 +1119,7 @@ class SshfsDrive:
     passphrase through a helper, so nothing waits for a question nobody can see."""
     method = "sshfs"
 
-    def __init__(self, drive, mountpoint, server_key=None):
+    def __init__(self, drive, mountpoint, server_key=None, sftp_path=""):
         d = dict(DRIVE_DEFAULTS, **drive)
         if not shutil.which("sshfs"):
             raise RemoteError("io", "sshfs isn't installed (on Ubuntu: sudo apt install sshfs)")
@@ -1130,6 +1138,10 @@ class SshfsDrive:
             opts.append(f"volname={self.name}")                  # (macFUSE only: Linux's FUSE refuses it)
         if d.get("readonly"):
             opts.append("ro")
+        actas = (d.get("actas") or "").strip()
+        if actas and sftp_path:                                 # the other end works as that user (checked: sudo allows it)
+            import shlex
+            opts.append(f"sftp_server=sudo -n -u {shlex.quote(actas)} {shlex.quote(sftp_path)}")
         if server_key is not None:                               # exactly the key the app has pinned, and no other
             kh = os.path.join(own, f"known_hosts-{safe}")
             who = d["host"] if port == 22 else f"[{d['host']}]:{port}"
@@ -1218,6 +1230,108 @@ def free_letter():
         if L not in used:
             return L + ":"
     raise RemoteError("io", "No free drive letters")
+
+
+SFTP_SERVERS = ("/usr/lib/openssh/sftp-server", "/usr/libexec/openssh/sftp-server", "/usr/lib/ssh/sftp-server",
+                "/usr/libexec/sftp-server", "/usr/lib/sftp-server")
+
+
+def _run(ssh, command, stdin=None, wait=20):
+    """Run a command on the server: (exit status, stdout, stderr)."""
+    chan = ssh.get_transport().open_session()
+    chan.settimeout(wait)
+    chan.exec_command(command)
+    if stdin is not None:
+        chan.sendall(stdin.encode())
+    chan.shutdown_write()
+    out, err = b"", b""
+    end = time.time() + wait
+    try:
+        while time.time() < end:                         # both streams, until the command has finished and said all
+            busy = False
+            if chan.recv_ready():
+                out += chan.recv(65536); busy = True
+            if chan.recv_stderr_ready():
+                err += chan.recv_stderr(65536); busy = True
+            if not busy:
+                if chan.exit_status_ready() and not chan.recv_ready() and not chan.recv_stderr_ready():
+                    break
+                time.sleep(0.02)
+    except socket.timeout:
+        pass
+    status = chan.recv_exit_status() if chan.status_event.wait(max(0.0, end - time.time())) else -1
+    chan.close()
+    return status, out.decode(errors="replace"), err.decode(errors="replace")
+
+
+def sftp_server_path(ssh):
+    """Where this server keeps sftp-server (it differs between Linux families)."""
+    probe = "; ".join(f'[ -x {p} ] && {{ echo {p}; exit 0; }}' for p in SFTP_SERVERS)
+    status, out, _ = _run(ssh, probe + "; awk 'tolower($1)==\"subsystem\" && $2==\"sftp\" {print $3; exit}' /etc/ssh/sshd_config")
+    path = out.strip().splitlines()[0] if out.strip() else ""
+    if not path.startswith("/"):
+        raise RemoteError("io", "Couldn't find sftp-server on the server, to run it as another user.")
+    return path
+
+
+def _check_actas(name):
+    import re
+    if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", name or ""):
+        raise RemoteError("auth", f"\"{name}\" isn't a user name (try root or www-data).")
+
+
+def _sudo_sftp(ssh, login, actas, path):
+    """SFTP as another user: the server's sftp-server started through sudo (which must allow it without a password:
+    there's no terminal to type one into; allow_sudo sets that up)."""
+    import shlex
+    import paramiko
+    _check_actas(actas)
+    chan = ssh.get_transport().open_session()
+    chan.exec_command(f"sudo -n -u {shlex.quote(actas)} {shlex.quote(path)}")
+    try:
+        return paramiko.SFTPClient(chan)
+    except Exception:
+        why = ""
+        try:
+            chan.settimeout(3)
+            why = chan.recv_stderr(4096).decode(errors="replace")
+        except Exception:
+            pass
+        chan.close()
+        if "unknown user" in why:
+            raise RemoteError("auth", f"There's no user {actas} on this server.")
+        raise RemoteError("sudo", f"sudo won't let {login} act as {actas} without a password. "
+                                  f"\"Allow it on the server\" sets that up (it asks for your sudo password once).")
+
+
+def allow_sudo(drive, password):
+    """Let this drive's user run sftp-server as `actas` without a password (a rule in /etc/sudoers.d of its own,
+    checked with visudo before it is put in place, for that one program only). Returns (ok, what happened)."""
+    import shlex
+    d = dict(DRIVE_DEFAULTS, **drive)
+    actas = (d.get("actas") or "").strip()
+    _check_actas(actas)
+    r = SftpRemote(dict(d, actas=""))
+    try:
+        ssh = r._ssh
+        login = ssh.get_transport().get_username()
+        path = sftp_server_path(ssh)
+        rule = f"{login} ALL=({actas}) NOPASSWD: {path}"
+        where = "/etc/sudoers.d/" + f"sshdrive-{login}-{actas}".replace(".", "_")   # (sudo skips names with dots)
+        script = ('umask 077; t=$(mktemp) || exit 3; printf "%s\\n" "$1" > "$t" && visudo -cf "$t" >/dev/null '
+                  '&& install -m 0440 -o root -g root "$t" "$2"; e=$?; rm -f "$t"; exit $e')
+        command = f"sudo -S -p '' sh -c {shlex.quote(script)} sshdrive {shlex.quote(rule)} {shlex.quote(where)}"
+        status, out, err = _run(ssh, command, stdin=(password or "") + "\n")
+        low = err.lower()
+        if status == 0:
+            return True, f"Done: {login} can now work as {actas} through SSH Drive (the rule is in {where})."
+        if "incorrect password" in low or "sorry, try again" in low or "no password was provided" in low:
+            return False, f"That isn't {login}'s sudo password on {d['host']}."
+        if "not in the sudoers" in low or "not allowed" in low:
+            return False, f"{login} isn't allowed to use sudo on {d['host']}."
+        return False, (err.strip() or out.strip() or f"It didn't work (exit {status}).")[:300]
+    finally:
+        r.close()
 
 
 def reshape_key(text):
@@ -1360,6 +1474,8 @@ def test(drive):
         except Exception:
             files = -1
         where = f"{d['user'] + '@' if d['user'] else ''}{d['host']}:{root}"
+        if (d.get("actas") or "").strip():
+            where += f", working as {d['actas'].strip()}"
         there = "" if files < 0 else " (empty)" if files == 0 else f" ({files} thing{'' if files == 1 else 's'} there)"
         return True, "\n".join(lines + [f"✓ Connected to {where}{there}"]), r.d.get("hostkey", "")
     finally:
@@ -1373,8 +1489,9 @@ def mount(drive, on_hostkey=None):
     if method == "sshfs" or (method == "auto" and not WINDOWS and shutil.which("sshfs")):
         check = SftpRemote(d, on_hostkey=on_hostkey)            # signs in once: clear errors, and the server's key pinned
         key = getattr(check, "server_key", None)
-        check.close()
-        return SshfsDrive(d, d.get("mount"), server_key=key)
+        check.close()                                           # (and the folder as the server resolved it, so sshfs
+        return SshfsDrive(dict(d, remote=check._root or d.get("remote")), d.get("mount"), server_key=key,   # agrees)
+                          sftp_path=getattr(check, "sftp_path", ""))
     remote = SftpRemote(d, on_hostkey=on_hostkey)
     label = d.get("name") or d.get("host")
     if WINDOWS:

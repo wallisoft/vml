@@ -1067,6 +1067,11 @@ const commands = {
     else if (handler) setTimeout(() => run(handler, [name, "error", "SSH drives need the computer app, or the phone app.", ""]), 0);
     return "";
   },
+  SshAllowSudo(drive = "{}", password = "", handler = "") {
+    let d = {}; try { d = JSON.parse(String(drive)); } catch (e) { return "That drive isn't JSON."; }
+    if (handler) setTimeout(() => run(handler, [String(d.name || d.host || ""), "error", "Acting as another user works from a computer for now."]), 0);
+    return "";
+  },
   SshUnmount(name = "") { if (DEV && DEV.sshUnmount) DEV.sshUnmount(String(name)); return ""; },
   SshStatus(name = "") { return DEV && DEV.sshStatus ? String(DEV.sshStatus(String(name))) : (name ? '{"state":"off","detail":""}' : "{}"); },
   SshMethods() { return JSON.stringify({ android: !!(DEV && DEV.sshMount), winfsp: false, webdav: false, sshfs: false, windows: false, letters: [], keys: [], agent: false }); },

@@ -7,6 +7,8 @@ Commands for apps that live beside the user's other programs: SSH drives, a tray
                                 off; and once (name, "hostkey", fingerprint) the first time a server is met, for the
                                 app to keep in the drive's "hostkey".
     SshUnmount(name)            ("" for all of them)
+    SshAllowSudo(drive, password, handler) let the drive act as its "actas" user (root, www-data...) without a
+                                password: a sudoers rule of its own for sftp-server only; handler gets (name, ok/error, detail)
     SshStatus(name)             JSON {state, detail}, or of all of them by name
     SshTest(drive, handler)     try a drive without mounting it: handler gets (name, "ok", what it reached, the server's
                                 key) or (name, "error", what went wrong, "")
@@ -125,6 +127,29 @@ class SystemCommands:
             q.put((handler, (name, "error", "Which server? (Server is empty)", ""), origin))
         else:
             threading.Thread(target=run, daemon=True).start()
+        return ""
+
+    def cmd_SshAllowSudo(self, drive="{}", password="", handler=""):
+        """Let the drive's user act as its "actas" user without a password, for SSH Drive's file access only (a
+        sudoers rule of its own on the server, checked with visudo). The sudo password is used once and not kept.
+        handler gets (name, "ok" or "error", what happened)."""
+        import threading
+        try:
+            d = json.loads(drive) if isinstance(drive, str) else dict(drive)
+        except ValueError:
+            return "That drive isn't JSON."
+        name = d.get("name") or d.get("host") or ""
+        q = self._sys_queue()
+        origin = self._script_stack[-1] if self._script_stack else None
+
+        def run():
+            try:
+                from .sshdrive import allow_sudo
+                ok, detail = allow_sudo(d, str(password or ""))
+            except Exception as exc:
+                ok, detail = False, str(exc)
+            q.put((str(handler or ""), (name, "ok" if ok else "error", detail), origin))
+        threading.Thread(target=run, daemon=True).start()
         return ""
 
     def cmd_SshUnmount(self, name=""):
