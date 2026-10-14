@@ -1,16 +1,22 @@
 # ============================================================================
-# Clever Clogs: it remembers where you parked, so you don't have to.
+# Clever Clogs: where you left your things, and how long you spent with them.
 #
-#   Two ways to tell it. Press "I've parked here" when you park. Or choose your
-#   car's Bluetooth once (more than one car is fine): from then on the phone
-#   notes the spot by itself each time a car goes out of range, even with this
-#   app shut. That second way is the point: nobody remembers to press a button
-#   on the day they lose the car.
+#   Anything Bluetooth is a thing: the car, headphones, a key tag, the bike,
+#   the keyboard on your desk. Choose them once. From then on the phone notes
+#   where it was each time one goes out of range, even with this app shut, and
+#   when it comes back. So it can say where you left the car, and how long you
+#   sat at your desk today.
+#
+#   Where   where the chosen thing is (or where you saved a place by hand),
+#           how long ago, how many floors up or down, and the way back.
+#   Things  what the phone watches for, what kind each is, adding and removing.
+#   Time    a day's timeline with each thing, the day's and the week's totals,
+#           and the lot as a CSV file for a timesheet.
 #
 #   What it uses, all through Vml(...):
-#     GetLocation, TakePhoto, Share, OpenUrl     any phone, and most browsers
+#     GetLocation, TakePhoto, Share, OpenUrl, SaveFile   any phone, and most browsers
 #     BluetoothDevices, WatchBluetooth,
-#     BluetoothLog, Pressure                     the Visualised app on Android
+#     BluetoothLog, Pressure                             the Visualised app on Android
 #   On a computer it opens and explains itself, but has nothing to find.
 #
 #   Made with Visualised. The scripts are at the bottom; "Start" runs first.
@@ -18,7 +24,7 @@
 
 @Window CleverClogs
 Title=Clever Clogs
-Version=1.1
+Version=2.0
 Icon=CleverClogs.png
 Width=360
 Height=640
@@ -32,22 +38,62 @@ Background=#1E3A8A
 Parent=CleverClogs
 Background=#FFFFFF
 
-# --- the answer: when, where, and how many floors away -----------------------
-
 @TextBlock lblTitle
 Parent=c
 Canvas.Left=12
 Canvas.Top=8
 Width=336
-Height=26
-FontSize=16
+Height=24
+FontSize=15
 Foreground=#4B5563
-Text=Clever Clogs: where's the car?
+Text=Clever Clogs: where things are
+
+# --- three tabs ---------------------------------------------------------------
+
+@Button btnTabWhere
+Parent=c
+Canvas.Left=12
+Canvas.Top=36
+Width=108
+Height=34
+BorderThickness=0
+Content=Where
+OnClick=TabWhere
+
+@Button btnTabThings
+Parent=c
+Canvas.Left=126
+Canvas.Top=36
+Width=108
+Height=34
+BorderThickness=0
+Content=Things
+OnClick=TabThings
+
+@Button btnTabTime
+Parent=c
+Canvas.Left=240
+Canvas.Top=36
+Width=108
+Height=34
+BorderThickness=0
+Content=Time
+OnClick=TabTime
+
+# --- Where: which thing, when, where, and how many floors away ----------------
+
+@ComboBox cmbWhich
+Parent=c
+Canvas.Left=12
+Canvas.Top=80
+Width=336
+Height=36
+SelectionChanged=WhichChosen
 
 @TextBlock lblWhen
 Parent=c
 Canvas.Left=12
-Canvas.Top=36
+Canvas.Top=122
 Width=336
 Height=34
 FontSize=24
@@ -57,18 +103,16 @@ Text=Not parked yet
 @TextBlock lblDetail
 Parent=c
 Canvas.Left=12
-Canvas.Top=74
+Canvas.Top=158
 Width=336
 Height=66
 TextWrapping=Wrap
 Text=
 
-# --- what you can do about it -------------------------------------------------
-
 @Button btnGo
 Parent=c
 Canvas.Left=12
-Canvas.Top=146
+Canvas.Top=228
 Width=164
 Height=40
 Content=Take me there
@@ -77,7 +121,7 @@ OnClick=DoGo
 @Button btnShare
 Parent=c
 Canvas.Left=184
-Canvas.Top=146
+Canvas.Top=228
 Width=164
 Height=40
 Content=Share the spot
@@ -86,7 +130,7 @@ OnClick=DoShare
 @Button btnHere
 Parent=c
 Canvas.Left=12
-Canvas.Top=194
+Canvas.Top=276
 Width=164
 Height=40
 Content=I've parked here
@@ -95,18 +139,16 @@ OnClick=DoHere
 @Button btnPhoto
 Parent=c
 Canvas.Left=184
-Canvas.Top=194
+Canvas.Top=276
 Width=164
 Height=40
-Content=Photo of the bay
+Content=Photo of the spot
 OnClick=DoPhoto
-
-# --- help for a big car park: a note and a photo, kept until the next time ----
 
 @TextBox txtNote
 Parent=c
 Canvas.Left=12
-Canvas.Top=244
+Canvas.Top=324
 Width=336
 Height=38
 Watermark=A note: level 3, row C
@@ -115,54 +157,195 @@ OnLostFocus=SaveNote
 @Image imgBay
 Parent=c
 Canvas.Left=12
-Canvas.Top=290
+Canvas.Top=370
 Width=336
-Height=150
+Height=180
 Stretch=Uniform
 
-# --- have it noted for you: the cars this phone should watch for --------------
+# --- Things: what the phone watches for ----------------------------------------
 
-@TextBlock lblCar
+@TextBlock lblThings
 Parent=c
 Canvas.Left=12
-Canvas.Top=448
+Canvas.Top=80
+Width=336
+Height=40
+TextWrapping=Wrap
+Foreground=#4B5563
+IsVisible=false
+Text=
+
+@ListBox lstThings
+Parent=c
+Canvas.Left=12
+Canvas.Top=124
+Width=336
+Height=168
+AlternatingRows=true
+IsVisible=false
+SelectionChanged=ThingPicked
+
+@ComboBox cmbKind
+Parent=c
+Canvas.Left=12
+Canvas.Top=300
+Width=156
+Height=38
+IsVisible=false
+SelectionChanged=KindChosen
+
+@Button btnRename
+Parent=c
+Canvas.Left=176
+Canvas.Top=300
+Width=84
+Height=40
+IsVisible=false
+Content=Rename
+OnClick=DoRename
+
+@Button btnRemove
+Parent=c
+Canvas.Left=268
+Canvas.Top=300
+Width=80
+Height=40
+IsVisible=false
+Content=Remove
+OnClick=DoRemove
+
+@TextBlock lblAdd
+Parent=c
+Canvas.Left=12
+Canvas.Top=352
 Width=336
 Height=22
 Foreground=#4B5563
-Text=Have it noted for you: choose your car's Bluetooth.
+IsVisible=false
+Text=Add one: Find lists what this phone is paired with.
 
-@ComboBox cmbCar
+@ComboBox cmbAdd
 Parent=c
 Canvas.Left=12
-Canvas.Top=474
-Width=176
+Canvas.Top=378
+Width=248
 Height=38
-SelectionChanged=CarChosen
+IsVisible=false
+SelectionChanged=AddChosen
 
 @Button btnFind
 Parent=c
-Canvas.Left=196
-Canvas.Top=474
-Width=72
+Canvas.Left=268
+Canvas.Top=378
+Width=80
 Height=40
+IsVisible=false
 Content=Find
 OnClick=DoFind
 
-@Button btnForget
+# --- Time: a day with your things, and the week --------------------------------
+
+@Button btnPrev
 Parent=c
-Canvas.Left=276
-Canvas.Top=474
-Width=72
+Canvas.Left=12
+Canvas.Top=80
+Width=44
+Height=36
+IsVisible=false
+Content=<
+OnClick=DayBack
+
+@TextBlock lblDay
+Parent=c
+Canvas.Left=60
+Canvas.Top=86
+Width=240
+Height=26
+FontSize=16
+FontWeight=Bold
+TextAlignment=Center
+IsVisible=false
+Text=Today
+
+@Button btnNext
+Parent=c
+Canvas.Left=304
+Canvas.Top=80
+Width=44
+Height=36
+IsVisible=false
+Content=>
+OnClick=DayOn
+
+@TextBlock lblTotals
+Parent=c
+Canvas.Left=12
+Canvas.Top=122
+Width=336
+Height=46
+TextWrapping=Wrap
+FontWeight=SemiBold
+IsVisible=false
+Text=
+
+@ListBox lstDay
+Parent=c
+Canvas.Left=12
+Canvas.Top=172
+Width=336
+Height=206
+AlternatingRows=true
+IsVisible=false
+
+@TextBlock lblWeek
+Parent=c
+Canvas.Left=12
+Canvas.Top=384
+Width=336
+Height=44
+TextWrapping=Wrap
+Foreground=#374151
+IsVisible=false
+Text=
+
+@CheckBox chkBreaks
+Parent=c
+Canvas.Left=12
+Canvas.Top=432
+Width=336
+Height=28
+IsVisible=false
+Content=A break under 5 minutes doesn't count as leaving
+OnClick=BreaksChanged
+
+@Button btnCsv
+Parent=c
+Canvas.Left=12
+Canvas.Top=466
+Width=164
 Height=40
-Content=Forget
-OnClick=DoForget
+IsVisible=false
+Content=Save as CSV
+OnClick=DoCsv
+
+@Button btnShareDay
+Parent=c
+Canvas.Left=184
+Canvas.Top=466
+Width=164
+Height=40
+IsVisible=false
+Content=Share the day
+OnClick=DoShareDay
+
+# --- shared: what just happened --------------------------------------------------
 
 @TextBlock lblStatus
 Parent=c
 Canvas.Left=12
-Canvas.Top=520
+Canvas.Top=558
 Width=336
-Height=110
+Height=76
 TextWrapping=Wrap
 Foreground=#4B5563
 Text=
@@ -183,32 +366,71 @@ OnTick=Tick
 Interpreter=lua
 <<LUA
 json = require("dkjson")
-Cars = {}               -- what Find last listed: every Bluetooth device this phone is paired with
-Mine = {}               -- the ones chosen as cars: { address = ..., name = ... }, kept between visits
-Spot = nil              -- where the car is: time, lat, lon, within (metres), pressure, how it was learnt
-Filling = false         -- true while the list is being filled, so filling it doesn't count as choosing
+
+-- What a thing can be, and how it's spoken of.
+KINDS = {
+  { key = "car", as = "a car",        label = "Car",            icon = "🚗", left = "Parked",         with = "You're with the car",  none = "Not parked yet",          here = "I've parked here" },
+  { key = "desk", as = "your desk",       label = "Desk",           icon = "🖥", left = "Left your desk",  with = "At your desk",         none = "Not at your desk yet",    here = "I'm at my desk" },
+  { key = "headphones", as = "headphones", label = "Headphones",     icon = "🎧", left = "Left",           with = "With you",             none = "Not left anywhere yet",   here = "I've left them here" },
+  { key = "keys", as = "keys or a tag",       label = "Keys or tag",    icon = "🔑", left = "Left",           with = "With you",             none = "Not left anywhere yet",   here = "I've left them here" },
+  { key = "bike", as = "a bike",       label = "Bike",           icon = "🚲", left = "Left",           with = "With you",             none = "Not left anywhere yet",   here = "I've left it here" },
+  { key = "other", as = "something else",      label = "Something else", icon = "📍", left = "Left",           with = "With you",             none = "Not left anywhere yet",   here = "I've left it here" },
+}
+KIND = {}
+for i, k in ipairs(KINDS) do k.index = i; KIND[k.key] = k end
+
+-- A guess at what a device is, from its name (it can be changed on the Things tab).
+GUESS = {
+  { "car", { "car", "sync", "uconnect", "mylink", "carplay", "android auto", "ford", "vw", "volkswagen", "audi", "bmw", "mercedes",
+             "toyota", "kia", "mazda", "nissan", "peugeot", "renault", "skoda", "seat", "volvo", "honda", "hyundai", "tesla",
+             "mini", "vauxhall", "citroen", "fiat", "jeep", "lexus", "subaru", "suzuki", "mitsubishi", "porsche" } },
+  { "desk", { "keyboard", "mouse", "desk", "pc", "laptop", "macbook", "imac", "dell", "lenovo", "thinkpad", "keychron",
+              "logitech", "mx ", "surface", "monitor", "dock" } },
+  { "headphones", { "buds", "airpods", "headphone", "earbud", "earphone", "jabra", "bose", "beats", "sony wh", "sony wf",
+                    "wh-", "wf-", "soundcore", "pods" } },
+  { "keys", { "tile", "tag", "chipolo", "nut", "key" } },
+  { "bike", { "bike", "garmin", "wahoo", "cycle" } },
+}
+function Guess(name)
+  local low = " " .. (name or ""):lower() .. " "
+  for _, g in ipairs(GUESS) do
+    for _, word in ipairs(g[2]) do if low:find(word, 1, true) then return g[1] end end
+  end
+  return "other"
+end
+
+Things = {}             -- what the phone watches: { address, name, kind }, kept between visits
+Paired = {}             -- what Find last listed (not yet chosen)
+History = {}            -- every connect and disconnect seen, oldest first: { d = address, w = "c"/"d", t, lat, lon, acc, p, n }
+Spots = {}              -- places saved by hand: address (or "" for a place with no Bluetooth) -> { time, lat, lon, within, pressure }
+Which = ""              -- the thing the Where tab is about ("": a place saved by hand)
+WhichList = {}          -- cmbWhich's lines: the address each stands for
+Picked = nil            -- the thing chosen on the Things tab
+Tab = "Where"
+DayShift = 0            -- the Time tab's day: 0 today, -1 yesterday...
+Spot = nil              -- what the Where tab shows: time, lat, lon, within, pressure, how
+Filling = false         -- true while a list is filled, so filling it doesn't count as choosing
+GAP = 300               -- a break shorter than this (seconds) isn't leaving, when chkBreaks is ticked
+KEEP_DAYS = 62          -- how far back the history goes
 
 function Status(text) Vml("SetProperty", "lblStatus", "Text", text) end
-function Kept(key) return Vml("GetSetting", key) end
+function Kept(key) return Vml("GetSetting", key) or "" end
+function Keep(key, value) Vml("SetSetting", key, value) end
+function Show(names, on) for _, n in ipairs(names) do Vml("SetProperty", n, "IsVisible", tostring(on)) end end
+function Clean(s) return (tostring(s or ""):gsub("%s*,%s*", " ")) end
 
-function IsMine(address)
-  for _, car in ipairs(Mine) do if car.address == address then return car end end
+function ThingOf(address)
+  for i, t in ipairs(Things) do if t.address == address then return t, i end end
 end
-
--- "Ford Sync", "Ford Sync and Mini", "Ford Sync, Mini and Van"
-function CarNames()
-  local names = {}
-  for _, car in ipairs(Mine) do names[#names + 1] = car.name end
-  if #names < 2 then return names[1] or "" end
-  return table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names]
+function KindOf(address)
+  local t = ThingOf(address)
+  return KIND[t and t.kind or "car"] or KIND.other
 end
+function Label(t) return (KIND[t.kind] or KIND.other).icon .. " " .. t.name end
+function KeepThings() Keep("things", json.encode(Things)) end
+function KeepSpots() Keep("spots", json.encode(Spots)) end
 
-function ShowCars()
-  Vml("SetProperty", "lblCar", "Text", #Mine == 0 and "Have it noted for you: choose your car's Bluetooth."
-      or ("Noting where you leave " .. CarNames() .. "."))
-end
-
--- How long ago, the way a person would say it.
+-- ── time, said the way a person would ──
 function Ago(seconds)
   if seconds < 90 then return "just now" end
   if seconds < 3600 then return math.floor(seconds / 60 + 0.5) .. " minutes ago" end
@@ -217,58 +439,194 @@ function Ago(seconds)
   local days = math.floor(seconds / 86400)
   return days == 1 and "yesterday" or (days .. " days ago")
 end
+function Dur(seconds)                                   -- "3h 20m", "45m", "under a minute"
+  local m = math.floor(seconds / 60 + 0.5)
+  if m < 1 then return "under a minute" end
+  if m < 60 then return m .. "m" end
+  return math.floor(m / 60) .. "h " .. string.format("%02d", m % 60) .. "m"
+end
+function DayStart(t)
+  local d = os.date("*t", t)
+  return os.time({ year = d.year, month = d.month, day = d.day, hour = 0, min = 0, sec = 0 })
+end
+function NextDay(t)                                     -- (days aren't always 24 hours long: the clocks change)
+  local d = os.date("*t", t)
+  return os.time({ year = d.year, month = d.month, day = d.day + 1, hour = 0, min = 0, sec = 0 })
+end
+function WeekStart(t)                                   -- the Monday the week began
+  local d = os.date("*t", t)
+  return os.time({ year = d.year, month = d.month, day = d.day - (d.wday + 5) % 7, hour = 0, min = 0, sec = 0 })
+end
+DAYS = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }
+MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
+function DayName(t, shift)
+  if shift == 0 then return "Today" end
+  if shift == -1 then return "Yesterday" end
+  local d = os.date("*t", t)
+  return DAYS[d.wday] .. " " .. d.day .. " " .. MONTHS[d.month]
+end
 
--- The newest place there is: the one saved by hand, or the one the phone noted when a car went out of range.
--- With several cars it is whichever was left last. Also: has the phone connected to that same car again since?
--- Then you're in it, or standing beside it.
-function Latest()
+-- ── the history: the phone keeps its last few hundred notes; this keeps two months of them ──
+function Harvest()
+  local log = json.decode(Vml("BluetoothLog") or "") or {}
+  if #log == 0 then return false end
+  local have = {}
+  for _, h in ipairs(History) do have[h.d .. h.w .. h.t] = true end
+  local added = false
+  for _, n in ipairs(log) do
+    local w = n.what == "connected" and "c" or n.what == "disconnected" and "d" or nil
+    if w and n.device and n.time and not have[n.device .. w .. n.time] then
+      History[#History + 1] = { d = n.device, w = w, t = n.time, lat = n.latitude, lon = n.longitude, acc = n.accuracy,
+                                p = n.pressure, n = n.name }
+      have[n.device .. w .. n.time] = true
+      added = true
+    end
+  end
+  if not added then return false end
+  table.sort(History, function(a, b) return a.t < b.t end)
+  local cut = os.time() - KEEP_DAYS * 86400
+  while History[1] and History[1].t < cut do table.remove(History, 1) end
+  Keep("history", json.encode(History))
+  return true
+end
+
+-- Where a thing is: the newest of the place saved by hand and the place the phone noted when it went out of
+-- range. And has it come back into range since? Then it's with you.
+function Latest(address)
   local spot, back = nil, nil
-  local saved = tonumber(Kept("here_time"))
-  if saved then
-    spot = { time = saved, lat = tonumber(Kept("here_lat")), lon = tonumber(Kept("here_lon")),
-             within = tonumber(Kept("here_within")), pressure = tonumber(Kept("here_pressure")), how = "You saved it" }
+  local hand = Spots[address]
+  if hand and hand.time then
+    spot = { time = hand.time, lat = hand.lat, lon = hand.lon, within = hand.within, pressure = hand.pressure, how = "You saved it" }
   end
-  local seen = {}                                   -- address -> when the phone last connected to it
-  for _, noted in ipairs(json.decode(Vml("BluetoothLog")) or {}) do          -- newest first
-    if IsMine(noted.device) then
-      if noted.what == "connected" then
-        seen[noted.device] = seen[noted.device] or noted.time
-      elseif noted.what == "disconnected" then
-        if not spot or noted.time > spot.time then
-          spot = { time = noted.time, lat = noted.latitude, lon = noted.longitude, within = noted.accuracy,
-                   pressure = noted.pressure, how = "You left " .. (noted.name or "the car"),
-                   car = noted.name or "the car" }
-          back = seen[noted.device]
+  if address ~= "" then
+    local connected = nil
+    for i = #History, 1, -1 do                         -- newest first
+      local h = History[i]
+      if h.d == address then
+        if h.w == "c" then
+          connected = connected or h.t
+        else
+          if not spot or h.t > spot.time then
+            local t = ThingOf(address)
+            spot = { time = h.t, lat = h.lat, lon = h.lon, within = h.acc, pressure = h.p,
+                     how = "You left " .. (t and t.name or h.n or "it") }
+          end
+          if connected and connected > h.t then back = connected end
+          break
         end
-        break
+      end
+    end
+    if connected and not back and (not spot or connected > spot.time) then back = connected end
+  end
+  return spot, back
+end
+
+-- ── time with things: in range to out of range ──
+function Sessions(address, merge)
+  local out, open = {}, nil
+  for _, h in ipairs(History) do
+    if h.d == address then
+      if h.w == "c" then
+        open = open or h.t
+      elseif open then
+        out[#out + 1] = { s = open, e = h.t }
+        open = nil
       end
     end
   end
-  if not spot or not spot.car then                 -- nothing has ever been left: are you in one of them now?
-    for _, car in ipairs(Mine) do
-      if seen[car.address] and (not spot or seen[car.address] > spot.time) then
-        return spot, seen[car.address], car.name
+  if open then out[#out + 1] = { s = open, e = os.time(), live = true } end
+  if merge then                                           -- a cuppa isn't leaving your desk
+    local joined = {}
+    for _, s in ipairs(out) do
+      local last = joined[#joined]
+      if last and s.s - last.e < GAP then
+        last.e, last.live = s.e, s.live
+      else
+        joined[#joined + 1] = { s = s.s, e = s.e, live = s.live }
       end
     end
+    out = joined
   end
-  return spot, back, spot and spot.car
+  return out
+end
+
+function Within(sessions, from, to)                     -- the pieces inside [from, to), and their total
+  local pieces, total = {}, 0
+  for _, s in ipairs(sessions) do
+    local a, b = math.max(s.s, from), math.min(s.e, to)
+    if b > a then
+      pieces[#pieces + 1] = { s = a, e = b, live = s.live and s.e == b }
+      total = total + (b - a)
+    end
+  end
+  return pieces, total
+end
+
+function Merging() return Kept("breaks") ~= "off" end
+
+-- ── tabs ──
+WHERE = { "cmbWhich", "lblWhen", "lblDetail", "btnGo", "btnShare", "btnHere", "btnPhoto", "txtNote", "imgBay" }
+THINGS = { "lblThings", "lstThings", "cmbKind", "btnRename", "btnRemove", "lblAdd", "cmbAdd", "btnFind" }
+TIME = { "btnPrev", "lblDay", "btnNext", "lblTotals", "lstDay", "lblWeek", "chkBreaks", "btnCsv", "btnShareDay" }
+function ShowTab(t)
+  Tab = t
+  for _, n in ipairs({ "Where", "Things", "Time" }) do
+    Vml("SetProperty", "btnTab" .. n, "Background", n == t and "#1E3A8A" or "#E5E7EB")
+    Vml("SetProperty", "btnTab" .. n, "Foreground", n == t and "#FFFFFF" or "#374151")
+  end
+  Show(WHERE, t == "Where"); Show(THINGS, t == "Things"); Show(TIME, t == "Time")
+  if t == "Where" and #Things == 0 then Vml("SetProperty", "cmbWhich", "IsVisible", "false") end
+  Status("")
+  Refresh()
 end
 
 function Refresh()
-  local back, car
-  Spot, back, car = Latest()
+  if Tab == "Where" then RefreshWhere() elseif Tab == "Things" then RefreshThings() else RefreshTime() end
+end
+
+-- ── Where ──
+function FillWhich()
+  local lines = {}
+  WhichList = {}
+  for _, t in ipairs(Things) do lines[#lines + 1] = Clean(Label(t)); WhichList[#WhichList + 1] = t.address end
+  lines[#lines + 1] = "📌 A place saved by hand"; WhichList[#WhichList + 1] = ""
+  Filling = true
+  Vml("SetProperty", "cmbWhich", "Items", table.concat(lines, ","))
+  local at = #WhichList
+  for i, a in ipairs(WhichList) do if a == Which then at = i end end
+  Vml("SetProperty", "cmbWhich", "SelectedIndex", tostring(at - 1))
+  Filling = false
+  Vml("SetProperty", "cmbWhich", "IsVisible", tostring(Tab == "Where" and #Things > 0))
+end
+
+function RefreshWhere()
+  local kind = KindOf(Which)
+  local t = ThingOf(Which)
+  Vml("SetProperty", "btnHere", "Content", kind.here)
+  Vml("SetProperty", "txtNote", "Text", Kept("note_" .. Which))
+  local photo = Kept("photo_" .. Which)
+  Vml("SetProperty", "imgBay", "Source", photo)
+  local back
+  Spot, back = Latest(Which)
+  local can = Spot ~= nil and Spot.lat ~= nil and not (back and back > Spot.time)
+  Vml("SetProperty", "btnGo", "IsEnabled", tostring(can))
+  Vml("SetProperty", "btnShare", "IsEnabled", tostring(can))
   if back and (not Spot or back > Spot.time) then
-    Vml("SetProperty", "lblWhen", "Text", "You're with the car")
-    Vml("SetProperty", "lblDetail", "Text", "The phone has been connected to " .. (car or "it") .. " since " .. os.date("%H:%M", back) .. ".")
+    Vml("SetProperty", "lblWhen", "Text", kind.with)
+    Vml("SetProperty", "lblDetail", "Text", "The phone has been connected to " .. (t and t.name or "it") .. " since "
+        .. os.date("%H:%M", back) .. (kind.key == "desk" and (": " .. Dur(os.time() - back) .. " so far.") or "."))
     return
   end
   if not Spot then
-    Vml("SetProperty", "lblWhen", "Text", "Not parked yet")
-    Vml("SetProperty", "lblDetail", "Text", "Press I've parked here when you park. Or choose your car's Bluetooth below, and it is noted for you.")
+    Vml("SetProperty", "lblWhen", "Text", kind.none)
+    Vml("SetProperty", "lblDetail", "Text", #Things == 0
+        and "Press " .. kind.here .. " when you park. Or add your car on the Things tab, and it's noted for you."
+        or (t and ("The phone notes where " .. t.name .. " is each time it goes out of range.")
+            or "Press the button below to save where you are now."))
     return
   end
   local age = os.time() - Spot.time
-  Vml("SetProperty", "lblWhen", "Text", "Parked " .. Ago(age))
+  Vml("SetProperty", "lblWhen", "Text", kind.left .. " " .. Ago(age))
   local detail = Spot.how .. " at " .. os.date("%H:%M", Spot.time)
   if Spot.lat then
     detail = detail .. (Spot.within and (", within " .. math.floor(Spot.within) .. " m.") or ".")
@@ -290,12 +648,139 @@ function Refresh()
   Vml("SetProperty", "lblDetail", "Text", detail)
 end
 
-Vml("SetProperty", "txtNote", "Text", Kept("note"))
-if Kept("photo") ~= "" then Vml("SetProperty", "imgBay", "Source", Kept("photo")) end
-Mine = json.decode(Kept("cars")) or {}
-ShowCars()
+-- ── Things ──
+function StateOf(t)
+  local spot, back = Latest(t.address)
+  if back and (not spot or back > spot.time) then return "with you" end
+  if spot then return "left " .. Ago(os.time() - spot.time) end
+  return "not seen yet"
+end
+
+function RefreshThings()
+  Vml("SetProperty", "lblThings", "Text", #Things == 0
+      and "Nothing yet. Press Find, then choose your car, headphones, desk keyboard... anything Bluetooth."
+      or "When one goes out of range, the phone notes where it was. Tap one to change what it is.")
+  local rows = {}
+  for _, t in ipairs(Things) do
+    rows[#rows + 1] = Clean(Label(t) .. "  ·  " .. (KIND[t.kind] or KIND.other).label .. "  ·  " .. StateOf(t))
+  end
+  local keep = Vml("GetProperty", "lstThings", "SelectedIndex")
+  Filling = true
+  Vml("SetProperty", "lstThings", "Items", table.concat(rows, ","))
+  if keep and keep ~= "" and keep ~= "-1" and tonumber(keep) < #rows then Vml("SetProperty", "lstThings", "SelectedIndex", keep) end
+  Filling = false
+  PickThing()
+end
+
+function PickThing()
+  local i = tonumber(Vml("GetProperty", "lstThings", "SelectedIndex") or "-1") or -1
+  Picked = Things[i + 1]
+  for _, n in ipairs({ "cmbKind", "btnRename", "btnRemove" }) do Vml("SetProperty", n, "IsEnabled", tostring(Picked ~= nil)) end
+  if Picked then
+    Filling = true
+    Vml("SetProperty", "cmbKind", "SelectedIndex", tostring(((KIND[Picked.kind] or KIND.other).index) - 1))
+    Filling = false
+  end
+end
+
+-- ── Time ──
+function DayRows(from, to)
+  local rows, totals = {}, {}
+  for _, t in ipairs(Things) do
+    local pieces, total = Within(Sessions(t.address, Merging()), from, to)
+    for _, p in ipairs(pieces) do rows[#rows + 1] = { s = p.s, e = p.e, live = p.live, thing = t } end
+    if total > 0 then totals[#totals + 1] = { thing = t, total = total } end
+  end
+  table.sort(rows, function(a, b) return a.s < b.s end)
+  table.sort(totals, function(a, b) return a.total > b.total end)
+  return rows, totals
+end
+
+function TotalsText(totals)
+  local bits = {}
+  for _, x in ipairs(totals) do bits[#bits + 1] = Label(x.thing) .. " " .. Dur(x.total) end
+  return table.concat(bits, "  ·  ")
+end
+
+function RowText(r)
+  return os.date("%H:%M", r.s) .. "–" .. (r.live and "now" or os.date("%H:%M", r.e)) .. "   " .. Label(r.thing) .. "   " .. Dur(r.e - r.s)
+end
+
+function RefreshTime()
+  local today = DayStart(os.time())
+  local from = today
+  for _ = 1, -DayShift do from = DayStart(from - 3600) end
+  local to = NextDay(from)
+  Vml("SetProperty", "lblDay", "Text", DayName(from, DayShift))
+  Vml("SetProperty", "btnNext", "IsEnabled", tostring(DayShift < 0))
+  Vml("SetProperty", "chkBreaks", "IsChecked", tostring(Merging()))
+  local rows, totals = DayRows(from, to)
+  local lines = {}
+  for _, r in ipairs(rows) do lines[#lines + 1] = Clean(RowText(r)) end
+  Vml("SetProperty", "lstDay", "Items", table.concat(lines, ","))
+  if #Things == 0 then
+    Vml("SetProperty", "lblTotals", "Text", "Add your desk keyboard or your car on the Things tab, and the time you spend with them shows here.")
+  elseif #rows == 0 then
+    Vml("SetProperty", "lblTotals", "Text", "Nothing in range " .. (DayShift == 0 and "yet today." or "that day."))
+  else
+    Vml("SetProperty", "lblTotals", "Text", TotalsText(totals))
+  end
+  local _, week = DayRows(WeekStart(from), to)          -- the week so far, up to the end of the day shown
+  local same = WeekStart(from) == WeekStart(os.time())
+  local head = DayShift == 0 and "This week: " or ((same and "This week, to " or "That week, to ") .. DayName(from, DayShift):gsub("^%u", string.lower) .. ": ")
+  Vml("SetProperty", "lblWeek", "Text", #week == 0 and "" or (head .. TotalsText(week)))
+  DayText = DayName(from, DayShift) .. "\n" .. table.concat(lines, "\n") .. (#totals > 0 and ("\n\n" .. TotalsText(totals)) or "")
+end
+
+function Csv()
+  local lines = { "thing,kind,start,end,minutes" }
+  local rows = {}
+  for _, t in ipairs(Things) do
+    for _, s in ipairs(Sessions(t.address, Merging())) do rows[#rows + 1] = { s = s, thing = t } end
+  end
+  table.sort(rows, function(a, b) return a.s.s < b.s.s end)
+  for _, r in ipairs(rows) do
+    local name = '"' .. r.thing.name:gsub('"', '""') .. '"'
+    lines[#lines + 1] = name .. "," .. (KIND[r.thing.kind] or KIND.other).label .. "," .. os.date("%Y-%m-%d %H:%M", r.s.s) .. ","
+        .. (r.s.live and "" or os.date("%Y-%m-%d %H:%M", r.s.e)) .. "," .. math.floor((r.s.e - r.s.s) / 60 + 0.5)
+  end
+  return table.concat(lines, "\n") .. "\n", #rows
+end
+
+-- ── what was kept, including from Clever Clogs 1 (cars, and one place saved by hand) ──
+Things = json.decode(Kept("things")) or nil
+if not Things then
+  Things = {}
+  for _, car in ipairs(json.decode(Kept("cars")) or {}) do
+    Things[#Things + 1] = { address = car.address, name = car.name, kind = "car" }
+  end
+  if #Things > 0 then KeepThings() end
+end
+History = json.decode(Kept("history")) or {}
+Spots = json.decode(Kept("spots")) or nil
+if not Spots then
+  Spots = {}
+  local was = Things[1] and Things[1].address or ""
+  if tonumber(Kept("here_time")) then
+    Spots[was] = { time = tonumber(Kept("here_time")), lat = tonumber(Kept("here_lat")), lon = tonumber(Kept("here_lon")),
+                   within = tonumber(Kept("here_within")), pressure = tonumber(Kept("here_pressure")) }
+    KeepSpots()
+  end
+  if Kept("note") ~= "" and Kept("note_" .. was) == "" then Keep("note_" .. was, Kept("note")) end
+  if Kept("photo") ~= "" and Kept("photo_" .. was) == "" then Keep("photo_" .. was, Kept("photo")) end
+end
+Which = Kept("which")
+if Which ~= "" and not ThingOf(Which) then Which = "" end
+if Which == "" and Things[1] and not Spots[""] then Which = Things[1].address end
+
+local kinds = {}
+for _, k in ipairs(KINDS) do kinds[#kinds + 1] = k.icon .. " " .. k.label end
+Vml("SetProperty", "cmbKind", "Items", table.concat(kinds, ","))
+Vml("SetProperty", "cmbAdd", "Items", "Find first")
 Vml("Pressure")           -- wakes the barometer, so there is a reading by the time it is wanted
-Refresh()
+Harvest()
+FillWhich()
+ShowTab("Where")
 LUA
 
 # Small scripts: one for each button, and one for each answer the phone sends back later.
@@ -303,7 +788,39 @@ LUA
 @Script Tick
 Interpreter=lua
 <<LUA
+Harvest()
 Refresh()
+LUA
+
+@Script TabWhere
+Interpreter=lua
+<<LUA
+ShowTab("Where")
+LUA
+
+@Script TabThings
+Interpreter=lua
+<<LUA
+ShowTab("Things")
+LUA
+
+@Script TabTime
+Interpreter=lua
+<<LUA
+Harvest()
+ShowTab("Time")
+LUA
+
+@Script WhichChosen
+Interpreter=lua
+<<LUA
+if Filling then return end
+local i = tonumber(Vml("GetProperty", "cmbWhich", "SelectedIndex") or "-1") or -1
+if WhichList[i + 1] == nil then return end
+Which = WhichList[i + 1]
+Keep("which", Which)
+Status("")
+RefreshWhere()
 LUA
 
 @Script DoGo
@@ -324,8 +841,11 @@ Interpreter=lua
 if not Spot or not Spot.lat then
   Status("There's no place saved to share yet.")
 else
-  local note = Kept("note")
-  Vml("Share", "The car is here: https://maps.google.com/?q=" .. Spot.lat .. "," .. Spot.lon .. (note ~= "" and ("  (" .. note .. ")") or ""), "Where the car is")
+  local t = ThingOf(Which)
+  local what = t and (KindOf(Which).key == "car" and "The car" or t.name) or "The car"
+  local note = Kept("note_" .. Which)
+  Vml("Share", what .. " is here: https://maps.google.com/?q=" .. Spot.lat .. "," .. Spot.lon .. (note ~= "" and ("  (" .. note .. ")") or ""),
+      "Where " .. what:gsub("^The ", "the ") .. " is")
 end
 LUA
 
@@ -346,13 +866,10 @@ if problem ~= "" then
   Status(problem)
   return
 end
-Vml("SetSetting", "here_time", os.time())
-Vml("SetSetting", "here_lat", lat)
-Vml("SetSetting", "here_lon", lon)
-Vml("SetSetting", "here_within", within)
-Vml("SetSetting", "here_pressure", Vml("Pressure"))
-Refresh()
-Status("Saved. A photo of the bay or a note helps in a big car park.")
+Spots[Which] = { time = os.time(), lat = tonumber(lat), lon = tonumber(lon), within = tonumber(within), pressure = tonumber(Vml("Pressure")) }
+KeepSpots()
+RefreshWhere()
+Status("Saved. A photo of the spot or a note helps in a big car park.")
 LUA
 
 @Script DoPhoto
@@ -364,14 +881,66 @@ LUA
 @Script Snapped
 Interpreter=lua
 <<LUA
-Vml("SetSetting", "photo", Vml("GetProperty", "imgBay", "Source"))
+Keep("photo_" .. Which, Vml("GetProperty", "imgBay", "Source"))
 Status("Photo kept.")
 LUA
 
 @Script SaveNote
 Interpreter=lua
 <<LUA
-Vml("SetSetting", "note", Vml("GetProperty", "txtNote", "Text"))
+Keep("note_" .. Which, Vml("GetProperty", "txtNote", "Text"))
+LUA
+
+@Script ThingPicked
+Interpreter=lua
+<<LUA
+if Filling then return end
+PickThing()
+LUA
+
+@Script KindChosen
+Interpreter=lua
+<<LUA
+-- What the chosen thing is: it changes how it's spoken of, and the Time tab's icons.
+if Filling or not Picked then return end
+local k = KINDS[(tonumber(Vml("GetProperty", "cmbKind", "SelectedIndex")) or 0) + 1]
+if not k or k.key == Picked.kind then return end
+Picked.kind = k.key
+KeepThings()
+FillWhich()
+RefreshThings()
+Status(Picked.name .. " counts as " .. k.as .. " now.")
+LUA
+
+@Script DoRename
+Interpreter=lua
+<<LUA
+if not Picked then return end
+local name = (Vml("PromptDialog", "Rename", "What to call " .. Picked.name .. ":", Picked.name) or ""):match("^%s*(.-)%s*$")
+if name == "" or name == Picked.name then return end
+Picked.name = name
+KeepThings()
+FillWhich()
+RefreshThings()
+LUA
+
+@Script DoRemove
+Interpreter=lua
+<<LUA
+-- Stop watching one thing. Its time already noted stays out of the totals from now on.
+if not Picked then return end
+local sure = tostring(Vml("ConfirmDialog", "Stop watching " .. Picked.name .. "? The phone won't note where it's left, or the time with it, from now on.", "Remove") or "")
+if sure:lower() ~= "true" then return end
+Vml("WatchBluetooth", Picked.address, "false")
+local _, i = ThingOf(Picked.address)
+local name = Picked.name
+table.remove(Things, i)
+KeepThings()
+if Which == Picked.address then Which = Things[1] and Things[1].address or ""; Keep("which", Which) end
+Picked = nil
+FillWhich()
+RefreshThings()
+Status("Removed " .. name .. ".")
 LUA
 
 @Script DoFind
@@ -391,58 +960,99 @@ if problem ~= "" then
   Status(problem)
   return
 end
-Cars = json.decode(list) or {}
-local names = { "Choose a device" }
-for _, car in ipairs(Cars) do names[#names + 1] = (car.name:gsub(",", " ")) end
+Paired = {}
+for _, d in ipairs(json.decode(list) or {}) do
+  if not ThingOf(d.address) then Paired[#Paired + 1] = d end
+end
+local names = { #Paired == 0 and "Nothing new to add" or "Add a device..." }
+for _, d in ipairs(Paired) do names[#names + 1] = Clean(d.name) end
 Filling = true
-Vml("SetProperty", "cmbCar", "Items", table.concat(names, ","))
-Vml("SetProperty", "cmbCar", "SelectedIndex", "0")
+Vml("SetProperty", "cmbAdd", "Items", table.concat(names, ","))
+Vml("SetProperty", "cmbAdd", "SelectedIndex", "0")
 Filling = false
-if #Cars == 0 then
-  Status("This phone isn't paired with anything yet. Pair it with the car in the phone's Bluetooth settings, then come back.")
+if #Paired == 0 then
+  Status(#Things == 0 and "This phone isn't paired with anything yet. Pair it in the phone's Bluetooth settings, then come back."
+         or "Everything this phone is paired with is already here.")
 else
-  Status("Choose your car from the list.")
+  Status("Choose one from the list to add it.")
 end
 LUA
 
-@Script CarChosen
+@Script AddChosen
 Interpreter=lua
 <<LUA
--- A device was picked from the list: it is one of your cars from now on. Picking one you already have does nothing.
+-- A device was picked from the list: it is one of your things from now on, with a guess at what it is.
 if Filling then return end
-local car = Cars[tonumber(Vml("GetProperty", "cmbCar", "SelectedIndex")) or 0]      -- the first line is "Choose a device"
-if not car or IsMine(car.address) then return end
-Mine[#Mine + 1] = { address = car.address, name = car.name }
-Vml("SetSetting", "cars", json.encode(Mine))
-ShowCars()
-Vml("WatchBluetooth", car.address, "true", "Watched")
+local d = Paired[tonumber(Vml("GetProperty", "cmbAdd", "SelectedIndex")) or 0]      -- the first line is a heading
+if not d or ThingOf(d.address) then return end
+local t = { address = d.address, name = d.name, kind = Guess(d.name) }
+Things[#Things + 1] = t
+KeepThings()
+for i, p in ipairs(Paired) do if p.address == d.address then table.remove(Paired, i) break end end
+local names = { #Paired == 0 and "Nothing new to add" or "Add a device..." }
+for _, p in ipairs(Paired) do names[#names + 1] = Clean(p.name) end
+Filling = true
+Vml("SetProperty", "cmbAdd", "Items", table.concat(names, ","))
+Vml("SetProperty", "cmbAdd", "SelectedIndex", "0")
+Filling = false
+if #Things == 1 or Which == "" and not Spots[""] then Which = t.address; Keep("which", Which) end
+FillWhich()
+RefreshThings()
+Vml("SetProperty", "lstThings", "SelectedIndex", tostring(#Things - 1))
+PickThing()
+Adding = t
+Vml("WatchBluetooth", t.address, "true", "Watched")
 LUA
 
 @Script Watched
 Interpreter=lua
 <<LUA
--- The phone's answer to being asked to watch a car: "watching", or why it can't fully.
+-- The phone's answer to being asked to watch a thing: "watching", or why it can't fully.
 local state, problem = ...
 if state == "watching" then
-  Status("Done. From now on the phone notes where it is each time " .. CarNames() .. " goes out of range, even with this app shut.")
+  local t = Adding or {}
+  Status("Added " .. (t.name or "it") .. " as " .. (KIND[t.kind] or KIND.other).as
+         .. " (change it above if that's wrong). The phone notes where it is each time it goes out of range, even with this app shut.")
 else
   Status(problem)
 end
 Refresh()
 LUA
 
-@Script DoForget
+@Script DayBack
 Interpreter=lua
 <<LUA
--- Stop watching every car. The place last saved stays until it is saved over.
-if #Mine == 0 then
-  Status("No cars have been chosen.")
-  return
-end
-for _, car in ipairs(Mine) do Vml("WatchBluetooth", car.address, "false") end
-Mine = {}
-Vml("SetSetting", "cars", "[]")
-ShowCars()
-Status("Forgotten. The phone no longer notes where any car is left.")
-Refresh()
+DayShift = DayShift - 1
+RefreshTime()
+LUA
+
+@Script DayOn
+Interpreter=lua
+<<LUA
+if DayShift < 0 then DayShift = DayShift + 1 end
+RefreshTime()
+LUA
+
+@Script BreaksChanged
+Interpreter=lua
+<<LUA
+Keep("breaks", Vml("GetProperty", "chkBreaks", "IsChecked") == "true" and "on" or "off")
+RefreshTime()
+LUA
+
+@Script DoCsv
+Interpreter=lua
+<<LUA
+-- Every stretch with every thing, for a timesheet or a spreadsheet.
+local text, n = Csv()
+if n == 0 then return Status("There's no time noted yet to save.") end
+local where = Vml("SaveFile", "clever-clogs-time.csv", text) or ""
+Status(where ~= "" and ("Saved " .. n .. " stretches to " .. where .. ".") or ("Saved " .. n .. " stretches."))
+LUA
+
+@Script DoShareDay
+Interpreter=lua
+<<LUA
+if not DayText or DayText:find("\n$") then return Status("Nothing to share for that day.") end
+Vml("Share", "Clever Clogs, " .. DayText, "My day")
 LUA

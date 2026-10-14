@@ -41,11 +41,12 @@ import java.util.Set;
  * moment it happens, even when Visualised isn't running; an app reads the notes later (Device.bluetoothLog).
  *
  * Nothing is noted for a device the user hasn't chosen, the notes never leave the phone, and only the last
- * fifty are kept.
+ * five hundred are kept (a desk keyboard comes and goes many times a day; an app that counts time with things,
+ * like Clever Clogs, copies them into its own history whenever it runs).
  */
 public class Places extends BroadcastReceiver {
     private static final String CHANNEL = "places";
-    private static final int KEEP = 50;
+    private static final int KEEP = 500;
 
     static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences("bluetooth", Context.MODE_PRIVATE);
