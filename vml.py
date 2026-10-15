@@ -50,7 +50,8 @@ def where_am_i():
     return [p for p in places if p]
 
 
-if not first or first.startswith("-"):                    # no form named (options like --shot don't count)
+if (not first or first.startswith("-")) and first != "--serve-drive":   # no form named (options like --shot don't
+                                                                         # count; a drive being served isn't an app)
     candidates = where_am_i()
     found = next((f for f in (own_app(c) for c in candidates) if f is not None), None)
     if os.environ.get("VML_DEBUG"):

@@ -1,2 +1,2 @@
 """VML engine for Qt: VML -> (Lua parser) -> SQLite -> Qt widgets, scripted in Lua, Bash and PowerShell."""
-__version__ = "1.0.3"
+__version__ = "1.1.0"
