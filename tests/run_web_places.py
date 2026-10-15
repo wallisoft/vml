@@ -98,7 +98,7 @@ with sync_playwright() as p:
     pg.wait_for_function("document.querySelector('#v_lblStatus').innerText.startsWith('Added Galaxy')", timeout=5000)
     rows = items("lstThings")
     check("the keyboard is guessed as a desk, the buds as headphones",
-          rows, ["🚗 Ford Sync  ·  Car  ·  not seen yet", "🖥 Keychron K2  ·  Desk  ·  not seen yet", "🎧 Galaxy Buds Steve  ·  Headphones  ·  not seen yet"])
+          rows, ["🚗 Ford Sync  ·  not seen yet", "🖥 Keychron K2  ·  not seen yet", "🎧 Galaxy Buds Steve  ·  not seen yet"])
     check("and with nothing left to add, the list says so", opts("cmbAdd"), ["Nothing new to add"])
     V("SetProperty", "lstThings", "SelectedIndex", "2"); V("RunScript", "ThingPicked")
     pg.select_option("#v_cmbKind", index=3)
@@ -117,6 +117,7 @@ with sync_playwright() as p:
     pg.select_option("#v_cmbWhich", index=0)
     check("the car: what the phone noted when it went out of range",
           (text("lblWhen"), "You left Ford Sync at" in text("lblDetail"), "within 8 m." in text("lblDetail")), ("Parked 10 minutes ago", True, True))
+    shot("4-parked.png")
     pg.tap("#v_btnGo")
     check("and that is where it takes you", pg.evaluate("asked")[-1][1].endswith("destination=50.7701,0.2901"))
     pg.select_option("#v_cmbWhich", index=3)
@@ -142,6 +143,7 @@ with sync_playwright() as p:
     pg.select_option("#v_cmbWhich", index=1)
     check("the desk keyboard in range: you're at your desk, and for how long", (text("lblWhen"), "since" in text("lblDetail"), "2m so far." in text("lblDetail")),
           ("At your desk", True, True))
+    shot("5-desk.png")
     pg.tap("#v_btnTabTime")
     check("Time today: the desk so far", (text("lblDay"), items("lstDay")[-1].endswith("🖥 Keychron K2   2m"), "–now" in items("lstDay")[-1]), ("Today", True, True))
     check("and the next day button is greyed out on today", pg.is_disabled("#v_btnNext"), True)

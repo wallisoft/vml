@@ -24,7 +24,7 @@
 
 @Window CleverClogs
 Title=Clever Clogs
-Version=2.0
+Version=2.1
 Icon=CleverClogs.png
 Width=360
 Height=640
@@ -32,174 +32,291 @@ OnOpened=Start
 
 @MenuTheme theme
 Parent=CleverClogs
-Background=#1E3A8A
+Background=#EA580C
 
 @Canvas c
 Parent=CleverClogs
-Background=#FFFFFF
+Background=#FFF8E7
+
+# --- the clog, and what it's for ------------------------------------------------
+
+@Image imgClog
+Parent=c
+Canvas.Left=8
+Canvas.Top=6
+Width=54
+Height=54
+Source=CleverClogs.svg
+Stretch=Uniform
 
 @TextBlock lblTitle
 Parent=c
-Canvas.Left=12
+Canvas.Left=66
 Canvas.Top=8
-Width=336
-Height=24
-FontSize=15
-Foreground=#4B5563
-Text=Clever Clogs: where things are
+Width=280
+Height=32
+FontSize=23
+FontWeight=Bold
+Foreground=#7C2D12
+Text=Clever Clogs
+
+@TextBlock lblSub
+Parent=c
+Canvas.Left=67
+Canvas.Top=39
+Width=280
+Height=20
+FontSize=12
+Foreground=#9A6B3F
+Text=Where you left things, and time spent with them
 
 # --- three tabs ---------------------------------------------------------------
 
 @Button btnTabWhere
 Parent=c
 Canvas.Left=12
-Canvas.Top=36
+Canvas.Top=68
 Width=108
-Height=34
-BorderThickness=0
-Content=Where
+Height=38
+CornerRadius=19
+Background=#FFFFFF
+Foreground=#7C2D12
+BorderBrush=#F3D3A1
+BorderThickness=1.5
+FontWeight=SemiBold
+Content=📍 Where
 OnClick=TabWhere
 
 @Button btnTabThings
 Parent=c
 Canvas.Left=126
-Canvas.Top=36
+Canvas.Top=68
 Width=108
-Height=34
-BorderThickness=0
-Content=Things
+Height=38
+CornerRadius=19
+Background=#FFFFFF
+Foreground=#7C2D12
+BorderBrush=#F3D3A1
+BorderThickness=1.5
+FontWeight=SemiBold
+Content=🎒 Things
 OnClick=TabThings
 
 @Button btnTabTime
 Parent=c
 Canvas.Left=240
-Canvas.Top=36
+Canvas.Top=68
 Width=108
-Height=34
-BorderThickness=0
-Content=Time
+Height=38
+CornerRadius=19
+Background=#FFFFFF
+Foreground=#7C2D12
+BorderBrush=#F3D3A1
+BorderThickness=1.5
+FontWeight=SemiBold
+Content=⏱️ Time
 OnClick=TabTime
 
 # --- Where: which thing, when, where, and how many floors away ----------------
 
+@TextBlock lblTip
+Parent=c
+Canvas.Left=14
+Canvas.Top=120
+Width=332
+Height=40
+TextWrapping=Wrap
+FontSize=13
+Foreground=#9A6B3F
+IsVisible=false
+Text=Tip: add your car, headphones or keyboard on the Things tab.
+
 @ComboBox cmbWhich
 Parent=c
 Canvas.Left=12
-Canvas.Top=80
+Canvas.Top=116
 Width=336
-Height=36
+Height=40
+CornerRadius=12
+BorderBrush=#F3D3A1
+Background=#FFFFFF
+FontSize=15
 SelectionChanged=WhichChosen
+
+@Rectangle rectCard
+Parent=c
+Canvas.Left=12
+Canvas.Top=164
+Width=336
+Height=168
+Fill=#FFFFFF
+Stroke=#F3D3A1
+StrokeThickness=1.5
+CornerRadius=20
+
+@TextBlock lblIcon
+Parent=c
+Canvas.Left=26
+Canvas.Top=176
+Width=56
+Height=52
+FontSize=38
+Text=🚗
 
 @TextBlock lblWhen
 Parent=c
-Canvas.Left=12
-Canvas.Top=122
-Width=336
-Height=34
-FontSize=24
+Canvas.Left=84
+Canvas.Top=174
+Width=252
+Height=56
+TextWrapping=Wrap
+FontSize=21
 FontWeight=Bold
+Foreground=#1F2937
 Text=Not parked yet
 
 @TextBlock lblDetail
 Parent=c
-Canvas.Left=12
-Canvas.Top=158
-Width=336
-Height=66
+Canvas.Left=26
+Canvas.Top=234
+Width=310
+Height=92
 TextWrapping=Wrap
+FontSize=14
+Foreground=#4B5563
 Text=
 
 @Button btnGo
 Parent=c
 Canvas.Left=12
-Canvas.Top=228
+Canvas.Top=342
 Width=164
-Height=40
-Content=Take me there
+Height=46
+CornerRadius=23
+Background=#EA580C
+Foreground=#FFFFFF
+BorderThickness=0
+FontWeight=Bold
+Content=🧭 Take me there
 OnClick=DoGo
 
 @Button btnShare
 Parent=c
 Canvas.Left=184
-Canvas.Top=228
+Canvas.Top=342
 Width=164
-Height=40
-Content=Share the spot
+Height=46
+CornerRadius=23
+Background=#FFFFFF
+Foreground=#C2410C
+BorderBrush=#EA580C
+BorderThickness=2
+FontWeight=SemiBold
+Content=📤 Share the spot
 OnClick=DoShare
 
 @Button btnHere
 Parent=c
 Canvas.Left=12
-Canvas.Top=276
+Canvas.Top=396
 Width=164
-Height=40
+Height=46
+CornerRadius=23
+Background=#0F766E
+Foreground=#FFFFFF
+BorderThickness=0
+FontWeight=Bold
 Content=I've parked here
 OnClick=DoHere
 
 @Button btnPhoto
 Parent=c
 Canvas.Left=184
-Canvas.Top=276
+Canvas.Top=396
 Width=164
-Height=40
-Content=Photo of the spot
+Height=46
+CornerRadius=23
+Background=#FFFFFF
+Foreground=#0F766E
+BorderBrush=#0F766E
+BorderThickness=2
+FontWeight=SemiBold
+Content=📷 Photo of it
 OnClick=DoPhoto
 
 @TextBox txtNote
 Parent=c
 Canvas.Left=12
-Canvas.Top=324
+Canvas.Top=450
 Width=336
-Height=38
+Height=42
+CornerRadius=12
+BorderBrush=#F3D3A1
+Background=#FFFFFF
 Watermark=A note: level 3, row C
 OnLostFocus=SaveNote
 
 @Image imgBay
 Parent=c
 Canvas.Left=12
-Canvas.Top=370
+Canvas.Top=500
 Width=336
-Height=180
+Height=92
 Stretch=Uniform
+CornerRadius=12
 
 # --- Things: what the phone watches for ----------------------------------------
 
 @TextBlock lblThings
 Parent=c
-Canvas.Left=12
-Canvas.Top=80
-Width=336
+Canvas.Left=14
+Canvas.Top=116
+Width=332
 Height=40
 TextWrapping=Wrap
-Foreground=#4B5563
-IsVisible=false
+FontSize=13
+Foreground=#9A6B3F
 Text=
+IsVisible=false
 
 @ListBox lstThings
 Parent=c
 Canvas.Left=12
-Canvas.Top=124
+Canvas.Top=160
 Width=336
 Height=168
+CornerRadius=14
+BorderBrush=#F3D3A1
+Background=#FFFFFF
+FontSize=15
 AlternatingRows=true
-IsVisible=false
 SelectionChanged=ThingPicked
+IsVisible=false
 
 @ComboBox cmbKind
 Parent=c
 Canvas.Left=12
-Canvas.Top=300
+Canvas.Top=338
 Width=156
-Height=38
-IsVisible=false
+Height=42
+CornerRadius=12
+BorderBrush=#F3D3A1
+Background=#FFFFFF
 SelectionChanged=KindChosen
+IsVisible=false
 
 @Button btnRename
 Parent=c
 Canvas.Left=176
-Canvas.Top=300
+Canvas.Top=338
 Width=84
-Height=40
+Height=42
+CornerRadius=21
+Background=#FFFFFF
+Foreground=#7C2D12
+BorderBrush=#F3D3A1
+BorderThickness=1.5
+FontWeight=SemiBold
 IsVisible=false
 Content=Rename
 OnClick=DoRename
@@ -207,40 +324,56 @@ OnClick=DoRename
 @Button btnRemove
 Parent=c
 Canvas.Left=268
-Canvas.Top=300
+Canvas.Top=338
 Width=80
-Height=40
+Height=42
+CornerRadius=21
+Background=#FFFFFF
+Foreground=#B91C1C
+BorderBrush=#FCA5A5
+BorderThickness=1.5
+FontWeight=SemiBold
 IsVisible=false
 Content=Remove
 OnClick=DoRemove
 
 @TextBlock lblAdd
 Parent=c
-Canvas.Left=12
-Canvas.Top=352
-Width=336
+Canvas.Left=14
+Canvas.Top=396
+Width=332
 Height=22
-Foreground=#4B5563
-IsVisible=false
+FontSize=13
+FontWeight=SemiBold
+Foreground=#7C2D12
 Text=Add one: Find lists what this phone is paired with.
+IsVisible=false
 
 @ComboBox cmbAdd
 Parent=c
 Canvas.Left=12
-Canvas.Top=378
+Canvas.Top=422
 Width=248
-Height=38
-IsVisible=false
+Height=42
+CornerRadius=12
+BorderBrush=#F3D3A1
+Background=#FFFFFF
 SelectionChanged=AddChosen
+IsVisible=false
 
 @Button btnFind
 Parent=c
 Canvas.Left=268
-Canvas.Top=378
+Canvas.Top=422
 Width=80
-Height=40
+Height=42
+CornerRadius=21
+Background=#EA580C
+Foreground=#FFFFFF
+BorderThickness=0
+FontWeight=Bold
 IsVisible=false
-Content=Find
+Content=🔎 Find
 OnClick=DoFind
 
 # --- Time: a day with your things, and the week --------------------------------
@@ -248,106 +381,150 @@ OnClick=DoFind
 @Button btnPrev
 Parent=c
 Canvas.Left=12
-Canvas.Top=80
-Width=44
-Height=36
+Canvas.Top=116
+Width=46
+Height=40
+CornerRadius=20
+Background=#FFFFFF
+Foreground=#7C2D12
+BorderBrush=#F3D3A1
+BorderThickness=1.5
+FontWeight=SemiBold
 IsVisible=false
-Content=<
+Content=‹
 OnClick=DayBack
 
 @TextBlock lblDay
 Parent=c
-Canvas.Left=60
-Canvas.Top=86
-Width=240
-Height=26
-FontSize=16
+Canvas.Left=62
+Canvas.Top=123
+Width=236
+Height=28
+FontSize=18
 FontWeight=Bold
+Foreground=#7C2D12
 TextAlignment=Center
-IsVisible=false
 Text=Today
+IsVisible=false
 
 @Button btnNext
 Parent=c
-Canvas.Left=304
-Canvas.Top=80
-Width=44
-Height=36
+Canvas.Left=302
+Canvas.Top=116
+Width=46
+Height=40
+CornerRadius=20
+Background=#FFFFFF
+Foreground=#7C2D12
+BorderBrush=#F3D3A1
+BorderThickness=1.5
+FontWeight=SemiBold
 IsVisible=false
-Content=>
+Content=›
 OnClick=DayOn
+
+@Rectangle rectTotals
+Parent=c
+Canvas.Left=12
+Canvas.Top=164
+Width=336
+Height=62
+Fill=#FFEDD5
+Stroke=#FDBA74
+StrokeThickness=1
+CornerRadius=16
+IsVisible=false
 
 @TextBlock lblTotals
 Parent=c
-Canvas.Left=12
-Canvas.Top=122
-Width=336
-Height=46
+Canvas.Left=24
+Canvas.Top=170
+Width=314
+Height=52
 TextWrapping=Wrap
+FontSize=14
 FontWeight=SemiBold
-IsVisible=false
+Foreground=#7C2D12
 Text=
+IsVisible=false
 
 @ListBox lstDay
 Parent=c
 Canvas.Left=12
-Canvas.Top=172
+Canvas.Top=234
 Width=336
-Height=206
+Height=166
+CornerRadius=14
+BorderBrush=#F3D3A1
+Background=#FFFFFF
 AlternatingRows=true
 IsVisible=false
 
 @TextBlock lblWeek
 Parent=c
-Canvas.Left=12
-Canvas.Top=384
-Width=336
-Height=44
+Canvas.Left=14
+Canvas.Top=406
+Width=332
+Height=42
 TextWrapping=Wrap
-Foreground=#374151
-IsVisible=false
+FontSize=13
+Foreground=#6B4E2E
 Text=
+IsVisible=false
 
 @CheckBox chkBreaks
 Parent=c
 Canvas.Left=12
-Canvas.Top=432
+Canvas.Top=450
 Width=336
 Height=28
-IsVisible=false
+Foreground=#6B4E2E
 Content=A break under 5 minutes doesn't count as leaving
 OnClick=BreaksChanged
+IsVisible=false
 
 @Button btnCsv
 Parent=c
 Canvas.Left=12
-Canvas.Top=466
+Canvas.Top=484
 Width=164
-Height=40
+Height=46
+CornerRadius=23
+Background=#EA580C
+Foreground=#FFFFFF
+BorderThickness=0
+FontWeight=Bold
 IsVisible=false
-Content=Save as CSV
+Content=💾 Save as CSV
 OnClick=DoCsv
 
 @Button btnShareDay
 Parent=c
 Canvas.Left=184
-Canvas.Top=466
+Canvas.Top=484
 Width=164
-Height=40
+Height=46
+CornerRadius=23
+Background=#FFFFFF
+Foreground=#C2410C
+BorderBrush=#EA580C
+BorderThickness=2
+FontWeight=SemiBold
 IsVisible=false
-Content=Share the day
+Content=📤 Share the day
 OnClick=DoShareDay
 
 # --- shared: what just happened --------------------------------------------------
 
 @TextBlock lblStatus
 Parent=c
-Canvas.Left=12
-Canvas.Top=558
-Width=336
-Height=76
+Canvas.Left=14
+Canvas.Top=598
+Width=332
+Height=40
 TextWrapping=Wrap
-Foreground=#4B5563
+FontSize=12
+Foreground=#9A6B3F
 Text=
 
 # --- every twenty seconds the answer is worked out again ("14 minutes ago") ---
@@ -565,17 +742,19 @@ end
 function Merging() return Kept("breaks") ~= "off" end
 
 -- ── tabs ──
-WHERE = { "cmbWhich", "lblWhen", "lblDetail", "btnGo", "btnShare", "btnHere", "btnPhoto", "txtNote", "imgBay" }
+WHERE = { "cmbWhich", "rectCard", "lblIcon", "lblWhen", "lblDetail", "btnGo", "btnShare", "btnHere", "btnPhoto", "txtNote", "imgBay" }
 THINGS = { "lblThings", "lstThings", "cmbKind", "btnRename", "btnRemove", "lblAdd", "cmbAdd", "btnFind" }
-TIME = { "btnPrev", "lblDay", "btnNext", "lblTotals", "lstDay", "lblWeek", "chkBreaks", "btnCsv", "btnShareDay" }
+TIME = { "btnPrev", "lblDay", "btnNext", "rectTotals", "lblTotals", "lstDay", "lblWeek", "chkBreaks", "btnCsv", "btnShareDay" }
 function ShowTab(t)
   Tab = t
   for _, n in ipairs({ "Where", "Things", "Time" }) do
-    Vml("SetProperty", "btnTab" .. n, "Background", n == t and "#1E3A8A" or "#E5E7EB")
-    Vml("SetProperty", "btnTab" .. n, "Foreground", n == t and "#FFFFFF" or "#374151")
+    Vml("SetProperty", "btnTab" .. n, "Background", n == t and "#EA580C" or "#FFFFFF")
+    Vml("SetProperty", "btnTab" .. n, "Foreground", n == t and "#FFFFFF" or "#7C2D12")
+    Vml("SetProperty", "btnTab" .. n, "BorderThickness", n == t and "0" or "1.5")
   end
   Show(WHERE, t == "Where"); Show(THINGS, t == "Things"); Show(TIME, t == "Time")
   if t == "Where" and #Things == 0 then Vml("SetProperty", "cmbWhich", "IsVisible", "false") end
+  Vml("SetProperty", "lblTip", "IsVisible", tostring(t == "Where" and #Things == 0))
   Status("")
   Refresh()
 end
@@ -597,12 +776,14 @@ function FillWhich()
   Vml("SetProperty", "cmbWhich", "SelectedIndex", tostring(at - 1))
   Filling = false
   Vml("SetProperty", "cmbWhich", "IsVisible", tostring(Tab == "Where" and #Things > 0))
+  Vml("SetProperty", "lblTip", "IsVisible", tostring(Tab == "Where" and #Things == 0))
 end
 
 function RefreshWhere()
   local kind = KindOf(Which)
   local t = ThingOf(Which)
   Vml("SetProperty", "btnHere", "Content", kind.here)
+  Vml("SetProperty", "lblIcon", "Text", Which == "" and #Things > 0 and "📌" or kind.icon)
   Vml("SetProperty", "txtNote", "Text", Kept("note_" .. Which))
   local photo = Kept("photo_" .. Which)
   Vml("SetProperty", "imgBay", "Source", photo)
@@ -611,6 +792,11 @@ function RefreshWhere()
   local can = Spot ~= nil and Spot.lat ~= nil and not (back and back > Spot.time)
   Vml("SetProperty", "btnGo", "IsEnabled", tostring(can))
   Vml("SetProperty", "btnShare", "IsEnabled", tostring(can))
+  -- (a styled button keeps its colours when it's off: fade it, so nobody taps at nothing)
+  Vml("SetProperty", "btnGo", "Background", can and "#EA580C" or "#F6E2CC")
+  Vml("SetProperty", "btnGo", "Foreground", can and "#FFFFFF" or "#B9A086")
+  Vml("SetProperty", "btnShare", "BorderBrush", can and "#EA580C" or "#F0DCC4")
+  Vml("SetProperty", "btnShare", "Foreground", can and "#C2410C" or "#B9A086")
   if back and (not Spot or back > Spot.time) then
     Vml("SetProperty", "lblWhen", "Text", kind.with)
     Vml("SetProperty", "lblDetail", "Text", "The phone has been connected to " .. (t and t.name or "it") .. " since "
@@ -662,7 +848,7 @@ function RefreshThings()
       or "When one goes out of range, the phone notes where it was. Tap one to change what it is.")
   local rows = {}
   for _, t in ipairs(Things) do
-    rows[#rows + 1] = Clean(Label(t) .. "  ·  " .. (KIND[t.kind] or KIND.other).label .. "  ·  " .. StateOf(t))
+    rows[#rows + 1] = Clean(Label(t) .. "  ·  " .. StateOf(t))
   end
   local keep = Vml("GetProperty", "lstThings", "SelectedIndex")
   Filling = true
