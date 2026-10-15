@@ -91,8 +91,10 @@ TOOLS = [
      _schema({"path": ("string", "The .vml form"), "out": ("string", "Where to write the .html (default beside it)")}, ["path"])),
     ("build_apk", "Build an app as an Android APK, signed and ready to install or release. Needs Visualised Pro.",
      _schema({"path": ("string", "The .vml form"), "out": ("string", "Where to write the .apk (default beside it)")}, ["path"])),
-    ("publish_site", "Publish an app as its own website at NAME.vml.onl: the app itself, running in the browser, and "
-                     "(with Visualised Pro) its Android APK to download. Run again to update it. Community accounts get "
+    ("publish_site", "Publish an app to its own website, NAME.vml.onl: the app itself at /app/ (it runs in the browser) "
+                     "and, with Visualised Pro, its Android APK at /downloads/. The site's front page is kept; a new site "
+                     "gets a plain one, to be replaced with a proper page about the app (write index.html and publish it "
+                     "with the TinyHost connector's vmlonl_publish). Run again to update the app. Community accounts get "
                      "one site whose name can't change later, so confirm the name with the user first.",
      _schema({"path": ("string", "The .vml form"),
               "site": ("string", "The site name: NAME.vml.onl (3-63 lowercase letters, digits, hyphens)"),
@@ -262,7 +264,7 @@ def publish_site(path, site, apk=True):
         _run("html", str(f), os.path.join(tmp, "index.html"))
         pages = os.path.join(tmp, "site.zip")
         with zipfile.ZipFile(pages, "w", zipfile.ZIP_DEFLATED) as z:
-            z.write(os.path.join(tmp, "index.html"), "index.html")
+            z.write(os.path.join(tmp, "index.html"), "app/index.html")     # the app at /app/: the front page is the site's own
         files = {"zip": pages}
         if apk:
             made = os.path.join(tmp, f"{f.stem}.apk")
@@ -272,7 +274,7 @@ def publish_site(path, site, apk=True):
             except Problem as exc:
                 notes.append(f"(No APK this time: {str(exc).splitlines()[0]})")
         lic = licence.current()
-        fields = {"site": site.strip().lower()}
+        fields = {"site": site.strip().lower(), "merge": "1"}
         if lic["tier"] != "community":
             fields["licence"] = lic["key"]
         got = _call("POST", fields, files)
