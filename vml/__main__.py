@@ -52,7 +52,11 @@ def main():
         from .localdrives import serve
         serve(sys.argv[2], sys.argv[3])
         return
-    ap = argparse.ArgumentParser(prog="vml")
+    if sys.argv[1:2] == ["mcp"]:                                    # Visualised for an AI assistant (vml/mcp.py)
+        from .mcp import serve as serve_mcp
+        serve_mcp()
+        return
+    ap =argparse.ArgumentParser(prog="vml")
     ap.add_argument("vml", nargs="?", help="the form to open (default: the VML designer)")
     ap.add_argument("extra", nargs="*", help=argparse.SUPPRESS)
     ap.add_argument("--db", help="project database to use (default: a fresh temporary one)")
