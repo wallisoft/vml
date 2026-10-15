@@ -52,6 +52,15 @@ def main():
         from .localdrives import serve
         serve(sys.argv[2], sys.argv[3])
         return
+    if sys.argv[1:2] == ["onl-key"]:                                # vml onl-key KEY: the TinyWeb key vml.onl publishing uses
+        from . import licence
+        if len(sys.argv) != 3 or len(sys.argv[2].strip()) < 20:
+            raise SystemExit("usage: vml onl-key YOURKEY   (the key tiny-web.uk sent you when you signed up)")
+        prefs = licence.load_prefs()
+        prefs["tinyweb_key"] = sys.argv[2].strip()
+        licence.save_prefs(prefs)
+        print("saved: publish_site (vml.onl) will use it")
+        return
     if sys.argv[1:2] == ["mcp"]:                                    # Visualised for an AI assistant (vml/mcp.py)
         from .mcp import serve as serve_mcp
         serve_mcp()

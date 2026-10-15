@@ -6,16 +6,21 @@ It talks JSON-RPC over stdin/stdout, one message per line, and needs nothing bey
   Claude Code:     claude mcp add visualised -- python3 /path/to/vml.py mcp
   Claude Desktop:  "mcpServers": {"visualised": {"command": "python3", "args": ["/path/to/vml.py", "mcp"]}}
 
-Phase 1 (here): find, make, read, write, check, export to the web, build an APK.
-Phase 2: release (tag and build on GitHub), publish a site with its download link, list it in the store.
+Make: find, make, read, write, check, export to the web, build an APK.
+Ship: publish_site puts the app at NAME.vml.onl (its web version, with the APK to download), vml_onl_status lists them.
+(Needs a free TinyWeb account's key: vml onl-key YOURKEY, or $TW_KEY.)
 """
 import json
 import os
+import tempfile
+import uuid
+import zipfile
 import subprocess
 import sys
 from pathlib import Path
 
 PROTOCOL = "2025-06-18"
+VML_ONL = os.environ.get("VML_ONL_API", "https://tiny-web.uk/api/vml-onl.php")
 HOME = Path(os.environ.get("VML_APPS", "~/visualised")).expanduser()
 
 HELLO = """# {title}: made by Visualised.
@@ -86,6 +91,14 @@ TOOLS = [
      _schema({"path": ("string", "The .vml form"), "out": ("string", "Where to write the .html (default beside it)")}, ["path"])),
     ("build_apk", "Build an app as an Android APK, signed and ready to install or release. Needs Visualised Pro.",
      _schema({"path": ("string", "The .vml form"), "out": ("string", "Where to write the .apk (default beside it)")}, ["path"])),
+    ("publish_site", "Publish an app as its own website at NAME.vml.onl: the app itself, running in the browser, and "
+                     "(with Visualised Pro) its Android APK to download. Run again to update it. Community accounts get "
+                     "one site whose name can't change later, so confirm the name with the user first.",
+     _schema({"path": ("string", "The .vml form"),
+              "site": ("string", "The site name: NAME.vml.onl (3-63 lowercase letters, digits, hyphens)"),
+              "apk": ("boolean", "Build and offer the Android app too (default: yes, when the licence allows)")},
+             ["path", "site"])),
+    ("vml_onl_status", "The user's vml.onl sites, their downloads and their plan (Community or Pro).", _schema({})),
 ]
 
 
@@ -204,7 +217,86 @@ def build_apk(path, out=""):
     return _run("apk", str(f), str(Path(out).expanduser()) if out else str(f.with_suffix(".apk")))
 
 
-DO = {"list_apps": list_apps, "new_app": new_app, "read_app": read_app, "write_app": write_app,
+def _tinyweb_key():
+    from . import licence
+    key = os.environ.get("TW_KEY") or licence.load_prefs().get("tinyweb_key", "")
+    if not key:
+        raise Problem("This needs a TinyWeb key: sign up free at https://tiny-web.uk (an email and a text), then on this "
+                      "computer run:  vml onl-key YOURKEY")
+    return key
+
+
+def _call(method="GET", fields=None, files=None):
+    """The vml.onl endpoint: fields (text) and files ({field: path}) as multipart; the JSON reply."""
+    import urllib.error
+    import urllib.request
+    data, headers = None, {"Authorization": "Bearer " + _tinyweb_key(), "User-Agent": "Visualised-MCP"}
+    if method == "POST":
+        edge = uuid.uuid4().hex
+        parts = []
+        for k, v in (fields or {}).items():
+            parts.append(f'--{edge}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+        for k, path in (files or {}).items():
+            parts.append(f'--{edge}\r\nContent-Disposition: form-data; name="{k}"; filename="{Path(path).name}"\r\n'
+                         f'Content-Type: application/octet-stream\r\n\r\n'.encode() + Path(path).read_bytes() + b"\r\n")
+        data = b"".join(parts) + f"--{edge}--\r\n".encode()
+        headers["Content-Type"] = f"multipart/form-data; boundary={edge}"
+    req = urllib.request.Request(VML_ONL, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode())
+        except ValueError:
+            return {"ok": False, "error": f"vml.onl answered {e.code}"}
+    except (urllib.error.URLError, OSError) as e:
+        raise Problem(f"Couldn't reach vml.onl: {e}")
+
+
+def publish_site(path, site, apk=True):
+    from . import licence
+    f = _file(path)
+    notes = []
+    with tempfile.TemporaryDirectory() as tmp:
+        _run("html", str(f), os.path.join(tmp, "index.html"))
+        pages = os.path.join(tmp, "site.zip")
+        with zipfile.ZipFile(pages, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(os.path.join(tmp, "index.html"), "index.html")
+        files = {"zip": pages}
+        if apk:
+            made = os.path.join(tmp, f"{f.stem}.apk")
+            try:
+                _run("apk", str(f), made)
+                files["apk"] = made
+            except Problem as exc:
+                notes.append(f"(No APK this time: {str(exc).splitlines()[0]})")
+        lic = licence.current()
+        fields = {"site": site.strip().lower()}
+        if lic["tier"] != "community":
+            fields["licence"] = lic["key"]
+        got = _call("POST", fields, files)
+    if not got.get("ok"):
+        raise Problem(got.get("error") or "vml.onl said no.")
+    lines = [f"Live at {got['url']} ({got.get('status')}, {got.get('tier')})"]
+    if got.get("apk"):
+        lines.append(f"Android app: {got['apk']}")
+    if got.get("mail"):
+        lines.append(f"Mail: {got['mail']}")
+    return "\n".join(lines + notes)
+
+
+def vml_onl_status():
+    got = _call("GET")
+    if not got.get("ok"):
+        raise Problem(got.get("error") or "vml.onl said no.")
+    out = [f"{got['tier'].title()}: {len(got['sites'])} of {got['max_sites']} sites"]
+    for s in got["sites"]:
+        out.append(f"  {s['url']}" + "".join(f"\n    {d['url']} ({d['bytes'] // 1024} KB)" for d in s.get("downloads", [])))
+    return "\n".join(out)
+
+
+DO = {"publish_site": publish_site, "vml_onl_status": vml_onl_status, "list_apps": list_apps, "new_app": new_app, "read_app": read_app, "write_app": write_app,
       "check_app": check_app, "export_web": export_web, "build_apk": build_apk}
 
 
