@@ -668,6 +668,8 @@ class Disks:
             except DiskError as e:
                 self._say(name, "error", str(e))
             except Exception as e:
+                from .sshdrive import why_failed
+                why_failed(name, e)
                 self._say(name, "error", str(e))
         threading.Thread(target=go, daemon=True).start()
 

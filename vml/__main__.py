@@ -13,26 +13,31 @@ from PySide6.QtCore import QTimer
 
 
 def _no_console_fix():
-    """Windows, started from the Start menu with no console (a built app): a program run with no stdin/stdout given
-    inherits handles that don't exist, and Python fails with "[WinError 6] The handle is invalid" (net use, PowerShell,
-    WinFsp's helpers...). Give anything left unset an empty input and output instead."""
+    """Windows, in a built app (started from the Start menu, or from a tray): a program run with no stdin given
+    inherits an input handle that may not exist, and Python fails with "[WinError 6] The handle is invalid" (net use,
+    PowerShell, WinFsp's helpers...). No program Visualised starts needs typing into, so anything left unset gets an
+    empty input, always; and an empty output too when there's no console to show it in."""
     if not sys.platform.startswith("win"):
         return
     import subprocess
-    try:
-        import msvcrt
-        ok = sys.stdin is not None and msvcrt.get_osfhandle(sys.stdin.fileno()) not in (-1, None)
-    except Exception:
-        ok = False
-    if ok:
-        return
+
+    def usable(stream):
+        try:
+            import msvcrt
+            return stream is not None and msvcrt.get_osfhandle(stream.fileno()) not in (-1, -2, None)
+        except Exception:
+            return False
+    console = usable(sys.stdout) and usable(sys.stderr)
     original = subprocess.Popen.__init__
 
     def init(self, *args, **kw):
-        for k in ("stdin", "stdout", "stderr"):
-            if kw.get(k) is None:
-                kw[k] = subprocess.DEVNULL
-        kw.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if kw.get("stdin") is None:
+            kw["stdin"] = subprocess.DEVNULL
+        if not console:
+            for k in ("stdout", "stderr"):
+                if kw.get(k) is None:
+                    kw[k] = subprocess.DEVNULL
+            kw.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
         original(self, *args, **kw)
     subprocess.Popen.__init__ = init
 

@@ -1036,9 +1036,9 @@ class WebDavDrive:
         if map_drive and WINDOWS and mountpoint:
             letter = mountpoint.rstrip("\\/:")[:1] + ":"
             unc = rf"\\127.0.0.1@{self.port}\DavWWWRoot"
-            subprocess.run(["net", "use", letter, "/delete", "/y"], capture_output=True, creationflags=_NO_WINDOW)
+            subprocess.run(["net", "use", letter, "/delete", "/y"], capture_output=True, stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
             r = subprocess.run(["net", "use", letter, unc, "/persistent:no"], capture_output=True, text=True,
-                               creationflags=_NO_WINDOW)
+                               stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
             if r.returncode:
                 self.stop()
                 raise RemoteError("io", "Windows wouldn't map the drive: " + (r.stderr or r.stdout).strip() +
@@ -1048,7 +1048,7 @@ class WebDavDrive:
 
     def stop(self):
         if self.mapped:
-            subprocess.run(["net", "use", self.mountpoint, "/delete", "/y"], capture_output=True, creationflags=_NO_WINDOW)
+            subprocess.run(["net", "use", self.mountpoint, "/delete", "/y"], capture_output=True, stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
         try:
             self.server.stop()
         except Exception:
@@ -1230,6 +1230,22 @@ class SshfsDrive:
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
 #  Mounting
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+def why_failed(name, exc):
+    """A mount that failed unexpectedly: the whole story, for whoever has to find out why
+    (~/.vml/mount-errors.log, the last 200 KB or so)."""
+    import traceback
+    log = os.path.join(os.path.expanduser("~"), ".vml", "mount-errors.log")
+    try:
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        if os.path.exists(log) and os.path.getsize(log) > 200_000:
+            os.replace(log, log + ".old")
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')}  {name}  ({sys.platform}, {sys.executable})\n"
+                    + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) + "\n")
+    except OSError:
+        pass
+
 
 def free_letter():
     """The highest unused drive letter, Z: downwards."""
@@ -1574,6 +1590,7 @@ class Drives:
                         return
                 self._say(name, "error" if e.kind != "offline" else "offline", why)
             except Exception as e:
+                why_failed(name, e)
                 self._say(name, "error", str(e))
         threading.Thread(target=go, daemon=True).start()
         self._start_watch()
