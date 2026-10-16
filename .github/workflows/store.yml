@@ -1,0 +1,76 @@
+name: Microsoft Store
+
+# Sends a release's Visualised.msix to the Microsoft Store through Partner Center's API (the Microsoft Store
+# Developer CLI), so a Store update no longer means clicking through Partner Center.
+#
+# Runs by itself after each successful Release (a v* tag), and by hand from the Actions tab for any release.
+# By default it leaves the submission as a DRAFT in Partner Center, to look over and press Submit; set the
+# variable STORE_AUTO_SUBMIT to true (or tick "submit" when running it by hand) to send it for certification.
+#
+# Needs (Settings > Secrets and variables > Actions):
+#   variable STORE_APP_ID                  Visualised's Store ID (9NMSDQX152H7)
+#   secrets  PARTNER_CENTER_TENANT_ID      Partner Center > Account settings > User management > Microsoft Entra
+#            PARTNER_CENTER_CLIENT_ID        applications: the app made for this, its tenant and client IDs
+#            PARTNER_CENTER_CLIENT_SECRET    and a key made for it (shown once)
+#            PARTNER_CENTER_SELLER_ID      Partner Center > Account settings > Legal info > Developer: Seller ID
+# Without STORE_APP_ID it does nothing.
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v1.1.0 (empty: the newest release)"
+        required: false
+        default: ""
+      submit:
+        description: "Submit for certification now (unticked: leave a draft to check in Partner Center)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  store:
+    if: vars.STORE_APP_ID != '' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: windows-latest
+    steps:
+      - name: Which release
+        id: which
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.event.inputs.tag }}"
+          if ("${{ github.event_name }}" -eq "workflow_run") { $tag = "${{ github.event.workflow_run.head_branch }}" }
+          if (-not $tag) { $tag = gh release view -R wallisoft/vml-releases --json tagName -q .tagName }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Release: $tag"
+      - name: Fetch its Visualised.msix
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ steps.which.outputs.tag }}" -R wallisoft/vml-releases -p Visualised.msix -D out
+          if (-not (Test-Path out\Visualised.msix)) { throw "That release has no Visualised.msix" }
+          Get-Item out\Visualised.msix | Format-Table Name, Length
+      - name: Set up the Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+      - name: Send it to the Store
+        shell: pwsh
+        env:
+          T: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          S: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          C: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          K: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          msstore reconfigure --tenantId $env:T --sellerId $env:S --clientId $env:C --clientSecret $env:K
+          if ($LASTEXITCODE -ne 0) { throw "Partner Center didn't accept the credentials" }
+          $submit = "${{ github.event.inputs.submit }}" -eq "true" -or "${{ vars.STORE_AUTO_SUBMIT }}" -eq "true"
+          $extra = @(); if (-not $submit) { $extra += "--noCommit" }
+          msstore publish out -i out\Visualised.msix -id "${{ vars.STORE_APP_ID }}" @extra
+          if ($LASTEXITCODE -ne 0) { throw "The Store didn't take the package (see above)" }
+          if ($submit) { Write-Host "Submitted for certification." } else { Write-Host "Left as a draft: check it in Partner Center and press Submit." }
