@@ -313,6 +313,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             appbar.attach(self, node)                        # Terms · About · version, if the form asks (and the designer)
         except Exception as exc:
             log(f"app bar: {exc}")
+        from .projects import is_designer
+        if is_designer(node.scope):
+            self._designing = True
+        if getattr(self, "_designing", False) and not getattr(w, "_f12", None):
+            from PySide6.QtGui import QKeySequence, QShortcut
+            w._f12 = QShortcut(QKeySequence("F12"), w, activated=self.cmd_ShowDebugger)   # (only where the designer runs forms)
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
@@ -513,6 +519,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         """Lua states are made on demand: one per form, plus one per named instance (Interpreter=lua mygame),
         so each form's globals are its own unless scripts deliberately share an instance."""
         self.luas = {}
+        self.debugger, self._debug_labels = None, []
         self.lua_paths = [str(LUA_DIR), str(SYSTEM_DIR / "lua"), *extra_paths]
         self.lua = self.lua_state("")                       # the engine's own, for code with no form
 
@@ -550,6 +557,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     def lua_exec(self, code, args=(), label="lua", origin=None, key=None):
         self._script_stack.append(origin)
+        self._debug_labels.append(label)
         rt = self.lua_state(self.lua_key(origin=origin) if key is None else key)
         g = rt.globals()
         saved = (g.arg, g.args)
@@ -558,9 +566,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             return rt.execute(code, *args)
         except Exception as exc:
             log(f"script error in {label}: {exc}")
+            if self.debugger is not None:
+                self.debug_record("script error", (label,), str(exc), error=True)
             return None
         finally:
             g.arg, g.args = saved
+            self._debug_labels.pop()
             self._script_stack.pop()
 
     def _init_shell(self):
@@ -614,13 +625,17 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     def run_function(self, found, name, args):
         f, key, node = found
         self._script_stack.append(node)
+        self._debug_labels.append(name)
         try:
             r = f(*[a if isinstance(a, (bool, int, float)) else str(a) for a in args])
             return "" if r is None else r
         except Exception as exc:
             log(f"script error in {name}: {exc}")
+            if self.debugger is not None:
+                self.debug_record("script error", (name,), str(exc), error=True)
             return ""
         finally:
+            self._debug_labels.pop()
             self._script_stack.pop()
 
     def run_script(self, name, *args, origin=None):
@@ -763,11 +778,57 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     def vml(self, command, *args):
         """Scripts' Vml(): forgiving. A bad call is logged and gives an empty result."""
+        if self.debugger is None:
+            try:
+                return self.vml_strict(command, *args)
+            except Exception as exc:
+                log(f'Vml("{command}"): {exc}')
+                return ""
         try:
-            return self.vml_strict(command, *args)
+            r = self.vml_strict(command, *args)
+            self.debug_record(command, args, r)
+            return r
         except Exception as exc:
             log(f'Vml("{command}"): {exc}')
+            self.debug_record(command, args, str(exc), error=True)
             return ""
+
+    # ---- the debugger (vml/debugger.py): F12 while the designer is running forms
+    def debug_hidden(self, scope):
+        """The designer's own forms (and its design surface) are not the app being tested."""
+        from .projects import is_designer
+        scope = str(scope or "")
+        return not scope or scope.startswith("design:") or is_designer(scope)
+
+    def debug_name(self, scope):
+        scope = str(scope or "")
+        if scope.startswith("instance:"):
+            return scope + " (shared)"
+        name = next((n.name for n in self.scopes.get(scope, {}).values() if n.type.name == "Window" and n.parent is None), "")
+        file = Path(scope).name
+        if file.startswith("vml-preview-"):
+            return f"{name or file} (being designed)"
+        return name or file
+
+    def debug_record(self, command, args, result, error=False):
+        origin = self._script_stack[-1] if self._script_stack else None
+        scope = origin.scope if origin is not None else (self.active_scope() or "")
+        if self.debug_hidden(scope):
+            return
+        shown = ", ".join(str(a) if isinstance(a, (int, float)) and not isinstance(a, bool) else json.dumps("" if a is None else str(a), ensure_ascii=False)
+                          for a in args)
+        label = self._debug_labels[-1] if self._debug_labels else ""
+        self.debugger.record(self.debug_name(scope), label, f"{command}({shown})", result, error)
+
+    def cmd_ShowDebugger(self):
+        """Open the debugger: every Vml() call the running forms' scripts make, and their variables."""
+        if self.debugger is None:
+            from .debugger import Debugger
+            self.debugger = Debugger(self)
+        self.debugger.show()
+        self.debugger.raise_()
+        self.debugger.activateWindow()
+        return "true"
 
     def vml_strict(self, command, *args):
         """The same, but a bad call raises, so the `vml` command can exit with an error."""
@@ -828,6 +889,26 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 listener(outer.name, prop, value)
             except Exception as exc:
                 log(f"property listener: {exc}")
+        if str(outer.scope).startswith("design:") and prop not in outer.type.events:
+            self._mirror(outer, prop, value)
+
+    def _mirror(self, outer, prop, value):
+        """A change made in the designer shows at once in the form it is running (Preview, or Run Project), if that
+        is open: the same control there gets the same property. (Scripts and new or deleted controls wait for the
+        next run.)"""
+        preview = str((Path(tempfile.gettempdir()) / f"vml-preview-{outer.scope[len('design:'):]}.vml").resolve())
+        twin = self.scopes.get(preview, {}).get(outer.name)
+        if twin is None or not any(w.scope == preview for w in self.windows):
+            return
+        try:
+            node, prop2 = self._resolve(twin, prop)
+            node.props[prop2] = value
+            if node is not twin:
+                twin.props[prop] = value
+            self.apply(node, prop2, value)
+            self._reflow(twin)
+        except Exception as exc:
+            log(f"live preview: {twin.name}.{prop}: {exc}")
 
     def _reflow(self, node):
         """Canvas children aren't in a layout: re-place them when anything that affects their size changes."""
