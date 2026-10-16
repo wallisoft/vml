@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 APP = QApplication.instance() or QApplication(sys.argv)
 
 from vml import __version__  # noqa: E402
+__version__ = os.environ.get("VML_VERSION") or __version__      # (VML_VERSION=1.3.0: the release these pages are for)
 from vml.engine import Engine  # noqa: E402
 from vml.registry import COMMON, REGISTRY  # noqa: E402
 
@@ -82,6 +83,11 @@ DESCRIBE = {
     "Thickness": "How wide the bar is, in pixels.",
     "Modal": "Opened as a dialog: the rest of the app waits until it closes.",
     "PhoneFit": "On a phone: Fit scales the form to the screen's width; None leaves it at its own size.",
+    "Background": "Its background colour.", "Foreground": "Its text colour.", "BorderBrush": "Its edge's colour.",
+    "Class": "The names of shared @Style styles it takes, space-separated.", "Style": "CSS for this control alone.",
+    "GradientTo": "A second colour its background fades into.", "HoverBackground": "Its background colour under the pointer.",
+    "Opacity": "100 is solid, 0 is see-through.", "Shadow": "0 is none, 10 looks like it's floating.",
+    "ShadowColour": "The shadow's colour (black unless you say).", "IsEnabled": "false greys it out and stops it taking clicks or typing.",
 }
 
 
@@ -99,6 +105,10 @@ PER_CONTROL = {
     ("ToggleSwitch", "Accent"): "The switch's colour when on.",
     ("HyperlinkButton", "NavigateUri"): "The web page it opens (empty: it only runs OnClick).",
     ("AutoCompleteBox", "Items"): "What it suggests, comma-separated.",
+    ("MarkdownView", "Text"): "The Markdown it shows. In a form, write \\\\n for a new line.",
+    ("MarkdownView", "Source"): "Where its Markdown comes from instead: a file, a web address, or help:Page for a page of Visualised's help. Links in it open in place.",
+    ("MarkdownEditor", "Text"): "The Markdown written in it.",
+    ("MarkdownEditor", "ShowPreview"): "How the Markdown looks, shown beside it as you type.",
 }
 
 
@@ -133,7 +143,10 @@ def controls_page():
         opts = f" ({', '.join(p.options)})" if p.kind == "choice" and p.options else \
             f" ({p.options[0]} to {p.options[1]})" if p.kind == "slider" and len(p.options) == 2 else ""
         default = f" Default `{p.default}`." if p.default else ""
-        note = PER_CONTROL.get((control, p.name)) or notes.get(p.name, "")
+        note = PER_CONTROL.get((control, p.name)) or (DESCRIBE.get(p.name) if p.name in common else "") or notes.get(p.name, "")
+        if note:
+            note = note[0].upper() + note[1:]
+            note = note if note.rstrip().endswith((".", ")", "!", "?")) else note + "."
         return f"| `{p.name}` | {KINDS.get(p.kind, p.kind)}{md(opts)} | {md(note)}{default} |"
 
     out = [f"# Controls reference", "",
@@ -173,7 +186,7 @@ def controls_page():
 
 SECTIONS = [
     ("Properties and controls", r"^(Set|Get)Property$|Control|^ClearChildren$|^GetChildControls$|^BringToFront$|^SendToBack$|^SetCanvasPosition$"),
-    ("Forms and dialogs", r"^Form|Form$|^(Show|Hide|Close)Form$|^CloseSelf$|Dialog|^AppExit$|^Quit$|^CancelClose$|^SetDialogResult$"),
+    ("Forms and dialogs", r"^Form|Form$|^(Show|Hide|Close)Form$|^CloseSelf$|Dialog|Markdown$|^AppExit$|^Quit$|^CancelClose$|^SetDialogResult$"),
     ("Scripts, events and programs", r"^(Run|Execute)Script$|^SetEvent$|^Shell$|Process|^Log$|^SetStatusText$|^ShowDebugger$|^Help"),
     ("Settings and preferences", r"Setting$|Preference$"),
     ("Data", r"^Sql|^Db|^Requery|Database|Table"),

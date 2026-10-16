@@ -29,12 +29,21 @@ from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout
                        truthy)
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
 from . import pickers  # noqa: F401  (registers ColorPicker, DatePicker, TimePicker, NumberBox, ToggleSwitch)
+from . import mdview  # noqa: F401  (registers MarkdownView, MarkdownEditor)
 from .store import LUA_DIR, PARSER_LOG, Store
 from .data import DataCommands
 from .projects import ProjectCommands
 from .library import LibraryCommands
 from .systemcommands import SystemCommands
 from . import dialogs, licence as licences
+
+
+def _alive(widget):
+    """Whether a window of ours is still there (Qt may have deleted it once it closed)."""
+    try:
+        return widget.isVisible()
+    except RuntimeError:
+        return False
 
 # Every Python script starts with this: Vml() talks straight to the engine over its local socket.
 PYTHON_PRELUDE = """import sys, os, json, socket
@@ -836,14 +845,51 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     HELP = "https://github.com/wallisoft/vml/wiki/"
 
     def cmd_Help(self, page="", section=""):
-        """Open a page of Visualised's help in the browser: "" for the tutorials, "Reference" for the reference, or any
-        page's name ("Reference-Commands", "How-To-Style-Controls-with-CSS"); section: a heading on it. Returns its
-        address."""
-        url = self.HELP + (str(page).strip().replace(" ", "-") or "Home")
-        if str(section).strip():
-            url += "#" + re.sub(r"[^a-z0-9-]", "", str(section).strip().lower().replace(" ", "-"))
-        self.cmd_OpenUrl(url)
-        return url
+        """Open a page of Visualised's help, in the app's help window: "" for the tutorials, "Reference" for the
+        reference, or any page's name ("Reference-Commands", "How-To-Style-Controls-with-CSS"); section: a heading on
+        it. Returns its address on the wiki."""
+        name = str(page).strip().replace(" ", "-") or "Home"
+        anchor = re.sub(r"[^a-z0-9-]", "", str(section).strip().lower().replace(" ", "-")) if str(section).strip() else ""
+        box = getattr(self, "_help_box", None)
+        try:
+            if box is not None and box.isVisible():               # one help window: it goes to the page asked for
+                box.reader.open("help:" + name + (f"#{anchor}" if anchor else ""))
+                box.raise_()
+                box.activateWindow()
+                return self.HELP + name + (f"#{anchor}" if anchor else "")
+        except RuntimeError:
+            pass
+        self._help_box = self._reader("help:" + name + (f"#{anchor}" if anchor else ""), "")
+        return self.HELP + name + (f"#{anchor}" if anchor else "")
+
+    def _reader(self, source, title):
+        from .mdview import MarkdownBox
+        box = MarkdownBox(self._parent_window(), source, title, self._edge())
+        self._readers = [b for b in getattr(self, "_readers", []) if _alive(b)] + [box]
+        box.show()
+        box.raise_()
+        box.activateWindow()
+        return box
+
+    def cmd_ShowMarkdown(self, source, title=""):
+        """Show Markdown in a window of its own, beside the app: source is the Markdown itself, a file, a web address
+        (a web page shows as its text and links) or help:Page for a page of Visualised's help. Links in it open in the
+        same window (back and forward as in a browser); links to other sites open in the browser."""
+        self._reader(source, title)
+        return "true"
+
+    def cmd_EditMarkdown(self, source="", title="Edit", save_to="", handler=""):
+        """Let the user write Markdown, seeing how it looks beside it as they type. source: the Markdown to start with
+        (or a file of it); save_to: a file Save writes to. Returns what they saved, or "" if they cancelled. handler: a
+        script to run with what was saved (a web page can't wait for the answer, so use it there)."""
+        from .mdview import MarkdownBox
+        src = str(source or "")
+        if not src.strip():
+            src = "\n"                                           # an empty page to write on, not an empty source
+        out = MarkdownBox(self._parent_window(), src, title, self._edge(), editable=True, save_to=save_to).run()
+        if out is not None and str(handler or "").strip():
+            self.cmd_RunScript(str(handler), out)
+        return "" if out is None else out
 
     def help_here(self):
         """F1 in the designer: the reference entry for the selected control's kind; with nothing selected, the reference."""

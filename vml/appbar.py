@@ -269,7 +269,7 @@ class AppBar(QWidget):
     # ---- the links
     def clicked(self, what):
         if what == "terms":
-            self.engine.cmd_OpenUrl(self.terms)
+            self.engine.cmd_ShowMarkdown(self.terms, "Terms")      # in a window of the app: reading them shouldn't mean leaving it
         else:
             self.about()
 

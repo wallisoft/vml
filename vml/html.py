@@ -98,6 +98,19 @@ class Page:
         code = "\n".join(c or "" for _, c in self.scripts.values()) + "\n".join(m["code"] for m in self.modules)
         return bool(self.sources()) or bool(re.search(r"""["'](Db[A-Z]\w+|SqlQuery|SqlExecute|Requery)["']""", code))
 
+    def uses_markdown(self, wp=None):
+        """Does this page show Markdown? Yes for a MarkdownView or MarkdownEditor, a script that shows some or opens
+        the help, or Terms in the app bar (they open in the page)."""
+        code = "\n".join(c or "" for _, c in self.scripts.values()) + "\n".join(m["code"] for m in self.modules)
+        return any(r[2] in ("MarkdownView", "MarkdownEditor") for r in self.rows) or \
+            bool(re.search(r"""["'](ShowMarkdown|EditMarkdown|Help)["']""", code)) or bool(wp and wp.get("Terms") and
+                                                                                    str(wp.get("AppBar", "")).lower() in ("true", "1", "yes"))
+
+    def marked(self):
+        """marked (MIT), which turns Markdown into HTML in the page."""
+        js = (WEB_DIR / "marked.min.js").read_text(encoding="utf-8").replace("</script", "<\\/script")
+        return f"<script>{js}</script>"
+
     def databases(self):
         """The project's SQLite files, to travel inside the page: {name: {file, data (base64), hash}}."""
         import base64
@@ -311,6 +324,13 @@ class Page:
             elif ctype == "DatePicker":
                 extra = "".join(f' {a}="{esc(p[k])}"' for k, a in (("Minimum", "min"), ("Maximum", "max")) if p.get(k))
             return f'<input type="{kind}" {attrs} class="vpick" value="{esc(value)}"{extra} style="{";".join(css)}"{disabled}>'
+        if ctype == "MarkdownView":                                 # Markdown, drawn by marked (vml/mdview.py)
+            src = str(p.get("Source") or "").strip()
+            return (f'<div {attrs} class="vmd" data-md="{esc(p.get("Text", ""))}" data-src="{esc(src)}" style="{";".join(css)}"></div>')
+        if ctype == "MarkdownEditor":
+            side = "" if str(p.get("ShowPreview", "true")).lower() not in ("false", "0", "no") else " nopv"
+            return (f'<div {attrs} class="vmde{side}" style="{";".join(css)}"><textarea spellcheck="true"{disabled}>{esc(p.get("Text", ""))}</textarea>'
+                    f'<div class="vmd"></div></div>')
         if ctype == "Calendar":
             import datetime
             value = str(p.get("Value") or "") or datetime.date.today().isoformat()
@@ -521,7 +541,7 @@ class Page:
             .replace("%%DKJSON%%", json.dumps(dkjson).replace("</", "<\\/")).replace("%%WASMOON%%", WASMOON) \
             .replace("%%SOURCE%%", esc(self.path.name)).replace("%%BAR%%", self.bar_colour) \
             .replace("%%APP%%", self.app_tags(wp)) \
-            .replace("%%BUNDLE%%", self.bundle() if offline else "")
+            .replace("%%BUNDLE%%", (self.bundle() if offline else "") + (self.marked() if self.uses_markdown(wp) else ""))
 
     def app_bar(self, wp, name):
         """Terms · About · version along the foot (AppBar=true on the Window): see vml/appbar.py."""
@@ -610,6 +630,37 @@ TEMPLATE = r"""<!DOCTYPE html>
   .tgl input:checked + i { background: var(--accent, #4F46E5); }
   .tgl input:checked + i::after { left: 21px; }
   .tgl input:disabled + i { opacity: .45; }
+  .vmd { overflow: auto; background: #fff; color: #1F2937; font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 14px 20px; box-sizing: border-box; }
+  .vmd > :first-child { margin-top: 0; }
+  .vmd h1, .vmd h2 { border-bottom: 1px solid #E5E7EB; padding-bottom: .25em; }
+  .vmd h1 { font-size: 1.75em; margin: .4em 0 .5em; } .vmd h2 { font-size: 1.4em; margin: 1.1em 0 .5em; } .vmd h3 { font-size: 1.15em; margin: 1em 0 .4em; }
+  .vmd p, .vmd ul, .vmd ol, .vmd table, .vmd pre, .vmd blockquote { margin: 0 0 .8em; }
+  .vmd a { color: #2563EB; text-decoration: none; } .vmd a:hover { text-decoration: underline; }
+  .vmd code { background: #F3F4F6; border-radius: 4px; padding: .1em .35em; font: .92em ui-monospace, Consolas, monospace; }
+  .vmd pre { background: #F3F4F6; border-radius: 8px; padding: 12px 14px; overflow: auto; }
+  .vmd pre code { background: none; padding: 0; }
+  .vmd table { border-collapse: collapse; } .vmd th, .vmd td { border: 1px solid #E5E7EB; padding: 6px 10px; text-align: left; vertical-align: top; }
+  .vmd th { background: #F3F4F6; }
+  .vmd blockquote { border-left: 3px solid #E5E7EB; padding: 0 0 0 12px; color: #6B7280; }
+  .vmd img { max-width: 100%; }
+  .vmde { display: flex; background: #fff; box-sizing: border-box; border: 1px solid #D1D5DB; }
+  .vmde textarea { flex: 1 1 50%; border: none; border-right: 1px solid #E5E7EB; background: #FAFAFA; padding: 12px; font: 13px/1.5 ui-monospace, Consolas, monospace; outline: none; min-width: 0; }
+  .vmde .vmd { flex: 1 1 50%; min-width: 0; }
+  .vmde.nopv .vmd { display: none; } .vmde.nopv textarea { border-right: none; }
+  #vml_mdbox { position: fixed; inset: 0; background: rgba(17,24,39,.35); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+  #vml_mdbox .box { width: min(860px, 94vw); height: min(720px, 90vh); background: #fff; border: 3px solid var(--edge); display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  #vml_mdbox .bar { background: var(--edge); color: var(--ink); display: flex; align-items: center; padding: 0 4px 0 12px; height: 30px; font: 600 13px system-ui, sans-serif; flex: none; }
+  #vml_mdbox .bar span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vml_mdbox .bar button, #vml_mdbox .tools button { border: none; background: transparent; color: inherit; font-size: 15px; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
+  #vml_mdbox .bar button:hover, #vml_mdbox .tools button:hover { background: rgba(127,127,127,.25); }
+  #vml_mdbox .tools { display: flex; gap: 4px; padding: 6px 10px; flex: none; color: #374151; }
+  #vml_mdbox .tools button:disabled { color: #D1D5DB; cursor: default; background: none; }
+  #vml_mdbox .tools .sp { flex: 1; }
+  #vml_mdbox .main { flex: 1; min-height: 0; display: flex; }
+  #vml_mdbox .main > * { flex: 1; height: auto; border: none; }
+  #vml_mdbox .foot { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; flex: none; }
+  #vml_mdbox .foot button { border: 1px solid #D1D5DB; background: #fff; border-radius: 8px; padding: 6px 16px; font: 13px system-ui, sans-serif; cursor: pointer; }
+  #vml_mdbox .foot button.go { background: var(--edge); color: var(--ink); border-color: var(--edge); font-weight: 600; }
   .vcal { background: #fff; border: 1px solid #D1D5DB; border-radius: 10px; padding: 6px; box-sizing: border-box; font-size: 13px; user-select: none; }
   .vcal .hd { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }
   .vcal .hd b { cursor: pointer; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
@@ -880,6 +931,16 @@ const commands = {
     if ((prop === "Background" || prop === "Fill") && e.dataset.shadow) {        // a 3D edge or a glow takes its colour from it
       e.dataset.gbase = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour, e.dataset.shadowstyle, value) || "none";
     }
+    if (e.matches(".vmd") && (prop === "Text" || prop === "Source")) {
+      if (prop === "Source" && String(value).trim()) e._go ? e._go(mdSource(value)) : mdLoad(e, mdSource(value));
+      else if (prop === "Text") { e.dataset.md = value; if (!e.dataset.src) mdDraw(e, String(value).replace(/\\n/g, "\n")); }
+      return "";
+    }
+    if (e.matches(".vmde") && (prop === "Text" || prop === "ShowPreview")) {
+      if (prop === "Text") { const ta = e.querySelector("textarea"); ta.value = String(value); mdDraw(e.querySelector(".vmd"), ta.value); }
+      else e.classList.toggle("nopv", !truthy(value));
+      return "";
+    }
     if (e.dataset.type === "Timer" && (prop === "Interval" || prop === "IsEnabled")) {
       if (prop === "Interval") e.dataset.interval = String(Number(value) || 1000); else e.dataset.on = truthy(value) ? "true" : "false";
       setTimer(e);
@@ -953,6 +1014,8 @@ const commands = {
   GetProperty(name, prop) {
     const e = el(name);
     if (!e) return "";
+    if (e.matches(".vmde") && prop === "Text") return e.querySelector("textarea").value;
+    if (e.matches(".vmd") && prop === "Text") return e._md ?? e.dataset.md ?? "";
     if (prop === "Text" || prop === "Content" || prop === "Header") return textOf(e);
     if (e.matches(".tbtn") && prop === "IsChecked") return e.getAttribute("aria-pressed") === "true" ? "true" : "false";
     if (e.matches(".vcal") && ["Value", "Minimum", "Maximum"].includes(prop)) return e.dataset[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] || "";
@@ -981,6 +1044,16 @@ const commands = {
   SetSetting(k, v = "") { settings[k] = String(v); keepSetting(k, String(v)); if (dbs[OWN_DB]) dbs[OWN_DB].run("INSERT OR REPLACE INTO settings VALUES (?, ?)", [k, String(v)]); return ""; },
   RunScript: (name, ...args) => run(name, args),
   InfoDialog(msg, title) { alert(msg); return ""; },
+  // Markdown in a box over the page: the text itself, a web address, or help:Page (vml/mdview.py)
+  ShowMarkdown(source, title = "") { mdBox(source, title); return "true"; },
+  // Writing Markdown, with how it looks beside it. In a page the box can't wait for an answer: Save runs the handler
+  // with what was written (the desktop returns it as well).
+  EditMarkdown(source = "", title = "Edit", saveTo = "", handler = "") { mdBox(String(source || "") || "\n", title, true, handler); return ""; },
+  Help(page = "", section = "") {
+    const name = String(page).trim().replace(/ /g, "-") || "Home", anchor = String(section).trim().toLowerCase().replace(/ /g, "-").replace(/[^a-z0-9-]/g, "");
+    mdBox("help:" + name + (anchor ? "#" + anchor : ""));
+    return HELP_WEB + name + (anchor ? "#" + anchor : "");
+  },
   ErrorDialog(msg, title) { alert(msg); return ""; },
   ConfirmDialog: (msg, title) => confirm(msg) ? "true" : "false",
   PromptDialog: (title = "", text = "", start = "") => prompt(text || title, start) ?? "",
@@ -2327,7 +2400,7 @@ function appBar() {
     if (latest) { if (confirm(text + `\n\n${A.title} ${latest} is available. Download it now?`)) install(); }
     else alert(text);
   };
-  if (A.terms) bar.append(link("Terms", () => Vml("OpenUrl", A.terms)), dot());
+  if (A.terms) bar.append(link("Terms", () => window.marked ? mdBox(A.terms, "Terms") : Vml("OpenUrl", A.terms)), dot());
   bar.append(link("About", about));
   if (A.version) bar.append(dot(), link("v" + A.version, about));
   const hz = link("⚠", () => { if (confirm(`${A.title} ${latest} is out (this is ${A.version}).\n\nInstall it now?`)) install(); });
@@ -2398,8 +2471,147 @@ document.addEventListener("click", ev => {
   if (tb && !tb.disabled) { tb.setAttribute("aria-pressed", tb.getAttribute("aria-pressed") === "true" ? "false" : "true"); tb.dispatchEvent(new Event("input")); }
 }, true);
 
+// Markdown (vml/mdview.py): MarkdownView, MarkdownEditor, and a reader box for ShowMarkdown, EditMarkdown, Help and
+// the app bar's Terms, so reading them doesn't mean leaving the app. Raw HTML in Markdown is shown as text, never run.
+const HELP_RAW = "https://raw.githubusercontent.com/wiki/wallisoft/vml/", HELP_WEB = "https://github.com/wallisoft/vml/wiki/";
+function mdHtml(text) {
+  if (!window.marked) return "<pre>" + String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</pre>";
+  if (!mdHtml.ready) {
+    const plain = x => String(typeof x === "string" ? x : (x && x.text) || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    marked.use({ gfm: true, renderer: { html: plain } });
+    mdHtml.ready = true;
+  }
+  return marked.parse(String(text ?? ""));
+}
+const mdSlug = t => String(t).replace(/<[^>]+>/g, "").trim().toLowerCase().replace(/[^\w\- ]/g, "").replace(/ /g, "-");
+function mdDraw(view, text) {
+  view._md = String(text ?? "");
+  view.innerHTML = mdHtml(view._md);
+  view.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach(h => { if (!h.id) h.id = mdSlug(h.textContent); });
+  view.querySelectorAll("a[href]").forEach(a => { if (/^\s*(javascript|data|vbscript):/i.test(a.getAttribute("href"))) a.removeAttribute("href"); });
+}
+function mdSource(src) {
+  const s = String(src || "").trim();
+  const wiki = /^https?:\/\/github\.com\/wallisoft\/vml\/wiki\/?([^?#]*)(?:#(.*))?$/i.exec(s);
+  if (wiki) return { kind: "help", page: wiki[1] || "Home", anchor: wiki[2] || "" };
+  if (/^help:/i.test(s)) { const [page, anchor = ""] = s.slice(5).split("#"); return { kind: "help", page: page || "Home", anchor }; }
+  if (/^https?:\/\//i.test(s) || /^[\w./-]+\.(md|markdown|txt|html?)(#.*)?$/i.test(s)) { const [url, anchor = ""] = s.split("#"); return { kind: "url", url, anchor }; }
+  return { kind: "text", text: s, anchor: "" };
+}
+function mdWeb(where) { return where.kind === "help" ? HELP_WEB + where.page + (where.anchor ? "#" + where.anchor : "") : where.kind === "url" ? where.url : ""; }
+// Show a source in a view: text now, or fetched. done(title) when it's there.
+function mdLoad(view, where, done) {
+  const anchor = () => { if (where.anchor) { const h = view.querySelector("#" + CSS.escape(mdSlug(where.anchor))) || view.querySelector("#" + CSS.escape(where.anchor)); if (h) h.scrollIntoView(); } else view.scrollTop = 0; };
+  view.style.padding = ""; view.style.overflow = "";
+  const shown = (text, isHtml) => {
+    if (isHtml) {
+      const d = new DOMParser().parseFromString(text, "text/html");
+      d.querySelectorAll("script,style,noscript,nav,header,footer,iframe,object,embed,link,meta").forEach(x => x.remove());
+      d.querySelectorAll("*").forEach(x => [...x.attributes].forEach(a => { if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) x.removeAttribute(a.name); }));
+      view._md = ""; view.innerHTML = d.body ? d.body.innerHTML : "";
+      done && done(d.title || "");
+    } else { mdDraw(view, text); const h = /^#\s+(.+)$/m.exec(text); done && done(h ? h[1].trim() : ""); }
+    anchor();
+  };
+  if (where.kind === "text") return shown(where.text, false);
+  const url = where.kind === "help" ? HELP_RAW + where.page + ".md" : where.url;
+  view.innerHTML = '<p style="color:#6B7280">Loading…</p>';
+  fetch(url).then(r => r.ok ? r.text().then(t => shown(t, /html/i.test(r.headers.get("content-type") || "") && !/\.md$/i.test(url))) : Promise.reject())
+    .catch(() => {
+      const web = mdWeb(where), q = String(web).replace(/"/g, "&quot;");
+      // another site that doesn't share its pages with scripts (no CORS): show it in a frame instead, still in the app
+      if (where.kind === "url" && /^https?:/i.test(web)) { view.innerHTML = `<iframe src="${q}" style="width:100%;height:100%;border:0;display:block" referrerpolicy="no-referrer"></iframe>`; view.style.padding = "0"; view.style.overflow = "hidden"; done && done(""); return; }
+      view.innerHTML = `<p style="color:#6B7280">This page couldn't be loaded here. ${web ? `<a href="${q}" target="_blank" rel="noopener">Open it in a new tab</a>.` : ""}</p>`;
+    });
+}
+// Links inside a view: #heading scrolls, help and .md pages open in place, other sites in a new tab.
+function mdFollow(view, where, go) {
+  view.addEventListener("click", ev => {
+    const a = ev.target.closest("a[href]"); if (!a) return;
+    const href = a.getAttribute("href");
+    if (href.startsWith("#")) { ev.preventDefault(); const h = view.querySelector("#" + CSS.escape(href.slice(1))); if (h) h.scrollIntoView(); return; }
+    if (/^(mailto|tel):/i.test(href)) return;
+    const here = where();
+    let next = null;
+    if (/^https?:\/\//i.test(href)) { const w = mdSource(href); if (w.kind === "help" || /\.md(#|$)/i.test(href)) next = w; }
+    else if (here.kind === "help") next = mdSource("help:" + href.replace(/^\.\//, ""));
+    else if (here.kind === "url") { const [u, anchor = ""] = new URL(href, new URL(here.url, location.href)).href.split("#"); if (/\.md$/i.test(u)) next = { kind: "url", url: u, anchor }; }
+    ev.preventDefault();
+    if (next) go(next); else window.open(a.href, "_blank", "noopener");
+  });
+}
+function mdBox(source, title = "", editable = false, handler = "") {
+  document.getElementById("vml_mdbox")?.remove();
+  const meta = document.querySelector('meta[name="theme-color"]'), bar = (meta && meta.content) || "#6B7280";
+  const rgb = (bar.match(/[0-9a-f]{2}/gi) || ["6B", "72", "80"]).slice(0, 3).map(h => parseInt(h, 16));
+  const light = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+  const edge = light > 0.82 ? "#6B7280" : bar, ink = (light > 0.82 || light < 0.6) ? "#fff" : "#111827";
+  const shade = document.createElement("div");
+  shade.id = "vml_mdbox";
+  shade.style.setProperty("--edge", edge); shade.style.setProperty("--ink", ink);
+  shade.innerHTML = `<div class="box" role="dialog" aria-modal="true"><div class="bar"><span></span><button title="Close">✕</button></div>
+    <div class="tools"><button class="bk" title="Back">◀</button><button class="fw" title="Forward">▶</button><button class="hm" title="Contents">⌂</button><button class="md">Edit</button><span class="sp"></span><button class="web" title="Open in a new tab">↗</button></div>
+    <div class="main"><div class="vmd"></div></div><div class="foot"></div></div>`;
+  document.body.appendChild(shade);
+  const q = s => shade.querySelector(s), view = q(".main .vmd"), cap = q(".bar span");
+  let where = mdSource(source), back = [], fwd = [], editor = null;
+  const name = t => { cap.textContent = title || t || "Help"; };
+  const tools = () => {
+    q(".bk").disabled = !back.length; q(".fw").disabled = !fwd.length;
+    q(".hm").style.display = where.kind === "help" && !editor ? "" : "none";
+    q(".web").style.display = mdWeb(where) && !editor ? "" : "none";
+    q(".bk").style.display = q(".fw").style.display = editor ? "none" : "";
+    q(".md").style.display = editable ? "" : "none"; q(".md").textContent = editor ? "Preview" : "Edit";
+  };
+  const go = (next, remember = true) => { if (remember) { back.push(where); fwd = []; } where = next; mdLoad(view, where, name); tools(); };
+  mdFollow(view, () => where, go);
+  const close = () => { shade.remove(); document.removeEventListener("keydown", key, true); };
+  const key = ev => { if (ev.key === "Escape") { ev.stopPropagation(); close(); } };
+  document.addEventListener("keydown", key, true);
+  q(".bar button").onclick = close;
+  q(".bk").onclick = () => { if (back.length) { fwd.push(where); go(back.pop(), false); } };
+  q(".fw").onclick = () => { if (fwd.length) { back.push(where); go(fwd.pop(), false); } };
+  q(".hm").onclick = () => go(mdSource("help:Home"));
+  q(".web").onclick = () => window.open(mdWeb(where), "_blank", "noopener");
+  const toggle = () => {
+    if (editor) { const t = editor.querySelector("textarea").value; editor.remove(); editor = null; view.style.display = ""; where = { kind: "text", text: t, anchor: "" }; mdDraw(view, t); }
+    else {
+      editor = document.createElement("div"); editor.className = "vmde"; editor.style.border = "none";
+      editor.innerHTML = '<textarea spellcheck="true"></textarea><div class="vmd"></div>';
+      const ta = editor.querySelector("textarea"), pv = editor.querySelector(".vmd");
+      ta.value = view._md || ""; mdDraw(pv, ta.value);
+      ta.addEventListener("input", () => mdDraw(pv, ta.value));
+      view.style.display = "none"; q(".main").appendChild(editor); ta.focus();
+    }
+    tools();
+  };
+  q(".md").onclick = toggle;
+  if (editable) {
+    const foot = q(".foot"), cancel = document.createElement("button"), save = document.createElement("button");
+    cancel.textContent = "Cancel"; save.textContent = "Save"; save.className = "go";
+    cancel.onclick = close;
+    save.onclick = () => { const t = editor ? editor.querySelector("textarea").value : (view._md || ""); close(); if (handler) run(handler, [t]); };
+    foot.append(cancel, save);
+  } else q(".foot").style.display = "none";
+  name(""); mdLoad(view, where, name); tools();
+  if (editable) toggle();
+  return shade;
+}
+
 function wire() {
   document.querySelectorAll(".vcal").forEach(drawCal);
+  document.querySelectorAll(".vmd[data-src], .vmd[data-md]").forEach(v => {
+    let where = v.dataset.src ? mdSource(v.dataset.src) : { kind: "text", text: v.dataset.md.replace(/\\n/g, "\n"), anchor: "" };
+    v._where = () => where;
+    mdLoad(v, where);
+    mdFollow(v, () => where, next => { where = next; mdLoad(v, where); });
+    v._go = next => { where = next; mdLoad(v, where); };
+  });
+  document.querySelectorAll(".vmde").forEach(ed => {
+    const ta = ed.querySelector("textarea"), pv = ed.querySelector(".vmd");
+    mdDraw(pv, ta.value);
+    ta.addEventListener("input", () => mdDraw(pv, ta.value));
+  });
   appBar();
   fitScreen();
   offerApp();
