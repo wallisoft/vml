@@ -85,6 +85,23 @@ DESCRIBE = {
 }
 
 
+# Where the same property means something different on different controls
+PER_CONTROL = {
+    ("ColorPicker", "Value"): "The colour chosen: #4F46E5.",
+    ("DatePicker", "Value"): "The date chosen, year-month-day: 2026-10-16 (empty: today).",
+    ("Calendar", "Value"): "The day chosen, year-month-day: 2026-10-16 (empty: today).",
+    ("DatePicker", "Minimum"): "The earliest date it allows, year-month-day.", ("DatePicker", "Maximum"): "The latest date it allows, year-month-day.",
+    ("Calendar", "Minimum"): "The earliest day it allows, year-month-day.", ("Calendar", "Maximum"): "The latest day it allows, year-month-day.",
+    ("TimePicker", "Value"): "The time chosen, 24-hour: 14:30.",
+    ("NumberBox", "Value"): "The number shown.",
+    ("NumberBox", "Step"): "How much each arrow adds or takes away.",
+    ("NumberBox", "Decimals"): "Places after the point (0: whole numbers).",
+    ("ToggleSwitch", "Accent"): "The switch's colour when on.",
+    ("HyperlinkButton", "NavigateUri"): "The web page it opens (empty: it only runs OnClick).",
+    ("AutoCompleteBox", "Items"): "What it suggests, comma-separated.",
+}
+
+
 def prop_notes():
     """Property name -> the comment on the line that declares it (else DESCRIBE's line)."""
     notes = {}
@@ -112,11 +129,12 @@ def controls_page():
     notes = prop_notes()
     common = {p.name for p in COMMON}
 
-    def row(p):
+    def row(p, control=""):
         opts = f" ({', '.join(p.options)})" if p.kind == "choice" and p.options else \
             f" ({p.options[0]} to {p.options[1]})" if p.kind == "slider" and len(p.options) == 2 else ""
         default = f" Default `{p.default}`." if p.default else ""
-        return f"| `{p.name}` | {KINDS.get(p.kind, p.kind)}{md(opts)} | {md(notes.get(p.name, ''))}{default} |"
+        note = PER_CONTROL.get((control, p.name)) or notes.get(p.name, "")
+        return f"| `{p.name}` | {KINDS.get(p.kind, p.kind)}{md(opts)} | {md(note)}{default} |"
 
     out = [f"# Controls reference", "",
            f"Every control in Visualised {__version__}, with its properties and events. Generated from the engine "
@@ -143,7 +161,7 @@ def controls_page():
                     ("." if has_common >= len(common) - 2 else ", or most of them."), ""]
         if own:
             out += ["| Property | Kind | What it does |", "|---|---|---|"]
-            out += [row(p) for p in sorted(own, key=lambda p: (p.group, p.name))]
+            out += [row(p, name) for p in sorted(own, key=lambda p: (p.group, p.name))]
             out.append("")
         events = sorted(e for e, v in ct.events.items() if v is not None or e in ("OnOpened", "OnClosing"))
         if events:

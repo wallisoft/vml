@@ -311,6 +311,22 @@ class Page:
             elif ctype == "DatePicker":
                 extra = "".join(f' {a}="{esc(p[k])}"' for k, a in (("Minimum", "min"), ("Maximum", "max")) if p.get(k))
             return f'<input type="{kind}" {attrs} class="vpick" value="{esc(value)}"{extra} style="{";".join(css)}"{disabled}>'
+        if ctype == "Calendar":
+            import datetime
+            value = str(p.get("Value") or "") or datetime.date.today().isoformat()
+            rng = "".join(f' data-{a}="{esc(p[k])}"' for k, a in (("Minimum", "min"), ("Maximum", "max")) if p.get(k))
+            return f'<div {attrs} class="vcal" data-value="{esc(value)}"{rng} style="{";".join(css)}"></div>'
+        if ctype == "AutoCompleteBox":
+            items = "".join(f'<option value="{esc(s.strip())}">' for s in str(p.get("Items", "")).split(",") if s.strip())
+            return (f'<input type="text" {attrs} class="acb" list="dl_{eid}" value="{esc(p.get("Text", ""))}" placeholder="{esc(p.get("Watermark", ""))}" '
+                    f'autocomplete="off" style="{";".join(css)}"{disabled}><datalist id="dl_{eid}">{items}</datalist>')
+        if ctype == "HyperlinkButton":
+            href = str(p.get("NavigateUri") or "").strip()
+            link = f' href="{esc(href)}" target="_blank" rel="noopener"' if href else ' tabindex="0" role="button"'
+            return f'<a {attrs} class="vlink"{link} style="{";".join(css)}">{esc(p.get("Content", name))}</a>'
+        if ctype == "ToggleButton":
+            on = "true" if str(p.get("IsChecked", "")).lower() == "true" else "false"
+            return f'<button {attrs} class="tbtn" aria-pressed="{on}" style="{";".join(css)}"{disabled}>{esc(p.get("Content", name))}</button>'
         if ctype == "ToggleSwitch":
             checked = " checked" if str(p.get("IsChecked", "")).lower() == "true" else ""
             accent = f"--accent:{colour(p['Accent'])};" if p.get("Accent") else ""
@@ -594,6 +610,19 @@ TEMPLATE = r"""<!DOCTYPE html>
   .tgl input:checked + i { background: var(--accent, #4F46E5); }
   .tgl input:checked + i::after { left: 21px; }
   .tgl input:disabled + i { opacity: .45; }
+  .vcal { background: #fff; border: 1px solid #D1D5DB; border-radius: 10px; padding: 6px; box-sizing: border-box; font-size: 13px; user-select: none; }
+  .vcal .hd { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }
+  .vcal .hd b { cursor: pointer; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+  .vcal .hd b:hover { background: #EEF2FF; }
+  .vcal .gr { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+  .vcal .gr i { font-style: normal; color: #6B7280; font-size: 11px; }
+  .vcal .gr span { padding: 4px 0; border-radius: 6px; cursor: pointer; }
+  .vcal .gr span:hover { background: #EEF2FF; }
+  .vcal .gr span.on { background: #4F46E5; color: #fff; }
+  .vcal .gr span.out { color: #D1D5DB; pointer-events: none; }
+  .vlink { color: #2563EB; text-decoration: underline; cursor: pointer; }
+  .vlink:hover { color: #1E40AF; }
+  .tbtn[aria-pressed=true] { filter: brightness(.88); box-shadow: inset 0 2px 4px rgba(0,0,0,.18); }
   .pbar { position: absolute; overflow: hidden; display: flex; align-items: center; }
   .pbar::before { content: ""; position: absolute; inset: 0; background: var(--track); border-radius: 3px; }
   .pbar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--bar); border-radius: 3px; }
@@ -867,6 +896,10 @@ const commands = {
     else if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = String(Math.round(Number(value) || 0));
     else if (e.matches(".vpick") && ["Value", "Minimum", "Maximum", "Step"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max", Step: "step" }[prop]] = e.type === "color" ? String(value).toLowerCase() : String(value);
     else if (e.matches(".tgl") && prop === "Accent") e.style.setProperty("--accent", value);
+    else if (e.matches(".vcal") && ["Value", "Minimum", "Maximum"].includes(prop)) { e.dataset[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = value; e._month = null; drawCal(e); }
+    else if (e.matches(".acb") && prop === "Items") { const dl = document.getElementById("dl_" + e.id); if (dl) dl.innerHTML = String(value).split(",").map(s => s.trim()).filter(Boolean).map(s => `<option value="${s.replace(/"/g, "&quot;")}">`).join(""); }
+    else if (e.matches(".vlink") && prop === "NavigateUri") { if (value) { e.href = value; e.target = "_blank"; } else e.removeAttribute("href"); }
+    else if (e.matches(".tbtn") && prop === "IsChecked") e.setAttribute("aria-pressed", truthy(value) ? "true" : "false");
     else if (prop === "Class" || prop === "Style") restyle(e, prop, value);
     else if (prop === "Shadow" || prop === "ShadowColour" || prop === "ShadowStyle") { e.dataset[prop.toLowerCase()] = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour, e.dataset.shadowstyle, e.dataset.gbase) || "none"; }
     else if (prop === "GradientTo" || prop === "GradientDirection" || (prop === "Background" && e.dataset.gradientto)) {
@@ -879,6 +912,8 @@ const commands = {
     else if (prop === "Text" || prop === "Content" || prop === "Header") setText(e, value);
     else if (css[prop]) e.style[css[prop]] = value;
     else if (prop === "FontSize") e.style.fontSize = value + "px";
+    else if (prop === "FontWeight") e.style.fontWeight = String({"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600, "Bold": 700, "ExtraBold": 800, "Black": 900}[value] || value || 400);
+    else if (prop === "FontFamily") e.style.fontFamily = value;
     else if (prop === "IsVisible") e.style.display = truthy(value) ? "" : "none";
     else if (prop === "IsEnabled") { const t = e.matches("label.cb") ? e.querySelector("input") : e; truthy(value) ? t.removeAttribute("disabled") : t.setAttribute("disabled", ""); }
     else if (prop === "IsChecked") e.querySelector("input").checked = truthy(value);
@@ -919,6 +954,8 @@ const commands = {
     const e = el(name);
     if (!e) return "";
     if (prop === "Text" || prop === "Content" || prop === "Header") return textOf(e);
+    if (e.matches(".tbtn") && prop === "IsChecked") return e.getAttribute("aria-pressed") === "true" ? "true" : "false";
+    if (e.matches(".vcal") && ["Value", "Minimum", "Maximum"].includes(prop)) return e.dataset[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] || "";
     if (prop === "IsChecked") return e.querySelector("input").checked ? "true" : "false";
     if (e.dataset.type === "Timer") { if (prop === "Interval") return e.dataset.interval; if (prop === "IsEnabled") return e.dataset.on; }
     if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) return e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]];
@@ -2332,7 +2369,37 @@ function appBar() {
   }, 1500);
 }
 
+// Calendar (vml/pickers.py): a month to pick a day from. Picking runs ValueChanged (an "input" event, as the others).
+function drawCal(e) {
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const sel = e.dataset.value || iso(new Date());
+  const m = e._month || new Date(sel + "T12:00:00");
+  e._month = new Date(m.getFullYear(), m.getMonth(), 1, 12);
+  const first = e._month, start = (first.getDay() + 6) % 7, days = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const lo = e.dataset.min || "", hi = e.dataset.max || "";
+  let h = `<div class="hd"><b data-go="-1">‹</b><span>${first.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</span><b data-go="1">›</b></div><div class="gr">`;
+  for (const d of ["M", "T", "W", "T", "F", "S", "S"]) h += `<i>${d}</i>`;
+  for (let i = 0; i < start; i++) h += "<span class='out'></span>";
+  for (let d = 1; d <= days; d++) {
+    const v = iso(new Date(first.getFullYear(), first.getMonth(), d, 12));
+    h += `<span data-d="${v}" class="${v === sel ? "on" : ""}${(lo && v < lo) || (hi && v > hi) ? " out" : ""}">${d}</span>`;
+  }
+  e.innerHTML = h + "</div>";
+}
+document.addEventListener("click", ev => {
+  const cal = ev.target.closest(".vcal");
+  if (cal) {
+    const go = ev.target.dataset.go, d = ev.target.dataset.d;
+    if (go) { cal._month = new Date(cal._month.getFullYear(), cal._month.getMonth() + Number(go), 1, 12); drawCal(cal); }
+    else if (d) { cal.dataset.value = d; drawCal(cal); cal.dispatchEvent(new Event("input")); }
+    return;
+  }
+  const tb = ev.target.closest(".tbtn");
+  if (tb && !tb.disabled) { tb.setAttribute("aria-pressed", tb.getAttribute("aria-pressed") === "true" ? "false" : "true"); tb.dispatchEvent(new Event("input")); }
+}, true);
+
 function wire() {
+  document.querySelectorAll(".vcal").forEach(drawCal);
   appBar();
   fitScreen();
   offerApp();
@@ -2348,7 +2415,7 @@ function wire() {
       OnClick: () => e.addEventListener("click", ev => { if (outer.dataset.type === "MenuItem") { ev.stopPropagation(); if (e.querySelector(".drop")) return; closeMenus(); } go(); }),
       OnChecked: () => e.addEventListener("change", () => go()),
       TextChanged: () => e.addEventListener("input", () => go()),
-      ValueChanged: () => e.addEventListener("input", () => go()),
+      ValueChanged: () => e.addEventListener(e.matches(".acb") ? "change" : "input", () => go()),
       SelectionChanged: () => e.addEventListener("change", () => go()),
       OnKeyDown: () => e.addEventListener("keydown", ev => go(keyDetails(ev))),
       OnKeyUp: () => e.addEventListener("keyup", ev => go(keyDetails(ev))),

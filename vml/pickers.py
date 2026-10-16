@@ -6,6 +6,10 @@ Pickers: controls for choosing a value rather than typing it, on the desktop and
     TimePicker     a time of day: Value=14:30 (24-hour).
     NumberBox      a number, typed or stepped with arrows: Value, Minimum, Maximum, Step, Decimals.
     ToggleSwitch   on or off, as a sliding switch: IsChecked, Content (its words), Accent (its colour when on).
+    Calendar       a month, always open, to pick a day from: Value=2026-10-16. Minimum, Maximum.
+    AutoCompleteBox  a text box that suggests from its Items as you type: Text, Items. TextChanged, ValueChanged.
+    HyperlinkButton  a link: Content, NavigateUri (opens it in the browser), and OnClick.
+    ToggleButton   a button that stays in or out: IsChecked, Content. OnClick, ValueChanged.
 
 Each runs ValueChanged when the user changes it. On the web they are the browser's own inputs (a colour, date,
 time and number input, and a checkbox drawn as a switch), so a phone shows its own pickers.
@@ -219,3 +223,131 @@ register(ControlType("ToggleSwitch", lambda n: ToggleWidget(n), events={"ValueCh
          [Prop("IsChecked", "bool", "Common", apply=_toggle_set, read=lambda n: "true" if n.widget.isChecked() else "false"),
           Prop("Content", "text", "Common", apply=lambda n, v: (n.widget.setText(str(v or "")), n.widget.updateGeometry())),
           Prop("Accent", "colour", "Appearance", apply=lambda n, v: n.widget.update())])      # its colour when on
+
+
+# ------------------------------------------------------------------ Calendar
+
+class CalendarWidget(QFrame):
+    """A month to pick a day from, always open (DatePicker is the same in a drop-down)."""
+    changed = Signal()
+
+    def __init__(self, node):
+        super().__init__()
+        from PySide6.QtWidgets import QCalendarWidget, QVBoxLayout
+        self.node = node
+        self.cal = QCalendarWidget(self)
+        self.cal.setGridVisible(False)
+        self.cal.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.cal)
+        self.cal.selectionChanged.connect(lambda: None if self.cal.signalsBlocked() else self.changed.emit())
+        self.refresh()
+
+    def value(self):
+        return self.cal.selectedDate().toString("yyyy-MM-dd")
+
+    def refresh(self):
+        p = self.node.props
+        self.cal.blockSignals(True)
+        for key, setter in (("Minimum", self.cal.setMinimumDate), ("Maximum", self.cal.setMaximumDate)):
+            d = QDate.fromString(str(p.get(key) or ""), "yyyy-MM-dd")
+            if d.isValid():
+                setter(d)
+        d = QDate.fromString(str(p.get("Value") or ""), "yyyy-MM-dd")
+        self.cal.setSelectedDate(d if d.isValid() else QDate.currentDate())
+        self.cal.blockSignals(False)
+
+
+register(ControlType("Calendar", lambda n: CalendarWidget(n), events={"ValueChanged": _changed}),
+         PLAIN, ATTACHED,
+         [Prop("Value", "text", "Common", apply=lambda n, v: n.widget.refresh(), read=lambda n: n.widget.value()),  # year-month-day (empty: today)
+          Prop("Minimum", "text", "Common", apply=lambda n, v: n.widget.refresh()),
+          Prop("Maximum", "text", "Common", apply=lambda n, v: n.widget.refresh())])
+
+
+# ------------------------------------------------------------------ AutoCompleteBox
+
+class AutoCompleteWidget(QFrame):
+    """A text box that suggests from its Items as you type (any word of an item matches)."""
+    changed = Signal()
+    textChanged = Signal(str)
+
+    def __init__(self, node):
+        super().__init__()
+        from PySide6.QtWidgets import QCompleter, QLineEdit, QVBoxLayout
+        from PySide6.QtCore import QStringListModel
+        self.node = node
+        self.edit = QLineEdit(self)
+        self.model = QStringListModel([])
+        self.completer = QCompleter(self.model, self)
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.completer.setFilterMode(Qt.MatchContains)
+        self.edit.setCompleter(self.completer)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.edit)
+        self.edit.textChanged.connect(self.textChanged.emit)
+        self.completer.activated.connect(lambda *a: self.changed.emit())
+
+    def set_items(self, value):
+        self.model.setStringList([s.strip() for s in str(value or "").split(",") if s.strip()])
+
+
+def _set_text(n, v):
+    if n.widget.edit.text() != str(v or ""):
+        n.widget.edit.setText(str(v or ""))
+
+
+register(ControlType("AutoCompleteBox", lambda n: AutoCompleteWidget(n),
+                     events={"ValueChanged": _changed, "TextChanged": lambda node, fire: node.widget.textChanged.connect(lambda *a: fire({}))}),
+         COMMON, ATTACHED,
+         [Prop("Text", "text", "Common", apply=_set_text, read=lambda n: n.widget.edit.text()),
+          Prop("Items", "list", "Common", apply=lambda n, v: n.widget.set_items(v)),          # what it suggests, comma-separated
+          Prop("Watermark", "text", "Text", apply=lambda n, v: n.widget.edit.setPlaceholderText(str(v or "")))])
+
+
+# ------------------------------------------------------------------ HyperlinkButton, ToggleButton
+
+def make_link(node):
+    from PySide6.QtWidgets import QPushButton
+    w = QPushButton()
+    w.setFlat(True)
+    w.setCursor(Qt.PointingHandCursor)
+    w.setStyleSheet("QPushButton { color: #2563EB; text-decoration: underline; border: none; background: transparent;"
+                    " text-align: left; padding: 0; } QPushButton:hover { color: #1E40AF; }")
+
+    def go():
+        url = str(node.props.get("NavigateUri") or "").strip()
+        if url and hasattr(node, "engine"):
+            node.engine.cmd_OpenUrl(url)
+    w.clicked.connect(go)
+    return w
+
+
+register(ControlType("HyperlinkButton", make_link, events={"OnClick": lambda node, fire: node.widget.clicked.connect(lambda *a: fire({}))}),
+         [p for p in COMMON if p.name not in ("Background", "CornerRadius", "Shadow", "ShadowColour", "ShadowStyle")], ATTACHED,
+         [Prop("Content", "text", "Common", apply=lambda n, v: n.widget.setText(str(v or ""))),
+          Prop("NavigateUri", "text", "Common")])          # the web page it opens (empty: it only runs OnClick)
+
+
+def make_toggle_button(node):
+    from PySide6.QtWidgets import QPushButton
+    w = QPushButton()
+    w.setCheckable(True)
+    w.changed = w.toggled
+    return w
+
+
+def _tb_set(n, v):
+    n.widget.blockSignals(True)
+    n.widget.setChecked(truthy(v))
+    n.widget.blockSignals(False)
+
+
+register(ControlType("ToggleButton", make_toggle_button,
+                     events={"OnClick": lambda node, fire: node.widget.clicked.connect(lambda *a: fire({})),
+                             "ValueChanged": lambda node, fire: node.widget.toggled.connect(lambda *a: fire({}))}),
+         COMMON, ATTACHED,
+         [Prop("Content", "text", "Common", apply=lambda n, v: n.widget.setText(str(v or ""))),
+          Prop("IsChecked", "bool", "Common", apply=_tb_set, read=lambda n: "true" if n.widget.isChecked() else "false")])
