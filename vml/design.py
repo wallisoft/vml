@@ -298,7 +298,7 @@ class SurfaceView(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
         self.page = QWidget()
         self.page.setObjectName("DesignPage")
-        self.page.setStyleSheet("#DesignPage { background: #e5e7eb; }")
+        self.page.setStyleSheet("#DesignPage { background: #d4d7dd; }")
         self.form = QWidget(self.page)
         self.form.setObjectName("DesignForm")
         self.form.setAttribute(Qt.WA_StyledBackground, True)
@@ -312,7 +312,7 @@ class SurfaceView(QScrollArea):
         self.setWidget(self.page)
         vp = self.viewport()                     # a palette colour, not a stylesheet: it can't cascade into the form
         pal = vp.palette()
-        pal.setColor(vp.backgroundRole(), QColor("#e5e7eb"))
+        pal.setColor(vp.backgroundRole(), QColor("#d4d7dd"))
         vp.setPalette(pal)
         vp.setAutoFillBackground(True)
         self.set_form_bg("#ffffff")
@@ -459,14 +459,22 @@ class SurfaceView(QScrollArea):
         self.set_page_size()
 
     def set_page_size(self):
-        """Room on the page for the form, and for the layer bar beside it when there is one."""
+        """The work area: room for the form (and the layer bar beside it when there is one), and never smaller than
+        the view, so the whole pane is one grey desk with the form sitting on it. A big form (up to 4K and beyond)
+        makes it scroll, as an image bigger than the window does in GIMP."""
         w = self.form.x() + self.form.width() + PAGE_MARGIN + 40
         bar = getattr(self, "bar", None)
         if bar is not None:
             w = max(w, bar.x() + bar.width() + PAGE_MARGIN)
-        self.page.resize(w, self.form.y() + self.form.height() + PAGE_MARGIN + 40)
+        h = self.form.y() + self.form.height() + PAGE_MARGIN + 40
+        vp = self.viewport().size()
+        self.page.resize(max(w, vp.width()), max(h, vp.height()))
         self.overlay.setGeometry(self.page.rect())
         self.overlay.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.set_page_size()
 
     def emit(self, event, details):
         fire = self.handlers.get(event)
@@ -563,12 +571,9 @@ class SurfaceView(QScrollArea):
         self.form.move(PAGE_MARGIN, PAGE_MARGIN + TITLE_H + mh)
         self.form.resize(int(w), int(h))
         self.menubar.setGeometry(PAGE_MARGIN, PAGE_MARGIN + TITLE_H, int(w), mh)
-        self.page.resize(int(w) + 2 * PAGE_MARGIN + 40, int(h) + 2 * PAGE_MARGIN + TITLE_H + mh + 40)
-        self.overlay.setGeometry(self.page.rect())
-        self.overlay.raise_()
         if getattr(self, "bar", None) is not None:
             self.bar.move(self.form.x() + self.form.width() + 16, self.form.y())
-            self.set_page_size()
+        self.set_page_size()
         self.overlay.update()
 
     def set_form_bg(self, value):

@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from urllib.parse import urljoin
 
-from PySide6.QtCore import QTimer, QUrl, Qt
+from PySide6.QtCore import QEvent, QObject, QTimer, QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
                                QSizeGrip, QSplitter, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
@@ -49,13 +49,35 @@ def web_page_html(text):
     return f'<div style="font-size:16px; color:{markdown.INK}">{body}</div>'
 
 
+class _Column(QObject):
+    """Keeps a Markdown page to a reading column, as GitHub does: wide windows get margins, not mile-long lines."""
+    WIDTH = 900
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Resize:
+            fit_column(obj)
+        return False
+
+
+def fit_column(b):
+    doc = b.document()
+    side = max(32, (b.viewport().width() - _Column.WIDTH) // 2)
+    fmt = doc.rootFrame().frameFormat()
+    if fmt.leftMargin() != side:
+        fmt.setLeftMargin(side); fmt.setRightMargin(side)
+        fmt.setTopMargin(24); fmt.setBottomMargin(32)
+        doc.rootFrame().setFrameFormat(fmt)
+
+
 def style_browser(b):
     b.setOpenLinks(False)
-    b.document().setDocumentMargin(22)
+    b.document().setDocumentMargin(0)
     b.document().setDefaultStyleSheet(f"a {{ color: {markdown.LINK}; text-decoration: none; }}"
-                                      f" h1 {{ font-size: 32px; }} h2 {{ font-size: 24px; }} h3 {{ font-size: 20px; }}"
-                                      f" code, pre {{ background-color: {markdown.TINT}; }}")
+                                      f" code, pre {{ background-color: {markdown.CODE_TINT}; }}")
     b.setStyleSheet("QTextBrowser { background: #FFFFFF; border: none; selection-background-color: #BFDBFE; }")
+    b._column = _Column(b)
+    b.installEventFilter(b._column)
+    b.document().contentsChanged.connect(lambda: QTimer.singleShot(0, lambda: fit_column(b)))
 
 
 class Reader:
@@ -136,6 +158,7 @@ class Reader:
             except OSError as exc:
                 self.note(f"Couldn't read {place}: {exc}")
                 return False
+            self.browser.document().setBaseUrl(QUrl.fromLocalFile(os.path.dirname(place) + os.sep))   # its images
             if place.lower().endswith((".html", ".htm")):
                 self.show_html(text, anchor)
             else:
