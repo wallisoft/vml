@@ -727,6 +727,19 @@ class Swatch(QToolButton):
             self.edit.editingFinished.emit()
 
 
+def shrinkable(editor):
+    """Let a property's editor be as narrow as the pane: a choice list otherwise insists on the width of its longest
+    option, and with bigger fonts that pushes the whole grid past the right-hand edge of the window."""
+    for w in [editor] + editor.findChildren(QWidget):
+        if isinstance(w, QComboBox):
+            w.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            w.setMinimumContentsLength(4)
+        if isinstance(w, (QComboBox, QLineEdit)):
+            w.setMinimumWidth(40)
+            w.setSizePolicy(QSizePolicy.Ignored, w.sizePolicy().verticalPolicy())
+    editor.setSizePolicy(QSizePolicy.Ignored, editor.sizePolicy().verticalPolicy())
+
+
 class GridView(QScrollArea):
     def __init__(self, node):
         super().__init__()
@@ -773,6 +786,7 @@ class GridView(QScrollArea):
         head = QLabel(f"<b>{'Form' if design_form else self.engine.cmd_GetControlType(target.name)}</b>"
                       + ("" if design_form else f"  <span style='color:#6b7280'>{target.name}</span>"))
         head.setStyleSheet("font-size: 13px; padding: 2px 0 6px 0;")
+        head.setWordWrap(True)                                   # (a long name wraps rather than widening the grid)
         lay.addWidget(head)
         if not design_form:
             lay.addLayout(self.row_layout("Name", self.name_editor(target.name)))
@@ -837,6 +851,7 @@ class GridView(QScrollArea):
         lbl.setStyleSheet("color: #4b5563; font-size: 11px;")
         lbl.setToolTip(label)
         row.addWidget(lbl)
+        shrinkable(editor)
         row.addWidget(editor, 1)
         return row
 
