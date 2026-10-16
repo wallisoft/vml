@@ -54,6 +54,8 @@ Width=100
 Height=30
 Content=Go
 OnClick=DoGo
+Class=pill
+Style=box-shadow: 0 2px 6px #0002
 
 @Canvas pgTwo
 Parent=c
@@ -92,6 +94,12 @@ Interpreter=lua
 Vml("SetProperty", "pgTwo", "IsVisible", "false")
 Vml("SetProperty", "pgOne", "IsVisible", "true")
 LUA
+
+@Style pill
+<<CSS
+background: #FFFFFF; border-radius: 17px
+:hover { background: #F5F3FF }
+CSS
 """
 
 
@@ -137,6 +145,9 @@ def test_nested_containers_survive_designer_save():
     assert re.search(r"(?m)^@Button btnBack\nParent=frInner$", once), "btnBack no longer inside frInner"
     assert re.search(r"(?m)^@Canvas pgTwo\nParent=\w+\n(?:.+\n)*?IsVisible=false$", once), "pgTwo no longer starts hidden"
     assert controls(twice) == controls(once), "a second save changed the form again"
+    for text in (once, twice):                          # shared styles and the controls' Class and Style, kept
+        assert re.search(r"(?m)^@Style pill\n<<CSS\nbackground: #FFFFFF; border-radius: 17px\n:hover \{ background: #F5F3FF \}\nCSS$", text), "the @Style block was lost or changed"
+        assert re.search(r"(?ms)^@Button btnGo\n.*?^Class=pill$", text) and "Style=box-shadow: 0 2px 6px #0002" in text, "btnGo's Class/Style lost"
 
 
 

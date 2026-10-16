@@ -58,6 +58,9 @@ class Page:
             self.kids.setdefault(parent_id, []).append(cid)
         self.handlers = []                 # (element id, event, handler, control name)
         self.names = {}                    # control name -> element id
+        from . import styles as _styles
+        self.styles = {r[3]: _styles.parse(self.props.get(r[0], {}).get("Content", "")) for r in rows if r[2] == "Style"}
+        self.state_rules = []              # :hover and friends, from Class and Style (vml/styles.py)
         self.menus = {}                    # ContextMenu name -> html
         self.modules = []                  # a project's modules: Lua every script can use
         from .projects import project_for
@@ -225,13 +228,22 @@ class Page:
             if p.get(ev) and ctype != "Window":
                 self.handlers.append((eid, ev, p[ev], name))
         css = self.style(p, ctype) + self.placed(p, parent_type, ref) + list(extra_css)
+        styled = ""
+        if p.get("Class") or p.get("Style"):                # shared styles, then its own CSS: after the rest, so they win
+            from . import styles as _styles
+            merged = _styles.merge(*[self.styles.get(c) for c in _styles.classes(p.get("Class"))], _styles.parse(p.get("Style")))
+            css += [f"{k}:{v}".replace('"', "'") for k, v in merged.get("", {}).items()]
+            rules = _styles.web_rules(f"#{eid}", merged)
+            if rules:                                       # (its own tag, so a change at run time replaces it)
+                self.state_rules.append(f'<style id="vs_{eid}">{rules}</style>')
+            styled = (f' data-class="{esc(p["Class"])}"' if p.get("Class") else "") + (f' data-style="{esc(p["Style"])}"' if p.get("Style") else "")
         disabled = " disabled" if str(p.get("IsEnabled", "true")).lower() == "false" else ""
         tip = f' title="{esc(p["ToolTip"])}"' if p.get("ToolTip") else ""
-        attrs = f'id="{eid}" data-name="{esc(name)}" data-type="{ctype}"{tip}'
+        attrs = f'id="{eid}" data-name="{esc(name)}" data-type="{ctype}"{tip}{styled}'
         kids = self.kids.get(cid, [])
 
         def inner(ptype, ref_size=None):
-            return "".join(self.render(k, ptype, ref_size) for k in kids if self.by_id[k][2] not in ("ContextMenu",))
+            return "".join(self.render(k, ptype, ref_size) for k in kids if self.by_id[k][2] not in ("ContextMenu", "Style"))
 
         if ctype == "Button":
             return f'<button {attrs} style="{";".join(css)}"{disabled}>{esc(p.get("Content", name))}</button>'
@@ -443,10 +455,11 @@ class Page:
                 "modules": self.modules, "project": self.project_name, "sources": self.sources(),
                 "data": self.with_data, "databases": self.databases() if self.with_data else {}, "mainDb": main,
                 "sqljs": SQLJS, "named": list(self.project.databases) if self.project is not None else [],
-                "handlers": [{"id": e, "event": ev, "handler": h, "name": n} for e, ev, h, n in self.handlers]}
+                "handlers": [{"id": e, "event": ev, "handler": h, "name": n} for e, ev, h, n in self.handlers],
+                "styles": self.styles}
         bg = colour(wp.get("Background", "#ffffff"))
         return TEMPLATE.replace("%%TITLE%%", esc(wp.get("Title", win[3]))).replace("%%BG%%", bg) \
-            .replace("%%THEME%%", self.theme_css()).replace("%%BODY%%", body + self.context_menus()) \
+            .replace("%%BODY%%", body + self.context_menus() + "".join(self.state_rules)).replace("%%THEME%%", self.theme_css()) \
             .replace("%%DATA%%", json.dumps(data).replace("</", "<\\/")) \
             .replace("%%DKJSON%%", json.dumps(dkjson).replace("</", "<\\/")).replace("%%WASMOON%%", WASMOON) \
             .replace("%%SOURCE%%", esc(self.path.name)).replace("%%BAR%%", self.bar_colour) \
@@ -781,6 +794,7 @@ const commands = {
       drawBar(e);
     }
     else if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = String(Math.round(Number(value) || 0));
+    else if (prop === "Class" || prop === "Style") restyle(e, prop, value);
     else if (prop === "Text" || prop === "Content" || prop === "Header") setText(e, value);
     else if (css[prop]) e.style[css[prop]] = value;
     else if (prop === "FontSize") e.style.fontSize = value + "px";
@@ -1739,6 +1753,47 @@ function linkFlush(mine) {
     }
   }).catch(() => {});
   return mine.takes;
+}
+// ---- styles: Class (shared @Style blocks) and Style (CSS for one control), changed at run time (vml/styles.py)
+const STYLE_STATES = { hover: "hover", pressed: "pressed", active: "pressed", focus: "focus", disabled: "disabled", checked: "checked" };
+const STYLE_WEB = { hover: ":hover", pressed: ":active", focus: ":focus-within", disabled: ":disabled", checked: ":has(input:checked)" };
+function parseCss(text) {
+  text = String(text || "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const sheet = {};
+  const add = (state, body) => {
+    let depth = 0, cur = "";
+    const parts = [];
+    for (const ch of body) { if (ch === "(") depth++; else if (ch === ")") depth = Math.max(0, depth - 1); if (ch === ";" && !depth) { parts.push(cur); cur = ""; } else cur += ch; }
+    parts.push(cur);
+    for (const d of parts) {
+      const i = d.indexOf(":"); if (i < 0) continue;
+      const p = d.slice(0, i).trim().toLowerCase(), v = d.slice(i + 1).trim();
+      if (p && v && /^-?[a-z][a-z0-9-]*$/.test(p)) (sheet[state] = sheet[state] || []).push([p, v]);
+    }
+  };
+  let base = "", pos = 0, m;
+  const re = /:([a-zA-Z-]+)\s*\{([^}]*)\}/g;
+  while ((m = re.exec(text))) { base += text.slice(pos, m.index) + ";"; pos = re.lastIndex; const st = STYLE_STATES[m[1].toLowerCase()]; if (st) add(st, m[2]); }
+  add("", base + text.slice(pos));
+  return sheet;
+}
+function mergedStyle(e) {
+  const merged = {};
+  const sheets = String(e.dataset.class || "").split(/[\s,]+/).filter(Boolean).map(c => (VML.styles || {})[c]).concat([parseCss(e.dataset.style)]);
+  for (const sh of sheets) for (const [state, decls] of Object.entries(sh || {})) for (const [p, v] of decls) { (merged[state] = merged[state] || {}); delete merged[state][p]; merged[state][p] = v; }
+  return merged;
+}
+function restyle(e, prop, value) {
+  if (e._styled === undefined) e._styled = Object.keys(mergedStyle(e)[""] || {});     // (what the page was written with)
+  if (prop === "Class") e.dataset.class = value; else e.dataset.style = value;
+  const merged = mergedStyle(e);
+  for (const p of e._styled) e.style.removeProperty(p);                   // what the last Class/Style set, gone
+  e._styled = Object.keys(merged[""] || {});
+  for (const [p, v] of Object.entries(merged[""] || {})) e.style.setProperty(p, v);
+  let tag = document.getElementById("vs_" + e.id);
+  if (!tag) { tag = document.createElement("style"); tag.id = "vs_" + e.id; document.head.appendChild(tag); }
+  tag.textContent = Object.entries(merged).filter(([s]) => s && STYLE_WEB[s])
+    .map(([s, d]) => `#${e.id}${STYLE_WEB[s]}{${Object.entries(d).map(([p, v]) => `${p}:${v} !important`).join(";")}}`).join("\n");
 }
 async function linkPoll(mine) {
   if (mine.closed || mine.polling) return;

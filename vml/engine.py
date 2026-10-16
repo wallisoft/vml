@@ -120,6 +120,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         self.store = Store(db_path)
         self.scopes: dict[str, dict[str, Node]] = {}
         self.windows, self.templates, self.themes, self.menubars = [], {}, {}, {}
+        self.styles = {}                        # @Style name -> parsed CSS (vml/styles.py), shared by every form
         self.current_control = ""
         self.licence_override = None           # tests set a tier here; nothing a script can reach
         self.listeners = []                    # called (name, prop, value) after every SetProperty
@@ -189,7 +190,14 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         self._scope_stack.append(vml_path)
         windows = []
         try:
-            for cid, ctype, name in self.store.roots(vml_path):
+            from . import styles as _styles
+            roots = list(self.store.roots(vml_path))
+            for cid, ctype, name in roots:                    # shared styles first, wherever they are in the file
+                if ctype == "Style":
+                    self.styles[name] = _styles.parse(self.store.props(cid).get("Content", ""))
+            for cid, ctype, name in roots:
+                if ctype == "Style":
+                    continue
                 node = self.build(cid, ctype, name, None, scope=vml_path)
                 if node.type.name == "Window":
                     windows.append(node)
@@ -207,6 +215,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         return self
 
     def build(self, cid, ctype, name, parent, props=None, scope=None):
+        if ctype == "Style":                                  # (a shared style given a Parent: still just a style)
+            from . import styles as _styles
+            self.styles[name] = _styles.parse((self.store.props(cid) if props is None else props).get("Content", ""))
+            return parent
         node = self.make_node(ctype, name, cid, self.store.props(cid) if props is None else props, parent, scope)
         for kid in self.store.children(cid):
             self.build(*kid, node, scope=node.scope)
@@ -1474,7 +1486,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 if k in ("Name", "X", "Y", "IsHitTestVisible", "Focusable") or v == "" or skip.get(k) == v:
                     continue
                 out.append(f"{k}={v.replace(chr(10), ' ')}")
-        for ctype, name, parent, cprops in getattr(surf, "carried", []):     # right-click menus, exactly as they came
+        for ctype, name, parent, cprops in getattr(surf, "carried", []):     # right-click menus and styles, exactly as they came
+            if ctype == "Style":
+                out += ["", f"@Style {name}", "<<CSS", *str(cprops.get("Content", "")).rstrip("\n").split("\n"), "CSS"]
+                continue
             out += ["", f"@{ctype} {name}"] + ([f"Parent={parent}"] if parent else [])
             out += [f"{k}={str(v).replace(chr(10), ' ')}" for k, v in cprops.items() if str(v) != ""]
         parents = {}
@@ -1560,11 +1575,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                     return True
                 cid = by_row[cid][1]
             return False
-        carried_ids = {r[0] for r in rows if r[2] in ("ContextMenu", "MenuItem") and in_context_menu(r[0])}
+        carried_ids = {r[0] for r in rows if (r[2] in ("ContextMenu", "MenuItem") and in_context_menu(r[0])) or r[2] == "Style"}
         carried = [(r[2], r[3], by_row[r[1]][3] if r[1] in by_row else None, dict(props.get(r[0], {})))
                    for r in rows if r[0] in carried_ids]
         self.cmd_ClearDesign(surf.name)
         surf.export_names, surf.carried = {new: old for old, new in renamed.items()}, carried
+        from . import styles as _styles
+        for ctype, sname, _parent, sprops in carried:          # shared styles: the design shows them, the save keeps them
+            if ctype == "Style":
+                self.styles[sname] = _styles.parse(sprops.get("Content", ""))
         wp, cp = props[window[0]], props[canvas[0]]
         by_id, menu = {r[0]: r for r in rows}, []
         for cid, parent_id, ctype, name in rows:

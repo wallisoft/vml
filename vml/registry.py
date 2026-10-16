@@ -117,17 +117,57 @@ def register(ct: ControlType, *prop_lists):
 
 # ------------------------------------------------------------------ styling: one stylesheet per node, rebuilt on change
 
+_LEFT_OUT = set()          # (control, what) already reported as web only
+
+
 def restyle(node):
-    s = node.style
-    css = []
-    for key, val in s.items():
-        if val not in (None, ""):
-            css.append(f"{key}: {val};")
-    sel = f"#{css_id(node.name)}"
-    sheet = f"{sel} {{ {' '.join(css)} }}" if css else ""
-    if isinstance(node.widget, QPushButton) and "background-color" in s:
-        sheet += f" {sel} {{ border: none; border-radius: 6px; }} {sel}:hover {{ border: 1px solid rgba(255,255,255,0.35); }}"
+    """The control's style sheet: its ordinary properties, then its Class styles, then its Style (vml/styles.py)."""
+    from . import styles
+    own = {k: v for k, v in node.style.items() if v not in (None, "")}
+    shared = getattr(getattr(node, "engine", None), "styles", {}) or {}
+    sheets = [{"": own}] + [shared.get(c) for c in styles.classes(node.props.get("Class"))]
+    if node.props.get("Style"):
+        sheets.append(styles.parse(node.props.get("Style")))
+    merged = styles.merge(*sheets)
+    base = merged.setdefault("", {})
+    if isinstance(node.widget, QPushButton) and ("background-color" in base or "background" in base):
+        # a coloured button draws itself flat; the defaults fill in only what the form hasn't said
+        defaults = {"border": "none", "border-radius": "6px"}
+        if any(k.startswith("border") and "radius" not in k for k in base):
+            defaults.pop("border")
+        if any("radius" in k for k in base):
+            defaults.pop("border-radius")
+        merged[""] = {**defaults, **base}
+        if "hover" not in merged:
+            merged["hover"] = {"border": "1px solid rgba(255,255,255,0.35)"}
+    sheet, drop, left_out = styles.qt_sheet(f"#{css_id(node.name)}", merged)
     node.widget.setStyleSheet(sheet)
+    if drop:
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        from PySide6.QtGui import QColor
+        fx = node.widget.graphicsEffect()
+        if not isinstance(fx, QGraphicsDropShadowEffect):
+            fx = QGraphicsDropShadowEffect(node.widget)
+            node.widget.setGraphicsEffect(fx)
+        x, y, blur, colour_ = drop
+        fx.setOffset(x, y)
+        fx.setBlurRadius(blur)
+        c = colour_
+        if c.startswith("rgba("):
+            r, g, b, a = (int(float(v)) for v in c[5:-1].split(","))
+            fx.setColor(QColor(r, g, b, a))
+        else:
+            fx.setColor(QColor(c))
+    elif node.widget.graphicsEffect() is not None and type(node.widget.graphicsEffect()).__name__ == "QGraphicsDropShadowEffect":
+        node.widget.setGraphicsEffect(None)
+    for what in left_out:
+        if (node.name, what) not in _LEFT_OUT:
+            _LEFT_OUT.add((node.name, what))
+            try:
+                from .engine import log
+                log(f"{node.name}: '{what}' shows on the web only (the desktop leaves it out)")
+            except Exception:
+                pass
 
 
 def style(key, fmt=lambda v: v):
@@ -206,6 +246,8 @@ COMMON = [
     Prop("BorderBrush", "colour", "Appearance", apply=set_border),
     Prop("BorderThickness", "thickness", "Appearance", apply=set_border),
     Prop("CornerRadius", "number", "Appearance", apply=style("border-radius", lambda v: f"{int(num(str(v).split(',')[0]))}px")),
+    Prop("Class", "text", "Appearance", apply=lambda n, v: restyle(n)),        # shared @Style names (vml/styles.py)
+    Prop("Style", "text", "Appearance", apply=lambda n, v: restyle(n)),        # CSS for this control alone
     Prop("FontSize", "number", "Text", apply=style("font-size", lambda v: f"{int(num(v, 12))}px")),
     Prop("FontWeight", "choice", "Text", options=tuple(WEIGHTS), apply=style("font-weight", lambda v: WEIGHTS.get(v, 400))),
     Prop("FontFamily", "text", "Text", apply=style("font-family", lambda v: str(v))),
