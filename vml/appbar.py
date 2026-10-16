@@ -1,6 +1,7 @@
 """
-The app bar: Terms · About · the version, along the foot of a form's window, with a yellow ⚠ when a newer version
-is out. Clicking the ⚠ installs it.
+The app bar: Terms · About · the version, along the foot of a form's window, with a ⚠ when a newer version is out.
+Clicking the ⚠ installs it. How newer decides how loud: a new major version (2.0 after 1.x) is red, a new minor one
+(1.3 after 1.2) yellow, and a fix (1.2.5 after 1.2.4) shows nothing until About is opened, which offers it.
 
     @Window TinyTalk
     Version=0.7.0
@@ -44,6 +45,14 @@ def number(v):
 
 def newer(latest, current):
     return bool(number(latest)) and number(latest) > number(current)
+
+
+def level(latest, current):
+    """How much newer: "major", "minor", "fix", or "" (not newer)."""
+    if not newer(latest, current):
+        return ""
+    a, b = number(latest) + (0, 0), number(current) + (0, 0)
+    return "major" if a[0] > b[0] else "minor" if a[:2] > b[:2] else "fix"
 
 
 def form_version(text):
@@ -93,7 +102,7 @@ class AppBar(QWidget):
         else:
             self.version, self.title = str(p.get("Version") or ""), str(p.get("Title") or node.name)
             self.terms = str(p.get("Terms") or "")
-        self.latest, self.info = "", {}
+        self.latest, self.level, self.info = "", "", {}
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 0, 8, 0)
         lay.setSpacing(6)
@@ -121,8 +130,6 @@ class AppBar(QWidget):
             lay.addWidget(piece("v" + self.version, "about"))
         self.hazard = QPushButton("⚠")
         self.hazard.setCursor(Qt.PointingHandCursor)
-        self.hazard.setStyleSheet("QPushButton{background:#FACC15;color:#422006;border:0;border-radius:8px;"
-                                  "padding:1px 8px;font-size:11px;font-weight:600}QPushButton:hover{background:#EAB308}")
         self.hazard.clicked.connect(self.install)
         self.hazard.hide()
         lay.addWidget(self.hazard)
@@ -155,10 +162,16 @@ class AppBar(QWidget):
         self.info = out or {}
         if self.info.get("newer") and not self.info.get("store"):
             self.latest = self.info.get("latest", "")
+            self.level = level(self.latest, self.version) or "fix"
+            self.engine.log_line(f"{self.title} {self.latest} is out (this is {self.version}): a {self.level} update")
+            if self.level == "fix":                          # a fix: About offers it, the bar stays quiet
+                return
+            bg, fg, hover = ("#DC2626", "#FFFFFF", "#B91C1C") if self.level == "major" else ("#FACC15", "#422006", "#EAB308")
+            self.hazard.setStyleSheet(f"QPushButton{{background:{bg};color:{fg};border:0;border-radius:8px;"
+                                      f"padding:1px 8px;font-size:11px;font-weight:600}}QPushButton:hover{{background:{hover}}}")
             self.hazard.setText(f"⚠ {self.latest}")
             self.hazard.setToolTip(f"{self.title} {self.latest} is out (this is {self.version}). Click to install it.")
             self.hazard.show()
-            self.engine.log_line(f"{self.title} {self.latest} is out (this is {self.version})")
 
     # ---- the links
     def clicked(self, what):
@@ -178,13 +191,20 @@ class AppBar(QWidget):
         else:
             lines += ["", f"Made with Visualised {__version__}."]
         if self.latest:
-            lines += ["", f"⚠ {self.latest} is out: click the yellow button to install it."]
+            lines += ["", f"{self.title} {self.latest} is available."]
+            box = QMessageBox(QMessageBox.Information, f"About {self.title}", "\n".join(lines), parent=self.window())
+            now = box.addButton("Download now", QMessageBox.AcceptRole)
+            box.addButton("Later", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is now:
+                self.install(asked=True)
+            return
         QMessageBox.about(self.window(), f"About {self.title}", "\n".join(lines))
 
     # ---- installing the newer one
-    def install(self):
+    def install(self, asked=False):
         win = self.window()
-        if QMessageBox.question(win, f"Update {self.title}",
+        if not asked and QMessageBox.question(win, f"Update {self.title}",
                                 f"{self.title} {self.latest} is out (this is {self.version}).\n\nInstall it now? "
                                 f"{self.title} will close and open again.") != QMessageBox.Yes:
             return

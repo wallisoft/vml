@@ -582,6 +582,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   #vml_appbar a:hover { text-decoration: underline; }
   #vml_appbar .hz { display: none; background: #FACC15; color: #422006; border-radius: 8px; padding: 1px 8px; font-weight: 600; }
   #vml_appbar .hz:hover { background: #EAB308; text-decoration: none; }
+  #vml_appbar .hz.major { background: #DC2626; color: #fff; }
+  #vml_appbar .hz.major:hover { background: #B91C1C; }
   #vml_status { position: fixed; right: 8px; bottom: 6px; font-size: 11px; color: #6b7280; opacity: .8; pointer-events: none; }
 </style>
 </head>
@@ -2182,8 +2184,9 @@ function fitScreen() {
 window.addEventListener("resize", fitScreen);
 window.addEventListener("orientationchange", fitScreen);
 
-// The app bar (AppBar=true): Terms · About · version, and a yellow ⚠ when a newer version is out (looked for once a
-// day). In the phone app the ⚠ opens the new APK for Android to install; in a browser it loads the page afresh.
+// The app bar (AppBar=true): Terms · About · version, and a ⚠ when a newer version is out (looked for once a day):
+// red for a new major version, yellow for a minor one; a fix only shows in About, which offers it. In the phone app
+// installing opens the new APK for Android to install; in a browser it loads the page afresh.
 function appBar() {
   const A = VML.appBar;
   if (!A || document.getElementById("vml_appbar")) return;
@@ -2191,17 +2194,20 @@ function appBar() {
   bar.id = "vml_appbar";
   const link = (text, act) => { const a = document.createElement("a"); a.textContent = text; a.onclick = act; return a; };
   const dot = () => { const d = document.createElement("span"); d.textContent = "·"; return d; };
-  const about = () => alert([`${A.title} ${A.version}`.trim(), A.about ? "\n" + A.about : "", `\nMade with Visualised ${A.made}.`,
-    latest ? `\n⚠ ${latest} is out: tap the yellow button to install it.` : ""].filter(Boolean).join("\n"));
   let latest = "";
+  const install = () => {
+    if (DEV && DEV.open) DEV.open(A.updateApk || A.updateFrom);
+    else { const u = new URL(location.href); u.searchParams.set("v", latest); location.replace(u.toString()); }
+  };
+  const about = () => {
+    const text = [`${A.title} ${A.version}`.trim(), A.about ? "\n" + A.about : "", `\nMade with Visualised ${A.made}.`].filter(Boolean).join("\n");
+    if (latest) { if (confirm(text + `\n\n${A.title} ${latest} is available. Download it now?`)) install(); }
+    else alert(text);
+  };
   if (A.terms) bar.append(link("Terms", () => Vml("OpenUrl", A.terms)), dot());
   bar.append(link("About", about));
   if (A.version) bar.append(dot(), link("v" + A.version, about));
-  const hz = link("⚠", () => {
-    if (!confirm(`${A.title} ${latest} is out (this is ${A.version}).\n\nInstall it now?`)) return;
-    if (DEV && DEV.open) DEV.open(A.updateApk || A.updateFrom);
-    else { const u = new URL(location.href); u.searchParams.set("v", latest); location.replace(u.toString()); }
-  });
+  const hz = link("⚠", () => { if (confirm(`${A.title} ${latest} is out (this is ${A.version}).\n\nInstall it now?`)) install(); });
   hz.className = "hz";
   bar.append(hz);
   const host = el("StatusBar");
@@ -2211,7 +2217,15 @@ function appBar() {
   if (!from || !A.version) return;
   const KEY = `vmlupd:${from}`, number = v => (String(v).match(/\d+/g) || []).slice(0, 4).map(Number);
   const newer = (a, b) => { const x = number(a), y = number(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-  const show = v => { if (v && newer(v, A.version)) { latest = v; hz.textContent = "⚠ " + v; hz.title = `${A.title} ${v} is out (this is ${A.version})`; hz.style.display = "inline-block"; } };
+  const show = v => {
+    if (!v || !newer(v, A.version)) return;
+    latest = v;
+    const a = number(v), b = number(A.version);
+    const major = (a[0] || 0) > (b[0] || 0), minor = !major && ((a[0] || 0) === (b[0] || 0) && (a[1] || 0) > (b[1] || 0));
+    if (!major && !minor) return;                        // a fix: About offers it, the bar stays quiet
+    hz.classList.toggle("major", major);
+    hz.textContent = "⚠ " + v; hz.title = `${A.title} ${v} is out (this is ${A.version})`; hz.style.display = "inline-block";
+  };
   const read = text => { const m = /^@Window\b[^\n]*\n(?:(?!@)[^\n]*\n)*?Version=([^\n\r]*)/m.exec(text || ""); return m ? m[1].trim() : ""; };
   let kept = null;
   try { kept = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (err) {}
