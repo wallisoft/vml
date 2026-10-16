@@ -322,6 +322,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if getattr(self, "_designing", False) and not getattr(w, "_f12", None):
             from PySide6.QtGui import QKeySequence, QShortcut
             w._f12 = QShortcut(QKeySequence("F12"), w, activated=self.cmd_ShowDebugger)   # (only where the designer runs forms)
+        if is_designer(node.scope) and not getattr(w, "_f1", None):
+            from PySide6.QtGui import QKeySequence, QShortcut
+            w._f1 = QShortcut(QKeySequence("F1"), w, activated=self.help_here)          # help on what's selected
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
@@ -828,6 +831,26 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                           for a in args)
         label = self._debug_labels[-1] if self._debug_labels else ""
         self.debugger.record(self.debug_name(scope), label, f"{command}({shown})", result, error)
+
+    HELP = "https://github.com/wallisoft/vml/wiki/"
+
+    def cmd_Help(self, page="", section=""):
+        """Open a page of Visualised's help in the browser: "" for the tutorials, "Reference" for the reference, or any
+        page's name ("Reference-Commands", "How-To-Style-Controls-with-CSS"); section: a heading on it. Returns its
+        address."""
+        url = self.HELP + (str(page).strip().replace(" ", "-") or "Home")
+        if str(section).strip():
+            url += "#" + re.sub(r"[^a-z0-9-]", "", str(section).strip().lower().replace(" ", "-"))
+        self.cmd_OpenUrl(url)
+        return url
+
+    def help_here(self):
+        """F1 in the designer: the reference entry for the selected control's kind; with nothing selected, the reference."""
+        name = str(getattr(self, "current_control", "") or "")
+        node = self.find(name) if name else None
+        if node is not None and not node.type.name in ("DesignSurface", "PropertyGrid"):
+            return self.cmd_Help("Reference-Controls", getattr(node, "template", None) or node.type.name)
+        return self.cmd_Help("Reference")
 
     def cmd_ShowDebugger(self):
         """Open the debugger: every Vml() call the running forms' scripts make, and their variables."""
