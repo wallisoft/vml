@@ -10,7 +10,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.0"]          # major and minor only: patches are built locally (tools/build-local.sh)
 
 permissions:
   contents: read
