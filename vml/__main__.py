@@ -145,6 +145,16 @@ def main():
         ok, msg = csharp.build()
         print(msg)
         raise SystemExit(0 if ok else 1)
+    md = a.extra[0] if a.vml == "md" and a.extra else a.vml if a.vml and a.vml.lower().endswith((".md", ".markdown")) else None
+    if md:                                                  # vml README.md (or vml md README.md --edit): the Markdown window
+        eng = Engine(a.db)
+        if "--edit" in sys.argv:
+            eng.cmd_EditMarkdown(md, Path(md).name, save_to=md)
+            raise SystemExit(0)
+        box = eng._reader(md, Path(md).name)
+        if a.shot:
+            QTimer.singleShot(600, lambda: (box.grab().save(a.shot), eng.app.quit()))
+        raise SystemExit(eng.run())
     if not a.vml:
         a.vml = str(Path(__file__).resolve().parent.parent / "designer" / "designer.vml")
     eng = Engine(a.db)

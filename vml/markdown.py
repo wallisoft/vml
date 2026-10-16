@@ -100,6 +100,8 @@ def to_html(md, base_size=16):                              # GitHub's own: 16px
     def close_lists(deeper_than=-1):
         while lists and lists[-1][1] > deeper_than:
             out.append(f"</{lists.pop()[0]}>")
+            if not lists:                                   # Qt drops a list's bottom margin: room under it by hand
+                out.append('<p style="margin:0; font-size:6px">&nbsp;</p>')
 
     i = 0
     while i < len(lines):

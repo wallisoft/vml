@@ -111,7 +111,7 @@ check("Community: importing is refused in the engine too", (eng.cmd_ImportForm("
 
 eng = designer("pro")
 check("Pro: the Windows Forms import is live", (eng.find("FileImport_WinForms").action.isEnabled(), eng.find("FileImport_WinForms").action.text()), (True, "Windows Forms form (Visual Studio, VB or C#)..."))
-check("Pro: the importers still to come stay greyed", [eng.find(n).action.isEnabled() for n in ("FileImportDelphi", "FileImportQt", "FileImportXaml", "FileImportHtml")], [False] * 4)
+check("Pro: the importers still to come stay greyed", [eng.find(n).action.isEnabled() for n in ("FileImportDelphi", "FileImportLiveCode", "FileImportPowerBuilder", "FileImportQt", "FileImportXaml", "FileImportHtml")], [False] * 6)
 check("Pro: choosing the code file works as well as the designer file", eng.cmd_ImportForm("winforms", os.path.join(FORMS, "SignIn.vb")), "true")
 for _ in range(6):
     QApplication.instance().processEvents()
