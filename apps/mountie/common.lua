@@ -26,13 +26,8 @@ function LogAdd(text, bad)
   LogButton()
 end
 
-function LogButton()
-  local new = Unseen > 0
-  Vml("SetProperty", "btnLog", "Content", new and ("⚠ " .. Unseen) or "Log")
-  Vml("SetProperty", "btnLog", "Background", new and "#FEF3C7" or "#E4EAE8")
-  Vml("SetProperty", "btnLog", "Foreground", new and "#92400E" or "#4B5563")
-  Vml("SetProperty", "btnLog", "ToolTip", new and (Unseen .. " new problem" .. (Unseen == 1 and "" or "s") .. ": click to see")
-    or "What happened to the drives")
+function LogButton()                -- (the status line says so: there's no Log button now)
+  BarText(BarUp or 0)
 end
 
 function ShowLog()
@@ -48,7 +43,13 @@ end
 
 -- the status bar: how many are mounted
 function BarText(up)
-  Vml("SetProperty", "lblBar", "Text", up == 0 and "Nothing mounted" or (up == 1 and "● 1 drive mounted" or ("● " .. up .. " drives mounted")))
+  BarUp = up
+  local new = (Unseen or 0) > 0
+  Vml("SetProperty", "lblBar", "Text", (up == 0 and "Nothing mounted" or (up == 1 and "● 1 drive mounted" or ("● " .. up .. " drives mounted")))
+    .. (new and ("   ⚠ " .. Unseen .. " new problem" .. (Unseen == 1 and "" or "s")) or "   · log"))
+  Vml("SetProperty", "lblBar", "Foreground", new and "#92400E" or "#374151")
+  Vml("SetProperty", "lblBar", "ToolTip", new and (Unseen .. " new problem" .. (Unseen == 1 and "" or "s") .. ": click to see")
+    or "What happened to the drives: click to see")
 end
 
 -- a list's item moved one place up (-1) or down (1) among those of its kind; returns its new place or nil

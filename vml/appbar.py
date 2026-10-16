@@ -278,8 +278,9 @@ class _Follow(QObject):
         self.place()
 
     def place(self):
-        w = max(self.bar.sizeHint().width(), self.bar.minimumSizeHint().width())
-        self.bar.setGeometry(max(0, self.host.width() - w), 0, w, self.host.height())
+        w = max(self.bar.sizeHint().width(), self.bar.minimumSizeHint().width()) + 8
+        h = min(self.bar.height() or HEIGHT, self.host.height())
+        self.bar.setGeometry(max(0, self.host.width() - w), max(0, (self.host.height() - h) // 2), w, h)
         self.bar.raise_()
 
     def eventFilter(self, obj, e):
@@ -296,7 +297,12 @@ def attach(engine, node):
     status = engine.scopes.get(node.scope, {}).get("StatusBar")
     if status is not None:
         text = engine.scopes.get(node.scope, {}).get("statusText")
-        colour = str((text.props.get("Foreground") if text else "") or "#DBEAFE")
+        colour = str(text.props.get("Foreground") or "") if text else ""
+        if not colour:                                   # dark text on a light bar, light on a dark one
+            from PySide6.QtGui import QColor
+            from .registry import qcolour
+            bg = status.props.get("Background") or ""
+            colour = "#DBEAFE" if bg and qcolour(bg).lightnessF() < 0.55 else "#4B5563"
         bar = AppBar(engine, node, colour, parent=status.widget)
         bar.setStyleSheet("background:transparent")
         bar._follow = _Follow(status.widget, bar)
