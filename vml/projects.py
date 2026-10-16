@@ -390,7 +390,11 @@ class ProjectCommands:
             self.windows.remove(w)
         self.luas.pop(str(preview), None)
         self.shared.values.clear()
-        self.load(target)
+        self._running += 1
+        try:
+            self.load(target)
+        finally:
+            self._running -= 1
         return str(target)
 
     def stop_project(self):

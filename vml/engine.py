@@ -180,6 +180,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     def load(self, vml_path, show=True, modal=False):
         vml_path = str(Path(vml_path).resolve())
+        origin = self._script_stack[-1] if getattr(self, "_script_stack", None) else None
+        if getattr(self, "_running", 0) or (origin is not None and origin.scope in getattr(self, "_run_scopes", ())):
+            self._run_scopes.add(vml_path)                   # (for the debugger: part of the app being tested)
         self._adopt_project(vml_path)
         self._forget_sources(vml_path)
         self.store.import_vml(vml_path)
@@ -520,6 +523,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         so each form's globals are its own unless scripts deliberately share an instance."""
         self.luas = {}
         self.debugger, self._debug_labels = None, []
+        self._run_scopes, self._running = set(), 0          # forms the designer is running, and what they opened
         self.lua_paths = [str(LUA_DIR), str(SYSTEM_DIR / "lua"), *extra_paths]
         self.lua = self.lua_state("")                       # the engine's own, for code with no form
 
@@ -795,9 +799,14 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     # ---- the debugger (vml/debugger.py): F12 while the designer is running forms
     def debug_hidden(self, scope):
-        """The designer's own forms (and its design surface) are not the app being tested."""
+        """The designer's own forms (and its design surface) are not the app being tested, unless the designer is
+        running them (the designer opened as a project, say), or the debugger's "Designer's forms too" is ticked."""
         from .projects import is_designer
         scope = str(scope or "")
+        if self.debugger is not None and self.debugger.everything.isChecked():
+            return not scope
+        if scope in self._run_scopes:
+            return False
         return not scope or scope.startswith("design:") or is_designer(scope)
 
     def debug_name(self, scope):
@@ -2385,7 +2394,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         self.form_overrides = {}                              # (a run of the whole project may have left this file standing in for another form)
         self.use_design_project(saved)                        # one form of a project still has the project's modules
         self.luas.pop(str(path.resolve()), None)              # a fresh Lua state for each preview
-        self.load(path)
+        self._running += 1
+        try:
+            self.load(path)
+        finally:
+            self._running -= 1
         return str(path)
 
     # --- forms and dialogs
