@@ -99,23 +99,42 @@ def gradient(start, to, direction=""):
     return f"linear-gradient({way}, {colour(start)}, {colour(to)})"
 
 
-def shadow_level(level, tint=""):
-    """Shadow=0..10 (and ShadowColour) -> a box-shadow: 0 none, 1 a hairline lift, 10 floating well clear."""
+def _rgb(value):
+    t = str(value or "").strip().lstrip("#")
+    if len(t) == 8:                                     # (Avalonia's #aarrggbb: the colour, not its alpha)
+        t = t[2:]
+    if len(t) == 3:
+        t = "".join(c * 2 for c in t)
+    try:
+        return tuple(int(t[i:i + 2], 16) for i in (0, 2, 4)) if len(t) == 6 else NAMED.get(t.lower())
+    except ValueError:
+        return None
+
+
+def shadow_level(level, tint="", kind="", base=""):
+    """Shadow=0..10, ShadowColour and ShadowStyle -> a box-shadow. Soft (the default): 0 none, 1 a hairline lift, 10
+    floating well clear. 3D: a solid edge below, as if raised that much (in ShadowColour, else the Background darkened).
+    Glow: light all round, in ShadowColour (else the Background)."""
+    kind = str(kind or "Soft").strip().lower()
     try:
         n = max(0, min(10, int(round(float(level or 0)))))
     except ValueError:
         n = 0
     if not n:
         return ""
-    t = str(tint or "").strip().lstrip("#")
-    if len(t) == 8:                                     # (Avalonia's #aarrggbb: the colour, not its alpha)
-        t = t[2:]
-    if len(t) == 3:
-        t = "".join(c * 2 for c in t)
+    if kind == "3d":
+        rgb = _rgb(tint) or tuple(int(v * 0.62) for v in (_rgb(base) or (120, 120, 120)))
+        return f"0 {n}px 0 rgb({rgb[0]},{rgb[1]},{rgb[2]})"
+    if kind == "glow":
+        r, g, b = _rgb(tint) or _rgb(base) or (99, 102, 241)
+        return f"0 0 {round(n * 3.2)}px rgba({r},{g},{b},{0.35 + n * 0.04:.2f})"
     try:
-        r, g, b = (int(t[i:i + 2], 16) for i in (0, 2, 4)) if len(t) == 6 else NAMED.get(t.lower(), (0, 0, 0))
+        n = max(0, min(10, int(round(float(level or 0)))))
     except ValueError:
-        r, g, b = 0, 0, 0
+        n = 0
+    if not n:
+        return ""
+    r, g, b = _rgb(tint) or (0, 0, 0)
     tinted = (r, g, b) != (0, 0, 0)
     alpha = (0.18 if tinted else 0.10) + n * (0.03 if tinted else 0.017)
     return f"0 {round(n * 1.6)}px {round(n * 3.6)}px rgba({r},{g},{b},{alpha:.2f})"

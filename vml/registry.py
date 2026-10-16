@@ -144,7 +144,7 @@ def restyle(node):
         if any("radius" in k for k in base):
             defaults.pop("border-radius")
         merged[""] = {**defaults, **base}
-        if "hover" not in merged:
+        if "hover" not in merged and not node.props.get("Class") and not node.props.get("Style"):
             merged["hover"] = {"border": "1px solid rgba(255,255,255,0.35)"}
     opacity = merged.get("", {}).pop("opacity", None)    # (an effect on the desktop, not part of a style sheet)
     sheet, drop, left_out = styles.qt_sheet(f"#{css_id(node.name)}", merged)
@@ -202,7 +202,9 @@ GRADIENT_DIRECTIONS = ("Down", "Right", "Diagonal", "Up", "Left")
 
 def set_shadow(node):
     from . import styles
-    node.style["box-shadow"] = styles.shadow_level(node.props.get("Shadow"), node.props.get("ShadowColour")) or None
+    p = node.props
+    node.style["box-shadow"] = styles.shadow_level(p.get("Shadow"), p.get("ShadowColour"), p.get("ShadowStyle"),
+                                                   p.get("Background") or p.get("Fill")) or None
     restyle(node)
 
 
@@ -279,13 +281,15 @@ def read_geom(what):
 
 COMMON = [
     Prop("Name", "text", "Common"),
-    Prop("Background", "colour", "Appearance", apply=style("background-color", colour)),
+    Prop("Background", "colour", "Appearance", apply=lambda n, v: (n.style.__setitem__("background-color", colour(v) if v not in (None, "") else None),
+                                                                    set_shadow(n) if n.props.get("Shadow") else restyle(n))),
     Prop("Foreground", "colour", "Appearance", apply=style("color", colour)),
     Prop("BorderBrush", "colour", "Appearance", apply=set_border),
     Prop("BorderThickness", "thickness", "Appearance", apply=set_border),
     Prop("CornerRadius", "number", "Appearance", apply=style("border-radius", lambda v: f"{int(num(str(v).split(',')[0]))}px")),
     Prop("Shadow", "slider", "Appearance", options=("0", "10"), apply=lambda n, v: set_shadow(n)),     # 0 none .. 10 floating
     Prop("ShadowColour", "colour", "Appearance", apply=lambda n, v: set_shadow(n)),                  # black unless said
+    Prop("ShadowStyle", "choice", "Appearance", options=("Soft", "3D", "Glow"), apply=lambda n, v: set_shadow(n)),
     Prop("Opacity", "slider", "Appearance", options=("0", "100"),                                      # 100 solid .. 0 see-through
          apply=style("opacity", lambda v: None if num(v, 100) >= 100 else f"{max(0, num(v, 100)) / 100:g}")),
     Prop("GradientTo", "colour", "Appearance", apply=lambda n, v: restyle(n)),                       # Background fades into this

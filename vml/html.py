@@ -178,7 +178,7 @@ class Page:
             css.append(f"background:{_styles.gradient(start, p['GradientTo'], p.get('GradientDirection'))}")
         if p.get("Shadow") not in (None, ""):
             from . import styles as _styles
-            drop = _styles.shadow_level(p.get("Shadow"), p.get("ShadowColour"))
+            drop = _styles.shadow_level(p.get("Shadow"), p.get("ShadowColour"), p.get("ShadowStyle"), p.get("Background") or p.get("Fill"))
             if drop:
                 css.append(f"box-shadow:{drop}")
         if p.get("Opacity") not in (None, "") and num(p.get("Opacity"), 100) < 100:
@@ -252,9 +252,9 @@ class Page:
             styled = (f' data-class="{esc(p["Class"])}"' if p.get("Class") else "") + (f' data-style="{esc(p["Style"])}"' if p.get("Style") else "")
         disabled = " disabled" if str(p.get("IsEnabled", "true")).lower() == "false" else ""
         tip = f' title="{esc(p["ToolTip"])}"' if p.get("ToolTip") else ""
-        lift = "".join(f' data-{k.lower()}="{esc(p[k])}"' for k in ("Shadow", "ShadowColour", "GradientTo", "GradientDirection",
+        lift = "".join(f' data-{k.lower()}="{esc(p[k])}"' for k in ("Shadow", "ShadowColour", "ShadowStyle", "GradientTo", "GradientDirection",
                                                                        "HoverBackground", "HoverForeground") if p.get(k))
-        if p.get("GradientTo"):
+        if p.get("GradientTo") or p.get("Shadow"):
             lift += f' data-gbase="{esc(p.get("Fill") or p.get("Background") or "")}"'
         attrs = f'id="{eid}" data-name="{esc(name)}" data-type="{ctype}"{tip}{styled}{lift}'
         kids = self.kids.get(cid, [])
@@ -818,6 +818,9 @@ const commands = {
     const e = name === VML.form ? null : el(name);
     if (name === VML.form || !e) { if (prop === "Title") document.title = value; return ""; }
     const css = { Background: "background", Foreground: "color", Fill: "background" };
+    if ((prop === "Background" || prop === "Fill") && e.dataset.shadow) {        // a 3D edge or a glow takes its colour from it
+      e.dataset.gbase = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour, e.dataset.shadowstyle, value) || "none";
+    }
     if (e.dataset.type === "Timer" && (prop === "Interval" || prop === "IsEnabled")) {
       if (prop === "Interval") e.dataset.interval = String(Number(value) || 1000); else e.dataset.on = truthy(value) ? "true" : "false";
       setTimer(e);
@@ -833,7 +836,7 @@ const commands = {
     }
     else if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = String(Math.round(Number(value) || 0));
     else if (prop === "Class" || prop === "Style") restyle(e, prop, value);
-    else if (prop === "Shadow" || prop === "ShadowColour") { e.dataset[prop.toLowerCase()] = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour) || "none"; }
+    else if (prop === "Shadow" || prop === "ShadowColour" || prop === "ShadowStyle") { e.dataset[prop.toLowerCase()] = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour, e.dataset.shadowstyle, e.dataset.gbase) || "none"; }
     else if (prop === "GradientTo" || prop === "GradientDirection" || (prop === "Background" && e.dataset.gradientto)) {
       if (prop === "Background") e.dataset.gbase = value; else e.dataset[prop.toLowerCase()] = value;
       const g = gradientCss(e);
@@ -1824,14 +1827,20 @@ function parseCss(text) {
   return sheet;
 }
 // Shadow=0..10 and ShadowColour, as vml/styles.py shadow_level() makes them
-function shadowCss(level, tint) {
-  const n = Math.max(0, Math.min(10, Math.round(Number(level) || 0)));
-  if (!n) return "";
-  let t = String(tint || "").trim().replace(/^#/, "");
+function rgbOf(v) {
+  let t = String(v || "").trim().replace(/^#/, "");
   if (t.length === 8) t = t.slice(2);
   if (t.length === 3) t = t.split("").map(c => c + c).join("");
-  const named = { white: [255, 255, 255], red: [255, 0, 0], blue: [0, 0, 255], green: [0, 128, 0], gray: [128, 128, 128], grey: [128, 128, 128], purple: [128, 0, 128], orange: [255, 165, 0] };
-  const rgb = /^[0-9a-f]{6}$/i.test(t) ? [0, 2, 4].map(i => parseInt(t.slice(i, i + 2), 16)) : (named[t.toLowerCase()] || [0, 0, 0]);
+  const named = { black: [0, 0, 0], white: [255, 255, 255], red: [255, 0, 0], blue: [0, 0, 255], green: [0, 128, 0], gray: [128, 128, 128], grey: [128, 128, 128], purple: [128, 0, 128], orange: [255, 165, 0] };
+  return /^[0-9a-f]{6}$/i.test(t) ? [0, 2, 4].map(i => parseInt(t.slice(i, i + 2), 16)) : (named[t.toLowerCase()] || null);
+}
+function shadowCss(level, tint, kind, base) {
+  const n = Math.max(0, Math.min(10, Math.round(Number(level) || 0)));
+  if (!n) return "";
+  kind = String(kind || "Soft").toLowerCase();
+  if (kind === "3d") { const c = rgbOf(tint) || (rgbOf(base) || [120, 120, 120]).map(v => Math.floor(v * 0.62)); return `0 ${n}px 0 rgb(${c.join(",")})`; }
+  if (kind === "glow") { const c = rgbOf(tint) || rgbOf(base) || [99, 102, 241]; return `0 0 ${Math.round(n * 3.2)}px rgba(${c.join(",")},${(0.35 + n * 0.04).toFixed(2)})`; }
+  const rgb = rgbOf(tint) || [0, 0, 0];
   const tinted = rgb.some(v => v);
   const alpha = (tinted ? 0.18 : 0.10) + n * (tinted ? 0.03 : 0.017);
   return `0 ${Math.round(n * 1.6)}px ${Math.round(n * 3.6)}px rgba(${rgb.join(",")},${alpha.toFixed(2)})`;

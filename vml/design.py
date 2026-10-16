@@ -743,26 +743,108 @@ def shrinkable(editor):
 # The Style box's ready-made looks: plain CSS (vml/styles.py), the same on the desktop and the web. Each replaces
 # whatever Style the control had; Background, Shadow and the rest still apply underneath.
 STYLE_PRESETS = (
-    ("Card", "background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 14px; box-shadow: 0 6px 20px rgba(17,24,39,0.10)"),
-    ("Primary button", "background: linear-gradient(135deg, #6366F1, #4F46E5); color: #FFFFFF; border: none; border-radius: 10px;"
-                       " font-weight: 600; :hover { background: #4338CA } :pressed { background: #3730A3 }"),
-    ("Outline button", "background: transparent; color: #4F46E5; border: 2px solid #4F46E5; border-radius: 10px; font-weight: 600;"
-                       " :hover { background: #EEF2FF }"),
-    ("Soft button", "background: #EEF2FF; color: #3730A3; border: none; border-radius: 10px; font-weight: 600;"
-                    " :hover { background: #E0E7FF }"),
-    ("Pill", "background: #F3F4F6; color: #111827; border: 1px solid #E5E7EB; border-radius: 18px; padding: 4px 16px;"
-             " :hover { background: #E5E7EB }"),
-    ("Dark", "background: #111827; color: #F9FAFB; border: none; border-radius: 10px; :hover { background: #1F2937 }"),
+    ("Card", "background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB; border-radius: 14px;"
+             " box-shadow: 0 6px 20px rgba(17,24,39,0.12); :hover { border: 1px solid #C7D2FE }"),
+    ("Primary", "background: linear-gradient(135deg, #6366F1, #4F46E5); color: #FFFFFF; border: none; border-radius: 10px;"
+                " font-weight: 600; box-shadow: 0 6px 16px rgba(79,70,229,0.40); :hover { background: #4338CA } :pressed { background: #3730A3 }"),
+    ("3D raised", "background: #6366F1; color: #FFFFFF; border: none; border-bottom: 5px solid #3730A3; border-radius: 12px;"
+                  " font-weight: 700; :hover { background: #818CF8 } :pressed { border-bottom: 1px solid #3730A3 }"),
+    ("Outline", "background: transparent; color: #4F46E5; border: 2px solid #4F46E5; border-radius: 10px; font-weight: 600;"
+                " :hover { background: #EEF2FF }"),
+    ("Ghost", "background: transparent; color: #4F46E5; border: none; border-radius: 10px; font-weight: 600;"
+              " :hover { background: #EEF2FF }"),
+    ("Link", "background: transparent; color: #2563EB; border: none; text-decoration: underline; :hover { color: #1E40AF }"),
+    ("Pill", "background: #111827; color: #FFFFFF; border: none; border-radius: 22px; padding: 4px 22px; font-weight: 600;"
+             " :hover { background: #374151 }"),
+    ("Glass", "background: rgba(255,255,255,0.55); color: #111827; border: 1px solid rgba(255,255,255,0.9); border-radius: 16px;"
+              " box-shadow: 0 8px 24px rgba(31,41,55,0.15); :hover { background: rgba(255,255,255,0.8) }"),
+    ("Neon", "background: #0F172A; color: #A5F3FC; border: 1px solid #22D3EE; border-radius: 10px; font-weight: 600;"
+             " box-shadow: 0 0 18px rgba(34,211,238,0.65); :hover { background: #1E293B }"),
+    ("Brutalist", "background: #FDE047; color: #111827; border: 2px solid #111827; border-radius: 0px; font-weight: 800;"
+                  " box-shadow: 5px 5px 0 #111827; :pressed { background: #FACC15 }"),
+    ("Sunset", "background: linear-gradient(135deg, #F59E0B, #EC4899); color: #FFFFFF; border: none; border-radius: 12px;"
+               " font-weight: 600; box-shadow: 0 6px 16px rgba(236,72,153,0.35)"),
+    ("Ocean", "background: linear-gradient(135deg, #06B6D4, #3B82F6); color: #FFFFFF; border: none; border-radius: 12px;"
+              " font-weight: 600; box-shadow: 0 6px 16px rgba(59,130,246,0.35)"),
     ("Danger", "background: #DC2626; color: #FFFFFF; border: none; border-radius: 10px; font-weight: 600; :hover { background: #B91C1C }"),
-    ("Success", "background: #16A34A; color: #FFFFFF; border: none; border-radius: 10px; font-weight: 600; :hover { background: #15803D }"),
-    ("Glow", "border: 1px solid #A5B4FC; border-radius: 12px; box-shadow: 0 0 18px rgba(99,102,241,0.45)"),
-    ("Sunset", "background: linear-gradient(135deg, #F59E0B, #EC4899); color: #FFFFFF; border: none; border-radius: 12px"),
-    ("Ocean", "background: linear-gradient(135deg, #06B6D4, #3B82F6); color: #FFFFFF; border: none; border-radius: 12px"),
     ("Input field", "background: #FFFFFF; border: 2px solid #DDD6FE; border-radius: 12px; padding: 0 10px;"
                     " :focus { border: 2px solid #6366F1 }"),
-    ("Note", "background: #FEF3C7; color: #78350F; border: 1px solid #FDE68A; border-radius: 10px; padding: 4px 8px"),
+    ("Note", "background: #FEF3C7; color: #78350F; border: 1px solid #FDE68A; border-left: 5px solid #F59E0B; border-radius: 8px;"
+             " padding: 4px 10px"),
     ("(none)", ""),
 )
+
+
+class StyleEditor(QWidget):
+    """The Style property: the look's name (a ready-made one, kept as a /* comment */ at the front of the CSS, so it
+    survives saving and editing) with a ▾ for the ready-made looks, and the CSS below it, a declaration a line, to edit."""
+
+    def __init__(self, grid, value):
+        super().__init__()
+        self.grid = grid
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(3)
+        top = QHBoxLayout()
+        top.setSpacing(4)
+        self.name = QLabel()
+        self.name.setStyleSheet("font-size: 11px; font-weight: 600; color: #374151; padding: 2px 4px;"
+                                " background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 4px;")
+        top.addWidget(self.name, 1)
+        pick = QToolButton()
+        pick.setText("\u25be")
+        pick.setFixedSize(20, 20)
+        pick.setToolTip("Ready-made looks")
+        pick.setStyleSheet("QToolButton { border: 1px solid #9ca3af; border-radius: 3px; background: #fff; }")
+        pick.clicked.connect(lambda: grid.pick_style("Style", self, pick))
+        top.addWidget(pick)
+        col.addLayout(top)
+        from PySide6.QtWidgets import QPlainTextEdit
+        self.css = QPlainTextEdit()
+        self.css.setPlaceholderText("CSS: background: #fff; border-radius: 12px; :hover { ... }")
+        self.css.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self.css.setFixedHeight(84)
+        self.css.installEventFilter(self)
+        col.addWidget(self.css)
+        self.setText(value)
+
+    @staticmethod
+    def split(value):
+        import re
+        m = re.match(r"\s*/\*\s*(.*?)\s*\*/\s*(.*)$", str(value or ""), re.S)
+        return (m.group(1), m.group(2)) if m else ("", str(value or "").strip())
+
+    def setText(self, value):
+        self.value = str(value or "")
+        label, css = self.split(self.value)
+        self.name.setText(label or ("Custom" if css else "(none)"))
+        shown = css.replace("; ", ";\n").replace(" :", "\n:")
+        if self.css.toPlainText() != shown:
+            self.css.setPlainText(shown)
+
+    def text(self):
+        return self.value
+
+    def hasFocus(self):
+        return self.css.hasFocus()
+
+    def eventFilter(self, obj, e):
+        from PySide6.QtCore import QEvent
+        if obj is self.css and e.type() == QEvent.FocusOut:
+            self.commit()
+        elif obj is self.css and e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Return, Qt.Key_Enter) \
+                and e.modifiers() & Qt.ControlModifier:
+            self.commit()
+            return True
+        return False
+
+    def commit(self):
+        css = " ".join(line.strip() for line in self.css.toPlainText().splitlines() if line.strip())
+        label, before = self.split(self.value)
+        value = (f"/* {label} */ {css}" if label and css else css)
+        if value != self.value:
+            self.value = value
+            self.grid.commit("Style", value)
 
 
 class GridView(QScrollArea):
@@ -944,7 +1026,10 @@ class GridView(QScrollArea):
                 h.addWidget(ed, 1)
                 h.addWidget(Swatch(ed))
                 widget = box
-            elif name in ("Style", "Class"):
+            elif name == "Style":
+                ed = StyleEditor(self, value)
+                widget = ed
+            elif name == "Class":
                 box = QWidget()
                 h = QHBoxLayout(box)
                 h.setContentsMargins(0, 0, 0, 0)
@@ -953,7 +1038,7 @@ class GridView(QScrollArea):
                 pick = QToolButton()
                 pick.setText("\u25be")
                 pick.setFixedSize(20, 20)
-                pick.setToolTip("Ready-made styles" if name == "Style" else "This form's shared styles (@Style)")
+                pick.setToolTip("This form's shared styles (@Style)")
                 pick.setStyleSheet("QToolButton { border: 1px solid #9ca3af; border-radius: 3px; background: #fff; }")
                 pick.clicked.connect(lambda _=False, n=name, e=ed, b=pick: self.pick_style(n, e, b))
                 h.addWidget(pick)
@@ -969,7 +1054,8 @@ class GridView(QScrollArea):
             for label, css in STYLE_PRESETS:
                 act = menu.addAction(label)
                 act.setToolTip(css)
-                act.triggered.connect(lambda _=False, c=css: (ed.setText(c), self.commit("Style", c)))
+                value = f"/* {label} */ {css}" if css else ""
+                act.triggered.connect(lambda _=False, v=value: (ed.setText(v), self.commit("Style", v)))
         else:
             have = [c for c in str(ed.text()).replace(",", " ").split() if c]
             names = sorted(getattr(self.engine, "styles", {}) or {})
