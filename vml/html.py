@@ -1250,7 +1250,7 @@ const commands = {
     } catch (err) { tell("error", "That isn't a link code."); return ""; }
     const mine = link = { code, tell, sender: [...crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(16).padStart(2, "0")).join(""),
       relay: window.VML_LINK_URL || "https://visualised.io/link/", count: 0, seen: {}, since: start === "start" ? 0 : -1, active: Date.now(),
-      failing: 0, timer: 0, closed: false, queue: Promise.resolve(), ready: null };
+      failing: 0, timer: 0, closed: false, queue: Promise.resolve(), ready: null, takes: Promise.resolve(), pending: [], polling: false, pushing: false };
     mine.ready = linkKeys(secret).then(([channel, key]) => { mine.channel = channel; mine.key = key; });
     mine.ready.then(async () => {
       try {
@@ -1258,6 +1258,7 @@ const commands = {
         await linkPost(mine, "hello");
       } catch (err) { tell("error", err.message || "The relay couldn't be reached."); }
       linkPoll(mine);
+      linkPush(mine);
     }).catch(() => tell("error", "This page can't make a link."));
     return code;
   },
@@ -1301,6 +1302,7 @@ const commands = {
     const mine = link;
     if (!mine) return "";
     link = null; mine.closed = true; clearTimeout(mine.timer);
+    if (mine.push) { mine.push.close(); mine.push = null; }
     if (mine.key) linkPost(mine, "bye").catch(() => {});
     return "";
   },
@@ -1696,19 +1698,70 @@ async function linkTake(mine, sender, body) {
   else if (m.k === "msg") mine.tell("message", String(m.t ?? ""));
   else if (m.k === "bye") { delete mine.seen[sender]; mine.tell("left"); }
 }
+// Where messages are pushed from, the moment the relay has them (so a link needn't keep asking).
+function linkPushUrl(mine) {
+  return window.VML_LINK_PUSH || (mine.relay === "https://visualised.io/link/" ? "https://vml.onl/link/push" : mine.relay + "push");
+}
+// Hold a connection open for pushed messages. While it is up, asking the relay is only a slow safety net; when it
+// can't be had (an old browser, a network that won't allow it, the push service away) the link asks as before.
+function linkPush(mine) {
+  if (mine.closed || !window.EventSource || mine.push) return;
+  let es;
+  try { es = mine.push = new EventSource(`${linkPushUrl(mine)}?c=${mine.channel}`); } catch (err) { mine.push = null; return; }
+  es.onopen = () => {
+    mine.pushing = true;
+    if (!mine.polling) { clearTimeout(mine.timer); linkPoll(mine); }      // catch up on what came while connecting
+  };
+  es.onmessage = ev => {
+    let m;
+    try { m = JSON.parse(ev.data); } catch (err) { return; }
+    mine.pending.push(m);
+    if (!mine.polling) linkFlush(mine);
+  };
+  es.onerror = () => {
+    mine.pushing = false;
+    if (es.readyState === 2) {                                           // given up (it retries by itself otherwise)
+      if (mine.push === es) mine.push = null;
+      if (!mine.closed) setTimeout(() => linkPush(mine), 30000);
+      if (!mine.polling) { clearTimeout(mine.timer); linkPoll(mine); }   // and back to asking at the usual pace
+    }
+  };
+}
+// Pushed messages, in order, each once: anything already had by asking is left out.
+function linkFlush(mine) {
+  mine.takes = mine.takes.then(async () => {
+    const list = mine.pending.splice(0).sort((a, b) => (Number(a.q) || 0) - (Number(b.q) || 0));
+    for (const m of list) {
+      const q = Number(m.q) || 0;
+      if (q <= mine.since || mine.closed) continue;
+      mine.since = q;
+      await linkTake(mine, String(m.s || ""), String(m.b || ""));
+    }
+  }).catch(() => {});
+  return mine.takes;
+}
 async function linkPoll(mine) {
-  if (mine.closed) return;
+  if (mine.closed || mine.polling) return;
+  mine.polling = true;                          // (pushed messages wait meanwhile, so nothing is taken out of order)
   try {
+    await mine.takes;
     const answer = await linkCall(mine, `&since=${mine.since}`);
     mine.failing = 0;
-    for (const m of answer.m || []) { mine.since = Math.max(mine.since, Number(m.q) || 0); await linkTake(mine, String(m.s || ""), String(m.b || "")); }
+    for (const m of answer.m || []) {
+      const q = Number(m.q) || 0;
+      if (q <= mine.since) continue;
+      mine.since = q;
+      await linkTake(mine, String(m.s || ""), String(m.b || ""));
+    }
     if (Number(answer.seq) < mine.since) mine.since = Number(answer.seq) || 0;      // (the relay began again)
   } catch (err) {
     if (++mine.failing === 5) mine.tell("error", "The relay can't be reached. It will keep trying.");
   }
+  mine.polling = false;
+  linkFlush(mine);
   if (mine.closed) return;
   const quiet = Date.now() - mine.active;
-  mine.timer = setTimeout(() => linkPoll(mine), mine.failing ? Math.min(30000, 2000 * mine.failing)
+  mine.timer = setTimeout(() => linkPoll(mine), mine.failing ? Math.min(30000, 2000 * mine.failing) : mine.pushing ? 30000
     : quiet < 15000 ? 400 : quiet < 120000 ? 1500 : quiet < 600000 ? 5000 : quiet < 3600000 ? 15000 : 60000);      // (unused, it asks less and less often)
 }
 function stopFlash() {

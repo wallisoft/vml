@@ -42,6 +42,7 @@ import urllib.error
 import urllib.request
 
 RELAY = "https://visualised.io/link/"
+PUSH = "https://vml.onl/link/push"          # messages pushed the moment the relay has them (server/link/link-push.py)
 SALT = b"visualised-link-v1"
 PAIR_SALT = b"visualised-link-pair-v1"
 # The words two people compare after pairing by pressing together: 256 of them, so three say 24 bits. Plain
@@ -255,8 +256,13 @@ class Link:
         self.closed = False
         self.failing = 0
         self.lock = threading.Lock()
+        self.push = os.environ.get("VML_LINK_PUSH") or (PUSH if self.relay == RELAY else self.relay + "push")
+        self.pushing = False
+        self.inbox = queue.Queue()      # pushed messages (and None: "connected, catch up now"), taken by the run thread
+        self._stream = None
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
+        threading.Thread(target=self.pusher, daemon=True).start()
 
     # ---- the relay
     def call(self, query, body=None):
@@ -310,13 +316,57 @@ class Link:
                 if self.failing == 5:
                     self.events.put(("error", "The relay can't be reached. It will keep trying."))
             quiet = time.time() - self.active
-            # (a link nobody is using asks less and less often: a chat left open overnight is one question a minute)
+            # (a link nobody is using asks less and less often: a chat left open overnight is one question a minute;
+            # while messages are being pushed, asking is only a safety net)
             wait = 0.4 if quiet < 15 else 1.5 if quiet < 120 else 5.0 if quiet < 600 else 15.0 if quiet < 3600 else 60.0
+            if self.pushing:
+                wait = 30.0
             if self.failing:
                 wait = min(30.0, 2.0 * self.failing)
             end = time.time() + wait
             while not self.closed and time.time() < end:
-                time.sleep(0.05)
+                try:
+                    m = self.inbox.get(timeout=max(0.01, min(0.25, end - time.time())))
+                except queue.Empty:
+                    continue
+                if m is None:
+                    break                           # push has just connected: ask once now, for anything missed
+                q = int(m.get("q", 0) or 0)
+                if q <= self.since:
+                    continue                        # had already, by asking
+                self.since = q
+                self.take(str(m.get("s", "")), str(m.get("b", "")))
+
+    def pusher(self):
+        """Hold a connection open to the push service and pass on what it sends. When it can't be had, the run
+        thread simply keeps asking at its usual pace."""
+        wait = 2.0
+        while not self.closed:
+            try:
+                req = urllib.request.Request(f"{self.push}?c={self.channel}",
+                                             headers={"Accept": "text/event-stream", "User-Agent": "Visualised-Link/1"})
+                with urllib.request.urlopen(req, timeout=60) as r:      # (a comment comes every 20 seconds)
+                    if "text/event-stream" not in r.headers.get("Content-Type", ""):
+                        raise OSError("not a stream")
+                    self._stream = r
+                    self.pushing, wait = True, 2.0
+                    self.inbox.put(None)
+                    for raw in r:
+                        if self.closed:
+                            break
+                        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                        if line.startswith("data: "):
+                            try:
+                                self.inbox.put(json.loads(line[6:]))
+                            except ValueError:
+                                pass
+            except Exception:
+                pass
+            self.pushing, self._stream = False, None
+            end = time.time() + wait
+            wait = min(60.0, wait * 2)
+            while not self.closed and time.time() < end:
+                time.sleep(0.2)
 
     def take(self, sender, body):
         if sender == self.sender:
@@ -357,3 +407,8 @@ class Link:
         except LinkError:
             pass
         self.closed = True
+        try:
+            if self._stream:
+                self._stream.close()
+        except Exception:
+            pass
