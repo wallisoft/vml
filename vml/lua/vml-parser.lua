@@ -313,6 +313,7 @@ function parse_file(filepath)
     local line_num = 0
     for line in file:lines() do
         line_num = line_num + 1
+        if line_num == 1 then line = line:gsub("^\239\187\191", "") end   -- a byte order mark (some editors add one): not part of the form
         local trimmed = line:match("^%s*(.-)%s*$")  -- Trim
         -- Inside a heredoc, keep the line exactly as written (indentation matters in scripts)
         if in_heredoc and trimmed ~= heredoc_term then

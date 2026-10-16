@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabe
                                QVBoxLayout, QWidget)
 
 NEUTRAL = "#6B7280"
-EDGE = 2                                                         # the frame's width: plain to see on any background
+EDGE = 3                                                         # the frame's width, as every form's: plain on any background
 
 
 def box_sheet(edge):
@@ -327,7 +327,7 @@ class FileBox(_Framed, QDialog):
         self.edge = QColor(edge or NEUTRAL)
         self.path = ""
         frame = QVBoxLayout(self)
-        frame.setContentsMargins(1, 1, 1, 1)
+        frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)
         frame.setSpacing(0)
         self.bar = _Bar(self, title, self.edge)
         frame.addWidget(self.bar)
@@ -428,6 +428,41 @@ class FileBox(_Framed, QDialog):
         self.hide()
         self.deleteLater()
         return self.path
+
+
+class ColourBox(_Framed, QDialog):
+    """Choosing a colour, in the same frame as the other boxes: Qt's colour picker sits inside our bar and edge (a
+    desktop that gives Qt's own dialogs no frame would otherwise show it with none)."""
+
+    def __init__(self, parent, start, title="Choose a colour", edge=""):
+        from PySide6.QtWidgets import QColorDialog
+        super().__init__(parent if parent is not None else QApplication.activeWindow())
+        self.setWindowTitle(str(title))
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(True)
+        self.edge = QColor(edge or NEUTRAL)
+        self.colour = QColor()
+        frame = QVBoxLayout(self)
+        frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)
+        frame.setSpacing(0)
+        frame.addWidget(_Bar(self, title, self.edge))
+        cd = QColorDialog(QColor(start), self)
+        cd.setWindowFlags(Qt.Widget)
+        cd.setOption(QColorDialog.DontUseNativeDialog, True)
+        cd.accepted.connect(lambda: (setattr(self, "colour", cd.selectedColor()), self.accept()))
+        cd.rejected.connect(self.reject)
+        frame.addWidget(cd)
+
+    def run(self):
+        QTimer.singleShot(0, self.front)
+        self.exec()
+        self.deleteLater()
+        return self.colour
+
+
+def choose_colour(parent, start="#FFFFFF", title="Choose a colour", edge=""):
+    """A colour (a QColor: isValid() is False if the box was closed without choosing)."""
+    return ColourBox(parent, start, title, edge).run()
 
 
 def open_file(parent, title, start="", filters="All files (*)", edge=""):

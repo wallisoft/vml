@@ -57,7 +57,7 @@ class Store:
         vml_path = str(vml_path)
         self.db.execute("DELETE FROM ui_tree WHERE source_file=?", (vml_path,))
         self.db.execute("DELETE FROM scripts WHERE source_file=?", (vml_path,))
-        text = Path(vml_path).read_text(encoding="utf-8", errors="replace")
+        text = Path(vml_path).read_text(encoding="utf-8-sig", errors="replace")     # (-sig: a byte order mark isn't part of it)
         seen, lines, renamed = {}, text.split("\n"), []
         for i, line in enumerate(lines):
             m = re.match(r"^(\s*@[A-Za-z_][\w]*\s+)([A-Za-z0-9_]+)\s*$", line)

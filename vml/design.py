@@ -721,7 +721,8 @@ class Swatch(QToolButton):
 
     def pick(self):
         start = QColor(self.edit.text()) if QColor.isValidColorName(self.edit.text()) else QColor("white")
-        c = QColorDialog.getColor(start, self, "Choose a colour")
+        from . import dialogs
+        c = dialogs.choose_colour(self.window(), start.name(), "Choose a colour", "#1E3A8A")
         if c.isValid():
             self.edit.setText(c.name().upper())
             self.edit.editingFinished.emit()
