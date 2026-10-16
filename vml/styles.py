@@ -208,6 +208,7 @@ def qt_sheet(selector, merged):
             continue
         lines = []
         for prop, value in decls.items():
+            value = str(value)                              # (a size from FontSize=12 arrives as a number)
             if prop == "box-shadow":
                 if state == "":
                     drop = shadow(value)
