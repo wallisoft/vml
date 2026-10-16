@@ -46,14 +46,14 @@ def web_page_html(text):
     m = re.search(r"(?is)<body\b[^>]*>(.*)</body>", text)
     body = m.group(1) if m else text
     body = re.sub(r"(?is)<(nav|header|footer)\b.*?</\1>", "", body) or body
-    return f'<div style="font-size:14px; color:{markdown.INK}">{body}</div>'
+    return f'<div style="font-size:16px; color:{markdown.INK}">{body}</div>'
 
 
 def style_browser(b):
     b.setOpenLinks(False)
     b.document().setDocumentMargin(22)
     b.document().setDefaultStyleSheet(f"a {{ color: {markdown.LINK}; text-decoration: none; }}"
-                                      f" h1 {{ font-size: 24px; }} h2 {{ font-size: 19px; }} h3 {{ font-size: 16px; }}"
+                                      f" h1 {{ font-size: 32px; }} h2 {{ font-size: 24px; }} h3 {{ font-size: 20px; }}"
                                       f" code, pre {{ background-color: {markdown.TINT}; }}")
     b.setStyleSheet("QTextBrowser { background: #FFFFFF; border: none; selection-background-color: #BFDBFE; }")
 
@@ -97,7 +97,7 @@ class Reader:
             self.on_loaded()
 
     def note(self, text):
-        self.browser.setHtml(f'<p style="color:{markdown.MUTED}; font-size:14px">{text}</p>')
+        self.browser.setHtml(f'<p style="color:{markdown.MUTED}; font-size:16px">{text}</p>')
 
     # ---- loading
     def open(self, source, remember=True, base=None):

@@ -32,11 +32,11 @@ def _inline(text):
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"<i>\1</i>", text)
     text = re.sub(r"(?<![\w_])_(?!\s)(.+?)(?<!\s)_(?![\w_])", r"<i>\1</i>", text)
-    return re.sub(r"\x00(\d+)\x00", lambda m: f'<code style="background-color:{TINT}; font-family:monospace">'
+    return re.sub(r"\x00(\d+)\x00", lambda m: f'<code style="background-color:{TINT}; font-family:monospace; font-size:85%">'
                   f'&nbsp;{codes[int(m.group(1))]}&nbsp;</code>', text)
 
 
-def to_html(md, base_size=14):
+def to_html(md, base_size=16):                              # GitHub's own: 16px, line height 1.5
     """The HTML body for some Markdown."""
     lines = str(md or "").replace("\r\n", "\n").split("\n")
     out, i, para, lst = [], 0, [], None
@@ -51,7 +51,7 @@ def to_html(md, base_size=14):
         if lst:
             out.append(f"</{lst}>")
             lst = None
-    sizes = {1: 1.75, 2: 1.4, 3: 1.18, 4: 1.05, 5: 1.0, 6: 0.95}
+    sizes = {1: 2.0, 2: 1.5, 3: 1.25, 4: 1.0, 5: 0.875, 6: 0.85}      # as GitHub sizes its headings
     while i < len(lines):
         line = lines[i]
         s = line.strip()
@@ -64,7 +64,7 @@ def to_html(md, base_size=14):
                 i += 1
             code = html.escape("\n".join(body)).replace("\n", "<br>").replace("  ", "&nbsp; ")
             out.append(f'<table width="100%" cellpadding="10" cellspacing="0" style="margin:4px 0 12px 0">'
-                       f'<tr><td bgcolor="{TINT}" style="font-family:monospace; font-size:{base_size - 1}px">{code}</td></tr></table>')
+                       f'<tr><td bgcolor="{TINT}" style="font-family:monospace; font-size:{round(base_size * 0.85)}px">{code}</td></tr></table>')
             i += 1
             continue
         m = re.match(r"^(#{1,6})\s+(.*?)\s*#*\s*$", s)
@@ -130,4 +130,4 @@ def to_html(md, base_size=14):
         para.append(s)
         i += 1
     flush_para(); close_list()
-    return (f'<div style="font-size:{base_size}px; color:{INK}; line-height:140%">' + "\n".join(out) + "</div>")
+    return (f'<div style="font-size:{base_size}px; color:{INK}; line-height:150%">' + "\n".join(out) + "</div>")
