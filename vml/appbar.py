@@ -31,7 +31,7 @@ import urllib.request
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMessageBox, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QWidget
 
 HEIGHT = 24
 SETUP_EXE = "https://github.com/wallisoft/vml-releases/releases/latest/download/Visualised-Setup.exe"
@@ -190,23 +190,32 @@ class AppBar(QWidget):
             lines += ["", "Design desktop, web and phone apps in VML.", "Made by Wallisoft. visualised.io"]
         else:
             lines += ["", f"Made with Visualised {__version__}."]
+        from . import dialogs
         if self.latest:
             lines += ["", f"{self.title} {self.latest} is available."]
-            box = QMessageBox(QMessageBox.Information, f"About {self.title}", "\n".join(lines), parent=self.window())
-            now = box.addButton("Download now", QMessageBox.AcceptRole)
-            box.addButton("Later", QMessageBox.RejectRole)
-            box.exec()
-            if box.clickedButton() is now:
+            if dialogs.choose(self.window(), f"About {self.title}", "\n".join(lines), ("Download now", "Later"),
+                              self.edge()) == "Download now":
                 self.install(asked=True)
             return
-        QMessageBox.about(self.window(), f"About {self.title}", "\n".join(lines))
+        dialogs.message(self.window(), f"About {self.title}", "\n".join(lines), self.edge())
+
+    def edge(self):
+        """The boxes' frame: the colour of this window's menu bar, as the app's own boxes have."""
+        try:
+            return self.engine._edge()
+        except Exception:
+            return ""
+
+    def say(self, title, text):
+        from . import dialogs
+        dialogs.message(self.window(), title, text, self.edge())
 
     # ---- installing the newer one
     def install(self, asked=False):
-        win = self.window()
-        if not asked and QMessageBox.question(win, f"Update {self.title}",
-                                f"{self.title} {self.latest} is out (this is {self.version}).\n\nInstall it now? "
-                                f"{self.title} will close and open again.") != QMessageBox.Yes:
+        from . import dialogs
+        if not asked and not dialogs.confirm(self.window(), f"Update {self.title}",
+                                             f"{self.title} {self.latest} is out (this is {self.version}).\n\nInstall it now? "
+                                             f"{self.title} will close and open again.", self.edge()):
             return
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -216,8 +225,7 @@ class AppBar(QWidget):
         finally:
             QApplication.restoreOverrideCursor()
         if problem:
-            QMessageBox.warning(win, f"Update {self.title}", f"It couldn't be updated here:\n\n{problem}\n\n"
-                                "The download page will open instead.")
+            self.say(f"Update {self.title}", f"It couldn't be updated here:\n\n{problem}\n\nThe download page will open instead.")
             self.engine.cmd_OpenUrl(self.info.get("url") or str(self.node.props.get("UpdateFrom") or ""))
 
     def _install_form(self):

@@ -8,6 +8,23 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabe
                                QVBoxLayout, QWidget)
 
 NEUTRAL = "#6B7280"
+EDGE = 2                                                         # the frame's width: plain to see on any background
+
+
+def box_sheet(edge):
+    """The look of a box: white, quiet text, and buttons like the rest of Visualised (the first in the edge's colour)."""
+    ink = "#FFFFFF" if edge.lightnessF() < 0.6 else "#111827"
+    e, dark = edge.name(), edge.darker(115).name()
+    return (f"QDialog#VmlBox {{ background: #FFFFFF; }}"
+            f" QDialog#VmlBox QLabel {{ color: #1F2937; font-size: 13px; background: transparent; }}"
+            f" QDialog#VmlBox QPushButton {{ background: #FFFFFF; color: #1F2937; border: 1px solid #D1D5DB; border-radius: 8px;"
+            f" padding: 6px 16px; font-size: 13px; }}"
+            f" QDialog#VmlBox QPushButton:hover {{ background: #F3F4F6; }}"
+            f" QDialog#VmlBox QPushButton:default {{ background: {e}; color: {ink}; border: 1px solid {e}; font-weight: 600; }}"
+            f" QDialog#VmlBox QPushButton:default:hover {{ background: {dark}; border-color: {dark}; }}"
+            f" QDialog#VmlBox QPushButton:focus {{ outline: none; }}"
+            f" QDialog#VmlBox QLineEdit {{ border: 1px solid #D1D5DB; border-radius: 8px; padding: 6px 8px; background: #FFFFFF; color: #111827; }}"
+            f" QDialog#VmlBox QLineEdit:focus {{ border: 1px solid {e}; }}")
 MAX_TEXT_H = 420
 MIN_TEXT_W, MAX_TEXT_W = 300, 760
 
@@ -51,8 +68,8 @@ class _Framed:
     def paintEvent(self, e):
         super().paintEvent(e)
         p = QPainter(self)
-        w, h = self.width(), self.height()
-        for r in ((0, 0, w, 1), (0, h - 1, w, 1), (0, 0, 1, h), (w - 1, 0, 1, h)):
+        w, h, t = self.width(), self.height(), EDGE
+        for r in ((0, 0, w, t), (0, h - t, w, t), (0, 0, t, h), (w - t, 0, t, h)):
             p.fillRect(*r, self.edge)
         p.end()
 
@@ -81,15 +98,18 @@ class Box(_Framed, QDialog):
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)  # our own bar and edge: one frame, all the way round
         self.setModal(True)
         self.edge = QColor(edge or NEUTRAL)
+        self.setObjectName("VmlBox")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(box_sheet(self.edge))
         self.answer, self.buttons, self.input = "", list(buttons), None
         frame = QVBoxLayout(self)
-        frame.setContentsMargins(1, 1, 1, 1)
+        frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)
         frame.setSpacing(0)
         self.bar = _Bar(self, title, self.edge)
         frame.addWidget(self.bar)
         outer = QVBoxLayout()
         frame.addLayout(outer)
-        outer.setContentsMargins(22, 18, 22, 14)
+        outer.setContentsMargins(24, 20, 24, 18)
         outer.setSpacing(12)
         self.picture = None
         if picture:                                             # a picture above the words: a data: address, or a file
