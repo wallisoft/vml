@@ -2128,16 +2128,18 @@ function setTimer(e) {
   if (h && e.dataset.on === "true") ticking[e.id] = setInterval(() => handle(h.handler, h.name), Math.max(1, Number(e.dataset.interval) || 1000));
 }
 
-// On a screen narrower than the form was drawn (a phone), the whole form is scaled to the screen's width, and given
-// the screen's height at that scale, so what is anchored to the bottom reaches the bottom. PhoneFit=None on the
-// Window turns this off. SCALE is what one form pixel measures on screen.
+// On a phone (any screen without room to spare), the whole form is scaled to the screen's width, up or down, and
+// given the screen's height at that scale, so what is anchored to the bottom reaches the bottom: a form drawn 360
+// wide fills a 412-wide phone edge to edge rather than sitting to one side of it. PhoneFit=None on the Window turns
+// this off. SCALE is what one form pixel measures on screen.
 let SCALE = 1;
 function fitScreen() {
   const w = document.getElementById("vml_window"), [dw, dh] = VML.design || [0, 0];
-  const narrow = VML.fit !== "None" && dw > 0 && window.innerWidth < dw;
   // With plenty of room (half as wide again as the form, or more: a computer's browser, a tablet), the form is a window in the middle of the
   // page at the size it was drawn, not stretched across it. WebFit=Fill on the Window fills the page instead.
-  const roomy = !narrow && VML.webFit !== "Fill" && dw > 0 && dh > 0 && window.innerWidth >= dw * 1.5 && window.innerWidth >= dw + 240;
+  const spare = dw > 0 && dh > 0 && window.innerWidth >= dw * 1.5 && window.innerWidth >= dw + 240;
+  const narrow = VML.fit !== "None" && dw > 0 && !spare && window.innerWidth !== dw;
+  const roomy = !narrow && VML.webFit !== "Fill" && spare;
   document.body.classList.toggle("phone", narrow);
   document.body.classList.toggle("framed", roomy);
   if (roomy) {

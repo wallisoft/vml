@@ -117,7 +117,7 @@ def register(ct: ControlType, *prop_lists):
 
 # ------------------------------------------------------------------ styling: one stylesheet per node, rebuilt on change
 
-_LEFT_OUT = set()          # (control, what) already reported as web only
+_LEFT_OUT = set()          # what has already been reported as web only (once each: a style is often shared)
 
 
 def restyle(node):
@@ -161,11 +161,11 @@ def restyle(node):
     elif node.widget.graphicsEffect() is not None and type(node.widget.graphicsEffect()).__name__ == "QGraphicsDropShadowEffect":
         node.widget.setGraphicsEffect(None)
     for what in left_out:
-        if (node.name, what) not in _LEFT_OUT:
-            _LEFT_OUT.add((node.name, what))
+        if what not in _LEFT_OUT:
+            _LEFT_OUT.add(what)
             try:
                 from .engine import log
-                log(f"{node.name}: '{what}' shows on the web only (the desktop leaves it out)")
+                log(f"'{what}' (on {node.name}, and any like it) shows on the web only: the desktop leaves it out")
             except Exception:
                 pass
 
