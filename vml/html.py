@@ -2248,7 +2248,8 @@ function appBar() {
   const dot = () => { const d = document.createElement("span"); d.textContent = "·"; return d; };
   let latest = "";
   const install = () => {
-    if (DEV && DEV.open) DEV.open(A.updateApk || A.updateFrom);
+    if (DEV && DEV.open) DEV.open(A.updateApk || A.page || A.updateFrom);
+    else if (A.page) window.open(A.page, "_blank");
     else { const u = new URL(location.href); u.searchParams.set("v", latest); location.replace(u.toString()); }
   };
   const about = () => {
@@ -2267,6 +2268,8 @@ function appBar() {
   else document.getElementById("vml_window").appendChild(bar);
   const from = A.updateFrom;
   if (!from || !A.version) return;
+  const gh = /^(?:github:|https?:\/\/(?:www\.)?github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/.*)?$/i.exec(from);
+  if (gh) A.page = `https://github.com/${gh[1]}/${gh[2]}/releases/latest`;
   const KEY = `vmlupd:${from}`, number = v => (String(v).match(/\d+/g) || []).slice(0, 4).map(Number);
   const newer = (a, b) => { const x = number(a), y = number(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
   const show = v => {
@@ -2284,6 +2287,13 @@ function appBar() {
   if (kept && Date.now() - kept.at < 86400000) { show(kept.v); return; }
   const got = text => { const v = read(text); if (v) { try { localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), v })); } catch (err) {} } show(v); };
   setTimeout(() => {
+    if (gh) {                                            // a GitHub release: its tag, from GitHub's API (pages may ask it)
+      const api = `https://api.github.com/repos/${gh[1]}/${gh[2]}/releases/latest`;
+      const tag = t => { try { const v = String(JSON.parse(t).tag_name || "").replace(/^v/i, ""); if (v) { try { localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), v })); } catch (err) {} } show(v); } catch (err) {} };
+      if (DEV && DEV.fetch) { const id = String(++asked); waitingFor[id] = a => tag(a); DEV.fetch(id, api, ""); }
+      else fetch(api).then(r => r.ok ? r.text() : "").then(tag).catch(() => {});
+      return;
+    }
     if (DEV && DEV.fetch) { const id = String(++asked); waitingFor[id] = a => got(a); DEV.fetch(id, from, ""); }
     else fetch(from, { headers: { Range: "bytes=0-32767" }, cache: "no-store" }).then(r => r.ok ? r.text() : "").then(got).catch(() => {});
   }, 1500);

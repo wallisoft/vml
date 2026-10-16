@@ -26,6 +26,7 @@ Height=700
 Icon=mountie.png
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
+UpdateFrom=github:wallisoft/mountie-releases
 About=Everything you might open as a drive, in one place: folders on your SSH servers, disk images (ISO, IMG, VHD, VHDX), the computer's own partitions, your folders through an ignore list, and RAM disks. A drive letter on Windows, a folder in Files on Linux and macOS, the Files app on Android. Your passwords and keys stay on this device. Made by Steve (Wallisoft) and Claude, in Visualised.
 OnOpened=Start
 OnClosing=Closing

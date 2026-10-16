@@ -8,7 +8,8 @@ Clicking the ⚠ installs it. How newer decides how loud: a new major version (2
     AppBar=true
     Terms=https://tiny-talk.world/terms.html                 (optional: no Terms link without it)
     About=Say it in pictures anyone can read.                 (optional: a line or two for the About box)
-    UpdateFrom=https://visualised.org/downloads/TinyTalk.vml  (optional: where the newest copy of this form is)
+    UpdateFrom=https://visualised.org/downloads/TinyTalk.vml  (optional: where the newest copy of this form is,
+                                                               or github:owner/repo for an app released on GitHub)
     UpdateApk=https://visualised.org/downloads/TinyTalk.apk   (optional: the same for the phone app)
 
 If the form has a control called StatusBar, the bar's pieces sit at its right-hand end instead of in a strip of
@@ -67,6 +68,54 @@ def _get(url, limit, rng=False):
         head["Range"] = f"bytes=0-{limit - 1}"
     with urllib.request.urlopen(urllib.request.Request(url, headers=head), timeout=60 if not rng else 8) as r:
         return r.read(limit + 1)
+
+
+# ---- GitHub releases: UpdateFrom=github:owner/repo (or the repo's https://github.com/... address). The repo must be
+# public. The newest release is found from where its latest download points (no API, so no rate limit), and the
+# installer for this computer comes from it: NAME-Setup.exe on Windows, install.sh on Linux, NAME.apk on a phone.
+GITHUB = re.compile(r"^(?:github:|https?://(?:www\.)?github\.com/)([\w.-]+)/([\w.-]+?)(?:\.git)?(?:/.*)?$", re.I)
+
+
+def github_repo(url):
+    m = GITHUB.match(str(url or "").strip())
+    return f"{m.group(1)}/{m.group(2)}" if m else ""
+
+
+def github_asset(name):
+    if sys.platform.startswith("win"):
+        return f"{name}-Setup.exe"
+    if sys.platform.startswith("linux"):
+        return "install.sh"
+    return ""
+
+
+class _Stay(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None                                      # (the redirect itself is the answer: it names the tag)
+
+
+def github_latest(repo, asset):
+    """The newest release's tag (without a leading v), from where releases/latest/download/ASSET points; failing that,
+    GitHub's API. "" if neither says."""
+    import urllib.error
+    if asset:
+        req = urllib.request.Request(f"https://github.com/{repo}/releases/latest/download/{asset}",
+                                     headers={"User-Agent": "Visualised"}, method="HEAD")
+        try:
+            urllib.request.build_opener(_Stay).open(req, timeout=10)
+        except urllib.error.HTTPError as e:
+            m = re.search(r"/releases/download/([^/]+)/", e.headers.get("Location", "") or "")
+            if m:
+                return m.group(1).lstrip("vV")
+        except Exception:
+            pass
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest",
+                                     headers={"User-Agent": "Visualised", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return str(json.load(r).get("tag_name", "")).lstrip("vV")
+    except Exception:
+        return ""
 
 
 def wanted(engine, node):
@@ -149,6 +198,11 @@ class AppBar(QWidget):
             try:
                 if self.designer:
                     out = json.loads(self.engine.cmd_CheckForUpdate())
+                elif github_repo(url):
+                    repo = github_repo(url)
+                    out = {"latest": github_latest(repo, github_asset(self.node.name)),
+                           "url": f"https://github.com/{repo}/releases/latest", "repo": repo}
+                    out["newer"] = newer(out["latest"], self.version)
                 else:
                     text = _get(url, 32768, rng=True).decode("utf-8", "replace")
                     out = {"latest": form_version(text)}
@@ -219,7 +273,8 @@ class AppBar(QWidget):
             return
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            problem = self._install_visualised() if self.designer else self._install_form()
+            problem = self._install_visualised() if self.designer else \
+                self._install_release() if self.info.get("repo") else self._install_form()
         except Exception as exc:
             problem = str(exc)
         finally:
@@ -239,6 +294,30 @@ class AppBar(QWidget):
         shutil.copy2(path, str(path) + ".bak")
         path.write_bytes(data)
         self.engine.log_line(f"{path.name} updated to {got} (the old one is {path.name}.bak)")
+        subprocess.Popen(restart_command(), cwd=os.getcwd())
+        QApplication.quit()
+        return ""
+
+    def _install_release(self):
+        """A newer release on GitHub: its installer for this computer, run; then the app opens again."""
+        repo, asset = self.info["repo"], github_asset(self.node.name)
+        if sys.argv and sys.argv[0].endswith(".py"):
+            return f"This {self.title} runs from its source code: update it with git."
+        if not asset:
+            return f"There's no {self.title} installer for this computer in its releases."
+        url = f"https://github.com/{repo}/releases/latest/download/{asset}"
+        folder = tempfile.mkdtemp(prefix="vml-update-")
+        path = os.path.join(folder, asset)
+        with open(path, "wb") as f:
+            f.write(_get(url, 1024 * 1024 * 1024))
+        if asset.endswith(".exe"):
+            subprocess.Popen([path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], close_fds=True)
+            QApplication.quit()
+            return ""
+        r = subprocess.run(["bash", path], capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)
+        if r.returncode != 0:
+            return (r.stdout + r.stderr)[-600:]
+        self.engine.log_line(f"{self.title} updated to {self.latest} from {repo}")
         subprocess.Popen(restart_command(), cwd=os.getcwd())
         QApplication.quit()
         return ""
