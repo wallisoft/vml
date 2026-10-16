@@ -456,7 +456,9 @@ class Page:
                 "data": self.with_data, "databases": self.databases() if self.with_data else {}, "mainDb": main,
                 "sqljs": SQLJS, "named": list(self.project.databases) if self.project is not None else [],
                 "handlers": [{"id": e, "event": ev, "handler": h, "name": n} for e, ev, h, n in self.handlers],
-                "styles": self.styles}
+                "styles": self.styles, "appBar": self.app_bar(wp, win[3])}
+        if data["appBar"] and "StatusBar" not in self.names and data["design"][1]:
+            data["design"][1] += 24                          # the bar along the foot is extra: the form keeps its full height
         bg = colour(wp.get("Background", "#ffffff"))
         return TEMPLATE.replace("%%TITLE%%", esc(wp.get("Title", win[3]))).replace("%%BG%%", bg) \
             .replace("%%BODY%%", body + self.context_menus() + "".join(self.state_rules)).replace("%%THEME%%", self.theme_css()) \
@@ -465,6 +467,16 @@ class Page:
             .replace("%%SOURCE%%", esc(self.path.name)).replace("%%BAR%%", self.bar_colour) \
             .replace("%%APP%%", self.app_tags(wp)) \
             .replace("%%BUNDLE%%", self.bundle() if offline else "")
+
+    def app_bar(self, wp, name):
+        """Terms · About · version along the foot (AppBar=true on the Window): see vml/appbar.py."""
+        if str(wp.get("AppBar", "")).lower() not in ("true", "1", "yes"):
+            return None
+        from . import __version__
+        return {"title": str(wp.get("Title") or name), "version": str(wp.get("Version") or ""),
+                "terms": str(wp.get("Terms") or ""), "about": str(wp.get("About") or ""),
+                "updateFrom": str(wp.get("UpdateFrom") or ""), "updateApk": str(wp.get("UpdateApk") or ""),
+                "made": __version__}
 
     def bundle(self):
         """The Lua engine inside the page: no CDN, works offline and behind strict firewalls."""
@@ -563,6 +575,13 @@ TEMPLATE = r"""<!DOCTYPE html>
   .msep { height: 1px; background: #ddd; margin: 4px 8px; }
   .ctx { position: fixed; }
   %%THEME%%
+  #vml_appbar { flex: 0 0 24px !important; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 10px;
+    font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; color: #6B7280; border-top: 1px solid #E5E7EB; background: inherit; z-index: 5; }
+  #vml_appbar.inbar { position: absolute; right: 0; top: 0; bottom: 0; border: 0; background: transparent; color: inherit; }
+  #vml_appbar a { color: inherit; text-decoration: none; cursor: pointer; }
+  #vml_appbar a:hover { text-decoration: underline; }
+  #vml_appbar .hz { display: none; background: #FACC15; color: #422006; border-radius: 8px; padding: 1px 8px; font-weight: 600; }
+  #vml_appbar .hz:hover { background: #EAB308; text-decoration: none; }
   #vml_status { position: fixed; right: 8px; bottom: 6px; font-size: 11px; color: #6b7280; opacity: .8; pointer-events: none; }
 </style>
 </head>
@@ -2163,7 +2182,49 @@ function fitScreen() {
 window.addEventListener("resize", fitScreen);
 window.addEventListener("orientationchange", fitScreen);
 
+// The app bar (AppBar=true): Terms · About · version, and a yellow ⚠ when a newer version is out (looked for once a
+// day). In the phone app the ⚠ opens the new APK for Android to install; in a browser it loads the page afresh.
+function appBar() {
+  const A = VML.appBar;
+  if (!A || document.getElementById("vml_appbar")) return;
+  const bar = document.createElement("div");
+  bar.id = "vml_appbar";
+  const link = (text, act) => { const a = document.createElement("a"); a.textContent = text; a.onclick = act; return a; };
+  const dot = () => { const d = document.createElement("span"); d.textContent = "·"; return d; };
+  const about = () => alert([`${A.title} ${A.version}`.trim(), A.about ? "\n" + A.about : "", `\nMade with Visualised ${A.made}.`,
+    latest ? `\n⚠ ${latest} is out: tap the yellow button to install it.` : ""].filter(Boolean).join("\n"));
+  let latest = "";
+  if (A.terms) bar.append(link("Terms", () => Vml("OpenUrl", A.terms)), dot());
+  bar.append(link("About", about));
+  if (A.version) bar.append(dot(), link("v" + A.version, about));
+  const hz = link("⚠", () => {
+    if (!confirm(`${A.title} ${latest} is out (this is ${A.version}).\n\nInstall it now?`)) return;
+    if (DEV && DEV.open) DEV.open(A.updateApk || A.updateFrom);
+    else { const u = new URL(location.href); u.searchParams.set("v", latest); location.replace(u.toString()); }
+  });
+  hz.className = "hz";
+  bar.append(hz);
+  const host = el("StatusBar");
+  if (host) { bar.classList.add("inbar"); if (getComputedStyle(host).position === "static") host.style.position = "relative"; host.appendChild(bar); }
+  else document.getElementById("vml_window").appendChild(bar);
+  const from = A.updateFrom;
+  if (!from || !A.version) return;
+  const KEY = `vmlupd:${from}`, number = v => (String(v).match(/\d+/g) || []).slice(0, 4).map(Number);
+  const newer = (a, b) => { const x = number(a), y = number(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+  const show = v => { if (v && newer(v, A.version)) { latest = v; hz.textContent = "⚠ " + v; hz.title = `${A.title} ${v} is out (this is ${A.version})`; hz.style.display = "inline-block"; } };
+  const read = text => { const m = /^@Window\b[^\n]*\n(?:(?!@)[^\n]*\n)*?Version=([^\n\r]*)/m.exec(text || ""); return m ? m[1].trim() : ""; };
+  let kept = null;
+  try { kept = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (err) {}
+  if (kept && Date.now() - kept.at < 86400000) { show(kept.v); return; }
+  const got = text => { const v = read(text); if (v) { try { localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), v })); } catch (err) {} } show(v); };
+  setTimeout(() => {
+    if (DEV && DEV.fetch) { const id = String(++asked); waitingFor[id] = a => got(a); DEV.fetch(id, from, ""); }
+    else fetch(from, { headers: { Range: "bytes=0-32767" }, cache: "no-store" }).then(r => r.ok ? r.text() : "").then(got).catch(() => {});
+  }, 1500);
+}
+
 function wire() {
+  appBar();
   fitScreen();
   offerApp();
   document.querySelectorAll(".pbar").forEach(drawBar);

@@ -850,6 +850,11 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                   Prop("WebAddress", "text", "Common"),                          # where the app is on the web, if it is: LinkAddress builds on it
                   Prop("AndroidPackage", "text", "Common"),                      # its package name as an Android app, to choose one's own (com.example.myapp)
                   Prop("AndroidKey", "text", "Common"),                          # which signing key it was last exported with: put in by the export
+                  Prop("AppBar", "bool", "Behaviour", default="false"),          # Terms · About · version along the foot, with ⚠ when there's a newer one: vml/appbar.py
+                  Prop("Terms", "text", "Common"),                               # the app bar's Terms link
+                  Prop("About", "text", "Common"),                               # a line or two for its About box
+                  Prop("UpdateFrom", "text", "Common"),                          # where the newest copy of this form is (a .vml's address)
+                  Prop("UpdateApk", "text", "Common"),                           # and of its phone app (an .apk's address)
                   Prop("LinkPass", "text", "Behaviour"),                         # put in by Visualised Pro when it saves an app that uses Link: see vml/link.py
                   Prop("PhoneFit", "choice", "Behaviour", options=("Fit", "None")),
                   Prop("WebFit", "choice", "Behaviour", options=("Window", "Fill")),  # as a web page with room to spare: a window in the middle at its own size, or fill the page  # as a web page on a phone: scale to the screen's width, or leave alone

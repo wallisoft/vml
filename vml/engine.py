@@ -308,6 +308,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             w.set_edge(theme["Background"], 1)               # an edge the colour of its menu bar
         if hasattr(w, "closeEvent") and isinstance(w, QWidget):
             w.closing = lambda by_user=False: self._closing(node, by_user)
+        try:
+            from . import appbar
+            appbar.attach(self, node)                        # Terms · About · version, if the form asks (and the designer)
+        except Exception as exc:
+            log(f"app bar: {exc}")
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
