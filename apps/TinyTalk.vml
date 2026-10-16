@@ -22,29 +22,41 @@
 
 @Window TinyTalk
 Title=tiny-talk
-Version=0.4
+Version=0.5
 Width=360
 Height=640
 WebAddress=https://tiny-talk.world/chat.html
 OnOpened=Opened
+AndroidPackage=io.visualised.made.tinytalk.k7b1ce6cd
+AndroidKey=7b1ce6cd
 
 @Canvas c
 Parent=TinyTalk
-Background=#FFFFFF
+Background=#F4F1FB
+
+# --- the header: an indigo band with the tabs as pills (the one showing is white) ---
+@Rectangle rectHead
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=360
+Height=92
+Fill=#4F46E5
 
 @TextBlock lblTitle
 Parent=c
 Canvas.Left=12
-Canvas.Top=8
+Canvas.Top=10
 Width=150
 Height=30
-FontSize=22
+FontSize=24
 Text=👄➡️⬅️
+Foreground=#FFFFFF
 
 @ComboBox cboLang
 Parent=c
 Canvas.Left=170
-Canvas.Top=8
+Canvas.Top=10
 Width=178
 Height=32
 Items=English,Svenska,Norsk,Dansk,Suomi,Íslenska,Deutsch,Nederlands,Afrikaans,Français,Español,Português,Italiano,Polski,Magyar,Lietuvių,Latviešu,Русский,Esperanto
@@ -53,82 +65,118 @@ SelectionChanged=PickLang
 @Button btnTabChat
 Parent=c
 Canvas.Left=12
-Canvas.Top=46
+Canvas.Top=50
 Width=108
-Height=38
+Height=34
 FontSize=20
 Content=💬
 OnClick=TabChat
+CornerRadius=17
+BorderThickness=0
+Background=#FFFFFF
+Foreground=#4F46E5
 
 @Button btnTabDict
 Parent=c
 Canvas.Left=126
-Canvas.Top=46
+Canvas.Top=50
 Width=108
-Height=38
+Height=34
 FontSize=20
 Content=📖
 OnClick=TabDict
+CornerRadius=17
+BorderThickness=0
+Background=#6366F1
+Foreground=#FFFFFF
 
 @Button btnTabLearn
 Parent=c
 Canvas.Left=240
-Canvas.Top=46
+Canvas.Top=50
 Width=108
-Height=38
+Height=34
 FontSize=20
 Content=🎓
 OnClick=TabLearn
+CornerRadius=17
+BorderThickness=0
+Background=#6366F1
+Foreground=#FFFFFF
 
 # ---------------------------------------------------------------- 💬 the messenger
 @Canvas pChat
 Parent=c
 Canvas.Left=0
-Canvas.Top=92
+Canvas.Top=96
 Width=360
-Height=548
-Background=#FFFFFF
+Height=544
+Background=#F4F1FB
 
 @Button btnStart
 Parent=pChat
 Canvas.Left=12
-Canvas.Top=0
+Canvas.Top=6
 Width=106
 Height=40
 FontSize=20
 Content=🔗
 OnClick=DoStart
+CornerRadius=14
+Background=#FFFFFF
+BorderBrush=#DDD6FE
+BorderThickness=1.5
 
 @Button btnJoin
 Parent=pChat
 Canvas.Left=127
-Canvas.Top=0
+Canvas.Top=6
 Width=106
 Height=40
 FontSize=20
 Content=📷
 OnClick=DoJoin
+CornerRadius=14
+Background=#FFFFFF
+BorderBrush=#DDD6FE
+BorderThickness=1.5
 
 @Button btnPair
 Parent=pChat
 Canvas.Left=242
-Canvas.Top=0
+Canvas.Top=6
 Width=106
 Height=40
 FontSize=20
 Content=🤝
 OnClick=DoPair
+CornerRadius=14
+Background=#FFFFFF
+BorderBrush=#DDD6FE
+BorderThickness=1.5
 
 @TextBlock lblState
 Parent=pChat
 Canvas.Left=12
-Canvas.Top=46
+Canvas.Top=52
 Width=336
 Height=36
 FontSize=15
 TextWrapping=Wrap
-Foreground=#4B5563
+Foreground=#5B21B6
 Text=🔗 📷 🤝
+
+# the conversation, in a card (the QR code shows on it too, when there is one)
+@Rectangle rectLog
+Parent=pChat
+Canvas.Left=12
+Canvas.Top=88
+Width=336
+Height=300
+Fill=#FFFFFF
+Stroke=#DDD6FE
+StrokeThickness=1.5
+CornerRadius=18
 
 @Image imgCode
 Parent=pChat
@@ -150,13 +198,13 @@ IsVisible=false
 # the conversation: each message as pictures, and below them in your own language
 @TextBlock lblLog
 Parent=pChat
-Canvas.Left=12
-Canvas.Top=88
-Width=336
-Height=300
-FontSize=18
+Canvas.Left=24
+Canvas.Top=98
+Width=312
+Height=280
+FontSize=20
 TextWrapping=Wrap
-Background=#F9FAFB
+Background=#FFFFFF
 Text=
 
 @TextBox txtSay
@@ -168,6 +216,9 @@ Height=42
 FontSize=17
 Watermark=✍️ …
 TextChanged=Convert
+CornerRadius=21
+Background=#FFFFFF
+BorderBrush=#DDD6FE
 
 @Button btnSend
 Parent=pChat
@@ -178,14 +229,28 @@ Height=42
 FontSize=20
 Content=📨
 OnClick=DoSend
+CornerRadius=21
+Background=#4F46E5
+Foreground=#FFFFFF
+BorderThickness=0
 
 # what will be sent: only pictures
-@TextBlock lblPreview
+# where the message's pictures build up as words are tapped
+@Rectangle rectPreview
 Parent=pChat
 Canvas.Left=12
-Canvas.Top=444
+Canvas.Top=446
 Width=336
-Height=62
+Height=58
+Fill=#EEF2FF
+CornerRadius=14
+
+@TextBlock lblPreview
+Parent=pChat
+Canvas.Left=22
+Canvas.Top=450
+Width=316
+Height=50
 FontSize=26
 TextWrapping=Wrap
 Text=
@@ -205,10 +270,10 @@ Text=
 @Canvas pDict
 Parent=c
 Canvas.Left=0
-Canvas.Top=92
+Canvas.Top=96
 Width=360
-Height=548
-Background=#FFFFFF
+Height=544
+Background=#F4F1FB
 IsVisible=false
 
 @TextBox txtWord
@@ -220,6 +285,9 @@ Height=42
 FontSize=18
 Watermark=🔍
 TextChanged=Find
+CornerRadius=21
+Background=#FFFFFF
+BorderBrush=#DDD6FE
 
 @TextBlock lblMeaning
 Parent=pDict
@@ -240,6 +308,7 @@ Width=336
 Height=420
 FontSize=20
 SelectionChanged=Pick
+Background=#FFFFFF
 
 @TextBlock lblCredit
 Parent=pDict
@@ -255,10 +324,10 @@ Text=Blissymbolics: BCI, CC BY-SA 4.0 · github.com/wallisoft/tiny-talk
 @Canvas pLearn
 Parent=c
 Canvas.Left=0
-Canvas.Top=92
+Canvas.Top=96
 Width=360
-Height=548
-Background=#FFFFFF
+Height=544
+Background=#F4F1FB
 IsVisible=false
 
 @ComboBox cboLesson
@@ -278,6 +347,7 @@ Width=336
 Height=150
 FontSize=18
 SelectionChanged=PickLessonWord
+Background=#FFFFFF
 
 # how the word chosen is built: its roots, each with its meaning
 @TextBlock lblRoots
@@ -309,6 +379,10 @@ Width=164
 Height=48
 FontSize=16
 OnClick=Answer1
+CornerRadius=14
+Background=#FFFFFF
+BorderBrush=#DDD6FE
+BorderThickness=1.5
 
 @Button btnA2
 Parent=pLearn
@@ -318,6 +392,10 @@ Width=164
 Height=48
 FontSize=16
 OnClick=Answer2
+CornerRadius=14
+Background=#FFFFFF
+BorderBrush=#DDD6FE
+BorderThickness=1.5
 
 @Button btnA3
 Parent=pLearn
@@ -327,6 +405,10 @@ Width=164
 Height=48
 FontSize=16
 OnClick=Answer3
+CornerRadius=14
+Background=#FFFFFF
+BorderBrush=#DDD6FE
+BorderThickness=1.5
 
 @Button btnA4
 Parent=pLearn
@@ -336,6 +418,10 @@ Width=164
 Height=48
 FontSize=16
 OnClick=Answer4
+CornerRadius=14
+Background=#FFFFFF
+BorderBrush=#DDD6FE
+BorderThickness=1.5
 
 @TextBlock lblScore
 Parent=pLearn
@@ -357,6 +443,10 @@ Height=44
 FontSize=20
 Content=➡️
 OnClick=NextQuestion
+CornerRadius=22
+Background=#4F46E5
+Foreground=#FFFFFF
+BorderThickness=0
 
 @Script Opened
 Interpreter=lua
@@ -5733,6 +5823,8 @@ end
 function Tab(which)
   for _, t in ipairs({ "Chat", "Dict", "Learn" }) do
     Vml("SetProperty", "p" .. t, "IsVisible", t == which and "true" or "false")
+    Vml("SetProperty", "btnTab" .. t, "Background", t == which and "#FFFFFF" or "#6366F1")
+    Vml("SetProperty", "btnTab" .. t, "Foreground", t == which and "#4F46E5" or "#FFFFFF")
   end
 end
 
