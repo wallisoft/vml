@@ -269,8 +269,10 @@ class SystemCommands:
         except OSError as e:
             return json.dumps({"error": e.strerror or str(e)})
         only = str(showonly).lower() in ("1", "true", "yes")
-        shown = [n for n in names if (ignore.hidden(pats, n, os.path.isdir(os.path.join(p, n))) == only) or not pats]
-        return json.dumps({"shown": len(shown), "hidden": len(names) - len(shown), "names": shown[:12]})
+        dirs = {n for n in names if os.path.isdir(os.path.join(p, n))}
+        shown = [n for n in names if (ignore.hidden(pats, n, n in dirs) == only) or not pats]
+        return json.dumps({"shown": len(shown), "hidden": len(names) - len(shown), "names": shown[:12],
+                           "folders_out": len(dirs - set(shown))})       # (so the box can say when it's folders going)
 
     def cmd_IgnoreUsual(self):
         """The ready-made ignore lists, as JSON [{key, label, patterns}]."""

@@ -178,7 +178,7 @@ Parent=cHide
 Canvas.Left=20
 Canvas.Top=344
 Width=420
-Height=156
+Height=130
 AcceptsReturn=true
 FontFamily=monospace
 FontSize=13
@@ -187,9 +187,9 @@ TextChanged=HideTyped
 @TextBlock lblHidePreview
 Parent=cHide
 Canvas.Left=20
-Canvas.Top=508
+Canvas.Top=482
 Width=420
-Height=70
+Height=96
 TextWrapping=Wrap
 FontSize=13
 Foreground=#374151
@@ -263,8 +263,12 @@ function Preview()
   local total = (got.shown or 0) + (got.hidden or 0)
   local names = table.concat(got.names or {}, "   ")
   if (got.shown or 0) > #(got.names or {}) then names = names .. "   ..." end
+  local folders = got.folders_out or 0
   Vml("SetProperty", "lblHidePreview", "Text", "Shows " .. (got.shown or 0) .. " of the " .. total .. " things at the top"
-    .. ((got.hidden or 0) > 0 and (" (" .. got.hidden .. " left out)") or "") .. ":\n" .. (names ~= "" and names or "(nothing)"))
+    .. ((got.hidden or 0) > 0 and (" (" .. got.hidden .. " left out)") or "") .. ":\n" .. (names ~= "" and names or "(nothing)")
+    .. (folders > 0 and ("\n\n⚠ " .. folders .. (folders == 1 and " folder is" or " folders are") .. " left out, and everything in "
+        .. (folders == 1 and "it" or "them") .. ". Untick Folders to keep them.") or ""))
+  if folders > 0 then Vml("SetProperty", "lblHidePreview", "Foreground", "#92400E") end
 end
 
 function SetRules(lines)
