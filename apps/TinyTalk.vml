@@ -24,10 +24,15 @@
 
 @Window TinyTalk
 Title=tiny-talk
-Version=0.7.0
+Version=0.7.1
 Width=360
 Height=652
 WebAddress=https://tiny-talk.world/chat.html
+AppBar=true
+Terms=https://tiny-talk.world/terms.html
+About=Say it in pictures anyone can read. Blissymbols and their words: Blissymbolics Communication International, CC BY-SA 4.0. The app's code: MIT, by Wallisoft.
+UpdateFrom=https://visualised.org/downloads/TinyTalk.vml
+UpdateApk=https://visualised.org/downloads/TinyTalk.apk
 OnOpened=Opened
 AndroidPackage=io.visualised.made.tinytalk.k7b1ce6cd
 AndroidKey=7b1ce6cd
