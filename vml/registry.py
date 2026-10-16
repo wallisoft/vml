@@ -1475,9 +1475,19 @@ class ImageWidget(QFrame):
         if src.startswith("data:") and "," in src:
             import base64
             try:
-                pix.loadFromData(base64.b64decode(src.split(",", 1)[1]))
+                data = base64.b64decode(src.split(",", 1)[1])
             except ValueError:
-                pass
+                data = b""
+            if src[5:18].lower() == "image/svg+xml":           # a drawing: drawn afresh at whatever size, so always sharp
+                try:
+                    from PySide6.QtCore import QByteArray
+                    from PySide6.QtSvg import QSvgRenderer
+                    r = QSvgRenderer(QByteArray(data))
+                    if r.isValid():
+                        self.svg = r
+                except ImportError:
+                    pass
+            pix.loadFromData(data)
         elif src:
             import os
             path = os.path.expanduser(src)
@@ -1495,6 +1505,9 @@ class ImageWidget(QFrame):
             if pix.isNull() and self.svg is None and path.lower().endswith(".svg") and os.path.exists(path[:-4] + ".png"):
                 pix.load(path[:-4] + ".png")                   # no SVG support in this Qt: the picture's PNG, if it has one
         self.pix = None if pix.isNull() else pix
+        if self.pix is None and self.svg is not None:          # (no SVG picture plugin in this Qt: draw it anyway)
+            size = self.svg.defaultSize()
+            self.pix = _QPixmap(max(1, size.width()), max(1, size.height()))
         self.updateGeometry()
         self.update()
 
