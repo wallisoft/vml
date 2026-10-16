@@ -79,7 +79,7 @@ V_ALIGN = {"Top": Qt.AlignTop, "Bottom": Qt.AlignBottom, "Center": Qt.AlignVCent
 @dataclass
 class Prop:
     name: str
-    kind: str = "text"                 # text | number | bool | colour | choice | thickness | list
+    kind: str = "text"                 # text | number | bool | colour | choice | thickness | list | slider (options: low, high)
     group: str = "Common"
     options: tuple = ()                # for choice
     apply: Optional[Callable] = None   # (node, value) -> None; None = just stored (read by parent layout etc.)
@@ -88,7 +88,7 @@ class Prop:
 
     @property
     def editor(self):
-        return {"bool": "checkbox", "choice": "dropdown", "colour": "colour", "number": "number"}.get(self.kind, "text")
+        return {"bool": "checkbox", "choice": "dropdown", "colour": "colour", "number": "number", "slider": "slider"}.get(self.kind, "text")
 
 
 @dataclass
@@ -140,15 +140,21 @@ def restyle(node):
         merged[""] = {**defaults, **base}
         if "hover" not in merged:
             merged["hover"] = {"border": "1px solid rgba(255,255,255,0.35)"}
+    opacity = merged.get("", {}).pop("opacity", None)    # (an effect on the desktop, not part of a style sheet)
     sheet, drop, left_out = styles.qt_sheet(f"#{css_id(node.name)}", merged)
     node.widget.setStyleSheet(sheet)
+    # Effects go on the box the control sits in (its host), not the control: a control's own effect is cut off at its
+    # edges, so a shadow showed only as a hard strip.
+    owner = getattr(node, "host", None) or node.widget
+    if owner is not node.widget and node.widget.graphicsEffect() is not None:
+        node.widget.setGraphicsEffect(None)
     if drop:
         from PySide6.QtWidgets import QGraphicsDropShadowEffect
         from PySide6.QtGui import QColor
-        fx = node.widget.graphicsEffect()
+        fx = owner.graphicsEffect()
         if not isinstance(fx, QGraphicsDropShadowEffect):
-            fx = QGraphicsDropShadowEffect(node.widget)
-            node.widget.setGraphicsEffect(fx)
+            fx = QGraphicsDropShadowEffect(owner)
+            owner.setGraphicsEffect(fx)
         x, y, blur, colour_ = drop
         fx.setOffset(x, y)
         fx.setBlurRadius(blur)
@@ -158,8 +164,21 @@ def restyle(node):
             fx.setColor(QColor(r, g, b, a))
         else:
             fx.setColor(QColor(c))
-    elif node.widget.graphicsEffect() is not None and type(node.widget.graphicsEffect()).__name__ == "QGraphicsDropShadowEffect":
-        node.widget.setGraphicsEffect(None)
+    elif opacity not in (None, ""):
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        fx = owner.graphicsEffect()
+        if not isinstance(fx, QGraphicsOpacityEffect):
+            fx = QGraphicsOpacityEffect(owner)
+            owner.setGraphicsEffect(fx)
+        try:
+            fx.setOpacity(max(0.0, min(1.0, float(opacity))))
+        except ValueError:
+            pass
+    elif owner.graphicsEffect() is not None and type(owner.graphicsEffect()).__name__ in (
+            "QGraphicsDropShadowEffect", "QGraphicsOpacityEffect"):
+        owner.setGraphicsEffect(None)
+    if drop and opacity not in (None, ""):
+        left_out.append("opacity with a shadow")         # (a desktop control has one effect: the shadow wins)
     for what in left_out:
         if what not in _LEFT_OUT:
             _LEFT_OUT.add(what)
@@ -168,6 +187,12 @@ def restyle(node):
                 log(f"'{what}' (on {node.name}, and any like it) shows on the web only: the desktop leaves it out")
             except Exception:
                 pass
+
+
+def set_shadow(node):
+    from . import styles
+    node.style["box-shadow"] = styles.shadow_level(node.props.get("Shadow"), node.props.get("ShadowColour")) or None
+    restyle(node)
 
 
 def style(key, fmt=lambda v: v):
@@ -246,6 +271,10 @@ COMMON = [
     Prop("BorderBrush", "colour", "Appearance", apply=set_border),
     Prop("BorderThickness", "thickness", "Appearance", apply=set_border),
     Prop("CornerRadius", "number", "Appearance", apply=style("border-radius", lambda v: f"{int(num(str(v).split(',')[0]))}px")),
+    Prop("Shadow", "slider", "Appearance", options=("0", "10"), apply=lambda n, v: set_shadow(n)),     # 0 none .. 10 floating
+    Prop("ShadowColour", "colour", "Appearance", apply=lambda n, v: set_shadow(n)),                  # black unless said
+    Prop("Opacity", "slider", "Appearance", options=("0", "100"),                                      # 100 solid .. 0 see-through
+         apply=style("opacity", lambda v: None if num(v, 100) >= 100 else f"{max(0, num(v, 100)) / 100:g}")),
     Prop("Class", "text", "Appearance", apply=lambda n, v: restyle(n)),        # shared @Style names (vml/styles.py)
     Prop("Style", "text", "Appearance", apply=lambda n, v: restyle(n)),        # CSS for this control alone
     Prop("FontSize", "number", "Text", apply=style("font-size", lambda v: f"{int(num(v, 12))}px")),

@@ -15,7 +15,7 @@ import json
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QMenuBar,
-                               QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
+                               QScrollArea, QSizePolicy, QSlider, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from .registry import (COMMON, REGISTRY, ControlType, Prop, anchor_set, anchored_rect, colour, num, register, theme_sheets,
                        truthy)
@@ -878,6 +878,26 @@ class GridView(QScrollArea):
             ed.setChecked(truthy(value) if value != "" else p["name"] in ("IsEnabled", "IsVisible"))
             ed.toggled.connect(lambda on, n=name: self.commit(n, "true" if on else "false"))
             widget = ed
+        elif kind == "slider":
+            low, high = (int(num(x)) for x in (list(p.get("options") or []) + ["0", "100"])[:2])
+            start = int(num(value, high if name == "Opacity" else low))
+            box = QWidget()
+            h = QHBoxLayout(box)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(6)
+            bar = QSlider(Qt.Horizontal)
+            bar.setRange(low, high)
+            bar.setValue(start)
+            spin = QSpinBox()
+            spin.setRange(low, high)
+            spin.setValue(start)
+            spin.setFixedWidth(52)
+            bar.valueChanged.connect(spin.setValue)
+            spin.valueChanged.connect(bar.setValue)
+            spin.valueChanged.connect(lambda v, n=name: self.commit(n, str(v)))   # (live: the control changes as it slides)
+            h.addWidget(bar, 1)
+            h.addWidget(spin)
+            ed, widget = spin, box
         elif kind == "choice":
             ed = QComboBox()
             ed.addItems([""] + list(p["options"]))
@@ -941,6 +961,8 @@ class GridView(QScrollArea):
                 ed.setChecked(truthy(value))
             elif isinstance(ed, QComboBox):
                 ed.setCurrentText(str(value))
+            elif isinstance(ed, QSpinBox):
+                ed.setValue(int(num(value, ed.maximum() if prop == "Opacity" else ed.minimum())))
             else:
                 ed.setText(str(value))
         finally:

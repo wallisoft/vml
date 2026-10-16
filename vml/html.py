@@ -172,6 +172,13 @@ class Page:
             css.append(f"border-style:solid;border-color:{colour(brush or '#808080')};border-width:{t}px {r}px {b}px {l}px")
         if p.get("CornerRadius"):
             css.append(f"border-radius:{int(num(str(p['CornerRadius']).split(',')[0]))}px")
+        if p.get("Shadow") not in (None, ""):
+            from . import styles as _styles
+            drop = _styles.shadow_level(p.get("Shadow"), p.get("ShadowColour"))
+            if drop:
+                css.append(f"box-shadow:{drop}")
+        if p.get("Opacity") not in (None, "") and num(p.get("Opacity"), 100) < 100:
+            css.append(f"opacity:{max(0, num(p.get('Opacity'), 100)) / 100:g}")
         if p.get("Padding"):
             l, t, r, b = thickness(p["Padding"])
             css.append(f"padding:{t}px {r}px {b}px {l}px")
@@ -239,7 +246,8 @@ class Page:
             styled = (f' data-class="{esc(p["Class"])}"' if p.get("Class") else "") + (f' data-style="{esc(p["Style"])}"' if p.get("Style") else "")
         disabled = " disabled" if str(p.get("IsEnabled", "true")).lower() == "false" else ""
         tip = f' title="{esc(p["ToolTip"])}"' if p.get("ToolTip") else ""
-        attrs = f'id="{eid}" data-name="{esc(name)}" data-type="{ctype}"{tip}{styled}'
+        lift = "".join(f' data-{k.lower()}="{esc(p[k])}"' for k in ("Shadow", "ShadowColour") if p.get(k))
+        attrs = f'id="{eid}" data-name="{esc(name)}" data-type="{ctype}"{tip}{styled}{lift}'
         kids = self.kids.get(cid, [])
 
         def inner(ptype, ref_size=None):
@@ -816,6 +824,8 @@ const commands = {
     }
     else if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = String(Math.round(Number(value) || 0));
     else if (prop === "Class" || prop === "Style") restyle(e, prop, value);
+    else if (prop === "Shadow" || prop === "ShadowColour") { e.dataset[prop.toLowerCase()] = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour) || "none"; }
+    else if (prop === "Opacity") e.style.opacity = String(Math.max(0, Math.min(100, Number(value) || 0)) / 100);
     else if (prop === "Text" || prop === "Content" || prop === "Header") setText(e, value);
     else if (css[prop]) e.style[css[prop]] = value;
     else if (prop === "FontSize") e.style.fontSize = value + "px";
@@ -1797,6 +1807,19 @@ function parseCss(text) {
   while ((m = re.exec(text))) { base += text.slice(pos, m.index) + ";"; pos = re.lastIndex; const st = STYLE_STATES[m[1].toLowerCase()]; if (st) add(st, m[2]); }
   add("", base + text.slice(pos));
   return sheet;
+}
+// Shadow=0..10 and ShadowColour, as vml/styles.py shadow_level() makes them
+function shadowCss(level, tint) {
+  const n = Math.max(0, Math.min(10, Math.round(Number(level) || 0)));
+  if (!n) return "";
+  let t = String(tint || "").trim().replace(/^#/, "");
+  if (t.length === 8) t = t.slice(2);
+  if (t.length === 3) t = t.split("").map(c => c + c).join("");
+  const named = { white: [255, 255, 255], red: [255, 0, 0], blue: [0, 0, 255], green: [0, 128, 0], gray: [128, 128, 128], grey: [128, 128, 128], purple: [128, 0, 128], orange: [255, 165, 0] };
+  const rgb = /^[0-9a-f]{6}$/i.test(t) ? [0, 2, 4].map(i => parseInt(t.slice(i, i + 2), 16)) : (named[t.toLowerCase()] || [0, 0, 0]);
+  const tinted = rgb.some(v => v);
+  const alpha = (tinted ? 0.18 : 0.10) + n * (tinted ? 0.03 : 0.017);
+  return `0 ${Math.round(n * 1.6)}px ${Math.round(n * 3.6)}px rgba(${rgb.join(",")},${alpha.toFixed(2)})`;
 }
 function mergedStyle(e) {
   const merged = {};

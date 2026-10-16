@@ -85,6 +85,32 @@ def parse(text):
     return sheet
 
 
+NAMED = {"black": (0, 0, 0), "white": (255, 255, 255), "red": (255, 0, 0), "blue": (0, 0, 255), "green": (0, 128, 0),
+         "gray": (128, 128, 128), "grey": (128, 128, 128), "purple": (128, 0, 128), "orange": (255, 165, 0)}
+
+
+def shadow_level(level, tint=""):
+    """Shadow=0..10 (and ShadowColour) -> a box-shadow: 0 none, 1 a hairline lift, 10 floating well clear."""
+    try:
+        n = max(0, min(10, int(round(float(level or 0)))))
+    except ValueError:
+        n = 0
+    if not n:
+        return ""
+    t = str(tint or "").strip().lstrip("#")
+    if len(t) == 8:                                     # (Avalonia's #aarrggbb: the colour, not its alpha)
+        t = t[2:]
+    if len(t) == 3:
+        t = "".join(c * 2 for c in t)
+    try:
+        r, g, b = (int(t[i:i + 2], 16) for i in (0, 2, 4)) if len(t) == 6 else NAMED.get(t.lower(), (0, 0, 0))
+    except ValueError:
+        r, g, b = 0, 0, 0
+    tinted = (r, g, b) != (0, 0, 0)
+    alpha = (0.18 if tinted else 0.10) + n * (0.03 if tinted else 0.017)
+    return f"0 {round(n * 1.6)}px {round(n * 3.6)}px rgba({r},{g},{b},{alpha:.2f})"
+
+
 def merge(*sheets):
     """Later sheets win, property by property and state by state. -> {state: {prop: value}} (order kept)."""
     out = {}

@@ -119,13 +119,23 @@ def test_desktop():
         assert "#btnOne:hover" in s1 and "#btnOne:pressed" in s1
         assert "qlineargradient" in s2 and "border: none" in s2, s2          # "pill go": go wins where they differ
         assert "border-radius: 20px" in s3 and "6px" not in s3, s3           # CornerRadius on a coloured button, at last
-        fx = n["lblCard"].widget.graphicsEffect()
+        fx = n["lblCard"].host.graphicsEffect()
         assert fx is not None and fx.blurRadius() == 18 and fx.yOffset() == 6
         assert "#txtName:focus" in n["txtName"].widget.styleSheet()
         eng.cmd_SetProperty("btnOne", "Class", "go")
         assert "qlineargradient" in n["btnOne"].widget.styleSheet()
         eng.cmd_SetProperty("lblCard", "Style", "background: #FEF3C7")
-        assert n["lblCard"].widget.graphicsEffect() is None and "#FEF3C7" in n["lblCard"].widget.styleSheet()
+        assert n["lblCard"].host.graphicsEffect() is None and "#FEF3C7" in n["lblCard"].widget.styleSheet()
+        eng.cmd_SetProperty("btnOne", "Shadow", "5")                          # the easy way: a level, 0..10
+        fx = n["btnOne"].host.graphicsEffect()
+        assert fx is not None and type(fx).__name__ == "QGraphicsDropShadowEffect" and fx.blurRadius() == 18, fx
+        eng.cmd_SetProperty("btnOne", "Shadow", "0")
+        assert n["btnOne"].host.graphicsEffect() is None
+        eng.cmd_SetProperty("btnOne", "Opacity", "40")
+        fx = n["btnOne"].host.graphicsEffect()
+        assert type(fx).__name__ == "QGraphicsOpacityEffect" and abs(fx.opacity() - 0.4) < 0.01
+        eng.cmd_SetProperty("btnOne", "Opacity", "100")
+        assert n["btnOne"].host.graphicsEffect() is None
 
 
 def test_web():
