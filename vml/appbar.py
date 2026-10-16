@@ -8,8 +8,10 @@ Clicking the ⚠ installs it. How newer decides how loud: a new major version (2
     AppBar=true
     Terms=https://tiny-talk.world/terms.html                 (optional: no Terms link without it)
     About=Say it in pictures anyone can read.                 (optional: a line or two for the About box)
-    UpdateFrom=https://visualised.org/downloads/TinyTalk.vml  (optional: where the newest copy of this form is,
-                                                               or github:owner/repo for an app released on GitHub)
+    UpdateFrom=https://visualised.org/downloads/TinyTalk.vml  (optional: where the newest copy of this form is;
+                                                               github:owner/repo for an app released on GitHub;
+                                                               github:owner/repo/path/App.vml for a .vml app kept
+                                                               in a public repo: tags stable, main the edge)
     UpdateApk=https://visualised.org/downloads/TinyTalk.apk   (optional: the same for the phone app)
 
 If the form has a control called StatusBar, the bar's pieces sit at its right-hand end instead of in a strip of
@@ -118,6 +120,30 @@ def github_latest(repo, asset):
         return ""
 
 
+# ---- a .vml app kept in a public GitHub repo: UpdateFrom=github:owner/repo/path/App.vml (@branch, default main).
+# Stable: the repo's release tags (v1.3.0...), read the way git reads them, not through the API; a new major or minor
+# one turns the ⚠ red or yellow, and installs that tag's copy of the file. Edge: the file on the branch, newer than
+# any tag: only About mentions it ("Latest from main"), for whoever wants it. Either way the old copy is kept as
+# .vml.bak, and About offers to go back to it.
+VMLFILE = re.compile(r"^github:([\w.-]+)/([\w.-]+)/(.+?\.vml)(?:@([\w./-]+))?$", re.I)
+
+
+def github_vml(url):
+    m = VMLFILE.match(str(url or "").strip())
+    return {"repo": f"{m.group(1)}/{m.group(2)}", "path": m.group(3), "branch": m.group(4) or "main"} if m else None
+
+
+def github_tags(repo):
+    """The repo's tags that are versions, newest last, from git's own list of refs (anyone may read a public one)."""
+    data = _get(f"https://github.com/{repo}.git/info/refs?service=git-upload-pack", 4 * 1024 * 1024).decode("latin-1")
+    tags = {t for t in re.findall(r"refs/tags/([^\s^]+)", data) if number(t)}
+    return sorted(tags, key=number)
+
+
+def raw_url(spec, ref):
+    return f"https://raw.githubusercontent.com/{spec['repo']}/{ref}/{spec['path']}"
+
+
 def wanted(engine, node):
     from .projects import is_designer
     return node.type.name == "Window" and (str(node.props.get("AppBar", "")).lower() in ("true", "1", "yes")
@@ -151,7 +177,7 @@ class AppBar(QWidget):
         else:
             self.version, self.title = str(p.get("Version") or ""), str(p.get("Title") or node.name)
             self.terms = str(p.get("Terms") or "")
-        self.latest, self.level, self.info = "", "", {}
+        self.latest, self.level, self.info, self.edge_version = "", "", {}, ""
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 0, 8, 0)
         lay.setSpacing(6)
@@ -198,6 +224,17 @@ class AppBar(QWidget):
             try:
                 if self.designer:
                     out = json.loads(self.engine.cmd_CheckForUpdate())
+                elif github_vml(url):
+                    spec = github_vml(url)
+                    tags = github_tags(spec["repo"])
+                    stable = tags[-1] if tags else ""
+                    try:
+                        edge = form_version(_get(raw_url(spec, spec["branch"]), 32768, rng=True).decode("utf-8", "replace"))
+                    except Exception:
+                        edge = ""
+                    out = {"spec": spec, "tag": stable, "latest": stable.lstrip("vV"), "edge": edge,
+                           "url": f"https://github.com/{spec['repo']}/releases"}
+                    out["newer"] = newer(out["latest"], self.version)
                 elif github_repo(url):
                     repo = github_repo(url)
                     out = {"latest": github_latest(repo, github_asset(self.node.name)),
@@ -214,6 +251,8 @@ class AppBar(QWidget):
 
     def _checked(self, out):
         self.info = out or {}
+        edge = self.info.get("edge", "")
+        self.edge_version = edge if edge and newer(edge, self.version) and newer(edge, self.info.get("latest") or "0") else ""
         if self.info.get("newer") and not self.info.get("store"):
             self.latest = self.info.get("latest", "")
             self.level = level(self.latest, self.version) or "fix"
@@ -245,13 +284,53 @@ class AppBar(QWidget):
         else:
             lines += ["", f"Made with Visualised {__version__}."]
         from . import dialogs
+        buttons = []
         if self.latest:
             lines += ["", f"{self.title} {self.latest} is available."]
-            if dialogs.choose(self.window(), f"About {self.title}", "\n".join(lines), ("Download now", "Later"),
-                              self.edge()) == "Download now":
-                self.install(asked=True)
+            buttons.append(f"Install {self.latest}")
+        if self.edge_version:
+            lines += ["", f"The latest from {self.info['spec']['branch']} is {self.edge_version}: not a release yet, so not tested"
+                          " as much. You can go back afterwards."]
+            buttons.append(f"Latest from {self.info['spec']['branch']} ({self.edge_version})")
+        back = self.backup()
+        if back:
+            lines += ["", f"The copy before the last update ({back}) is kept, if this one doesn't suit."]
+            buttons.append(f"Go back to {back}")
+        if not buttons:
+            dialogs.message(self.window(), f"About {self.title}", "\n".join(lines), self.edge())
             return
-        dialogs.message(self.window(), f"About {self.title}", "\n".join(lines), self.edge())
+        picked = dialogs.choose(self.window(), f"About {self.title}", "\n".join(lines), tuple(buttons) + ("Close",), self.edge())
+        if picked.startswith("Install "):
+            self.install(asked=True)
+        elif picked.startswith("Latest from "):
+            self.install(asked=True, edge=True)
+        elif picked.startswith("Go back to "):
+            self.go_back()
+
+    def backup(self):
+        """The Version of the copy kept from before the last update ("" if there's none)."""
+        if self.designer or not str(self.node.scope).endswith(".vml"):
+            return ""
+        try:
+            with open(str(self.node.scope) + ".bak", "rb") as f:
+                return form_version(f.read(65536).decode("utf-8", "replace"))
+        except OSError:
+            return ""
+
+    def go_back(self):
+        """Swap the kept copy back in (the newer one becomes the kept copy, so this can be undone too) and reopen."""
+        path = Path(self.node.scope)
+        bak, tmp = Path(str(path) + ".bak"), Path(str(path) + ".swap")
+        try:
+            path.replace(tmp)
+            bak.replace(path)
+            tmp.replace(bak)
+        except OSError as exc:
+            self.say(f"Go back", f"It couldn't swap the copies back:\n\n{exc}")
+            return
+        self.engine.log_line(f"{path.name}: back to the copy kept before the last update")
+        subprocess.Popen(restart_command(), cwd=os.getcwd())
+        QApplication.quit()
 
     def edge(self):
         """The boxes' frame: the colour of this window's menu bar, as the app's own boxes have."""
@@ -265,8 +344,9 @@ class AppBar(QWidget):
         dialogs.message(self.window(), title, text, self.edge())
 
     # ---- installing the newer one
-    def install(self, asked=False):
+    def install(self, asked=False, edge=False):
         from . import dialogs
+        self._edge_install = edge
         if not asked and not dialogs.confirm(self.window(), f"Update {self.title}",
                                              f"{self.title} {self.latest} is out (this is {self.version}).\n\nInstall it now? "
                                              f"{self.title} will close and open again.", self.edge()):
@@ -274,7 +354,7 @@ class AppBar(QWidget):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             problem = self._install_visualised() if self.designer else \
-                self._install_release() if self.info.get("repo") else self._install_form()
+                self._install_release() if self.info.get("repo") and not self.info.get("spec") else self._install_form()
         except Exception as exc:
             problem = str(exc)
         finally:
@@ -285,6 +365,9 @@ class AppBar(QWidget):
 
     def _install_form(self):
         url = str(self.node.props.get("UpdateFrom") or "")
+        spec = self.info.get("spec")
+        if spec:                                         # a GitHub repo's file: the release tag's copy, or the branch's
+            url = raw_url(spec, spec["branch"] if getattr(self, "_edge_install", False) else self.info["tag"])
         data = _get(url, 64 * 1024 * 1024)
         text = data.decode("utf-8")
         got = form_version(text)
