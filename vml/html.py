@@ -294,6 +294,28 @@ class Page:
         if ctype == "TreeView":
             paths = [x.strip() for x in re.split(r"[,\n]", str(p.get("Items", ""))) if x.strip()]
             return f'<div {attrs} class="tree" tabindex="0" data-paths="{esc(json.dumps(paths))}" style="{";".join(css)}"></div>'
+        if ctype in ("ColorPicker", "DatePicker", "TimePicker", "NumberBox"):          # the browser's own pickers (vml/pickers.py)
+            kind = {"ColorPicker": "color", "DatePicker": "date", "TimePicker": "time", "NumberBox": "number"}[ctype]
+            value = str(p.get("Value", ""))
+            if ctype == "ColorPicker":
+                value = (value if re.fullmatch(r"#[0-9A-Fa-f]{6}", value) else "#4F46E5").lower()
+            elif ctype == "DatePicker" and not value:
+                import datetime
+                value = datetime.date.today().isoformat()
+            extra = ""
+            if ctype == "NumberBox":
+                decimals = int(num(p.get("Decimals"), 0))
+                step = p.get("Step") or (1 if decimals == 0 else 10 ** -decimals)
+                extra = f' min="{esc(p.get("Minimum", "0"))}" max="{esc(p.get("Maximum", "100"))}" step="{esc(step)}"'
+                value = value or str(p.get("Minimum", "0"))
+            elif ctype == "DatePicker":
+                extra = "".join(f' {a}="{esc(p[k])}"' for k, a in (("Minimum", "min"), ("Maximum", "max")) if p.get(k))
+            return f'<input type="{kind}" {attrs} class="vpick" value="{esc(value)}"{extra} style="{";".join(css)}"{disabled}>'
+        if ctype == "ToggleSwitch":
+            checked = " checked" if str(p.get("IsChecked", "")).lower() == "true" else ""
+            accent = f"--accent:{colour(p['Accent'])};" if p.get("Accent") else ""
+            return (f'<label {attrs} class="cb tgl" style="{accent}{";".join(css)}"><input type="checkbox" role="switch"{checked}{disabled}>'
+                    f'<i></i><span>{esc(p.get("Content", ""))}</span></label>')
         if ctype == "CheckBox":
             checked = " checked" if str(p.get("IsChecked", "")).lower() == "true" else ""
             return (f'<label {attrs} class="cb" style="{";".join(css)}"><input type="checkbox"{checked}{disabled}>'
@@ -564,6 +586,14 @@ TEMPLATE = r"""<!DOCTYPE html>
   .tb { overflow: hidden; text-overflow: ellipsis; }
   .canvas > *, .frame > * { box-sizing: border-box; }
   .slide { margin: 0; padding: 0; accent-color: #2563EB; touch-action: none; }
+  .vpick { box-sizing: border-box; font: inherit; }
+  input[type=color].vpick { padding: 0 2px; cursor: pointer; }
+  .tgl input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .tgl i { flex: 0 0 40px; height: 22px; border-radius: 11px; background: #D1D5DB; position: relative; transition: background .15s; cursor: pointer; }
+  .tgl i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .tgl input:checked + i { background: var(--accent, #4F46E5); }
+  .tgl input:checked + i::after { left: 21px; }
+  .tgl input:disabled + i { opacity: .45; }
   .pbar { position: absolute; overflow: hidden; display: flex; align-items: center; }
   .pbar::before { content: ""; position: absolute; inset: 0; background: var(--track); border-radius: 3px; }
   .pbar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--bar); border-radius: 3px; }
@@ -835,6 +865,8 @@ const commands = {
       drawBar(e);
     }
     else if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = String(Math.round(Number(value) || 0));
+    else if (e.matches(".vpick") && ["Value", "Minimum", "Maximum", "Step"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max", Step: "step" }[prop]] = e.type === "color" ? String(value).toLowerCase() : String(value);
+    else if (e.matches(".tgl") && prop === "Accent") e.style.setProperty("--accent", value);
     else if (prop === "Class" || prop === "Style") restyle(e, prop, value);
     else if (prop === "Shadow" || prop === "ShadowColour" || prop === "ShadowStyle") { e.dataset[prop.toLowerCase()] = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour, e.dataset.shadowstyle, e.dataset.gbase) || "none"; }
     else if (prop === "GradientTo" || prop === "GradientDirection" || (prop === "Background" && e.dataset.gradientto)) {
@@ -890,6 +922,7 @@ const commands = {
     if (prop === "IsChecked") return e.querySelector("input").checked ? "true" : "false";
     if (e.dataset.type === "Timer") { if (prop === "Interval") return e.dataset.interval; if (prop === "IsEnabled") return e.dataset.on; }
     if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) return e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]];
+    if (e.matches(".vpick") && ["Value", "Minimum", "Maximum", "Step"].includes(prop)) return e.type === "color" ? e.value.toUpperCase() : e[{ Value: "value", Minimum: "min", Maximum: "max", Step: "step" }[prop]];
     if (e.matches(".pbar") && ["Value", "Minimum", "Maximum"].includes(prop)) return e.dataset[BAR_PROPS[prop]];
     if (e.matches(".grid")) {
       if (prop === "SelectedIndex") return String(e._sel);

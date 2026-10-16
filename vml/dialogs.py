@@ -11,6 +11,21 @@ NEUTRAL = "#6B7280"
 EDGE = 3                                                         # the frame's width, as every form's: plain on any background
 
 
+def strong(colour):
+    """A frame colour that shows against a white or pale form: darkened until it stands out (3:1 against white)."""
+    c = QColor(colour)
+
+    def lum(q):
+        ch = [x / 255 for x in (q.red(), q.green(), q.blue())]
+        ch = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in ch]
+        return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+    for _ in range(12):
+        if 1.05 / (lum(c) + 0.05) >= 3.0:
+            break
+        c = c.darker(118)
+    return c
+
+
 def box_sheet(edge):
     """The look of a box: white, quiet text, and buttons like the rest of Visualised (the first in the edge's colour)."""
     ink = "#FFFFFF" if edge.lightnessF() < 0.6 else "#111827"
@@ -97,7 +112,7 @@ class Box(_Framed, QDialog):
         self.setWindowTitle(str(title))
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)  # our own bar and edge: one frame, all the way round
         self.setModal(True)
-        self.edge = QColor(edge or NEUTRAL)
+        self.edge = strong(edge or NEUTRAL)
         self.setObjectName("VmlBox")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(box_sheet(self.edge))
@@ -324,7 +339,7 @@ class FileBox(_Framed, QDialog):
         self.setWindowTitle(str(title))
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setModal(True)
-        self.edge = QColor(edge or NEUTRAL)
+        self.edge = strong(edge or NEUTRAL)
         self.path = ""
         frame = QVBoxLayout(self)
         frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)
@@ -440,7 +455,7 @@ class ColourBox(_Framed, QDialog):
         self.setWindowTitle(str(title))
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setModal(True)
-        self.edge = QColor(edge or NEUTRAL)
+        self.edge = strong(edge or NEUTRAL)
         self.colour = QColor()
         frame = QVBoxLayout(self)
         frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)

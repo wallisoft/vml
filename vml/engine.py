@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QVBoxLayout, QW
 from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout_remove, make_box, theme_sheets,
                        truthy)
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
+from . import pickers  # noqa: F401  (registers ColorPicker, DatePicker, TimePicker, NumberBox, ToggleSwitch)
 from .store import LUA_DIR, PARSER_LOG, Store
 from .data import DataCommands
 from .projects import ProjectCommands
