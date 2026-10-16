@@ -740,6 +740,31 @@ def shrinkable(editor):
     editor.setSizePolicy(QSizePolicy.Ignored, editor.sizePolicy().verticalPolicy())
 
 
+# The Style box's ready-made looks: plain CSS (vml/styles.py), the same on the desktop and the web. Each replaces
+# whatever Style the control had; Background, Shadow and the rest still apply underneath.
+STYLE_PRESETS = (
+    ("Card", "background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 14px; box-shadow: 0 6px 20px rgba(17,24,39,0.10)"),
+    ("Primary button", "background: linear-gradient(135deg, #6366F1, #4F46E5); color: #FFFFFF; border: none; border-radius: 10px;"
+                       " font-weight: 600; :hover { background: #4338CA } :pressed { background: #3730A3 }"),
+    ("Outline button", "background: transparent; color: #4F46E5; border: 2px solid #4F46E5; border-radius: 10px; font-weight: 600;"
+                       " :hover { background: #EEF2FF }"),
+    ("Soft button", "background: #EEF2FF; color: #3730A3; border: none; border-radius: 10px; font-weight: 600;"
+                    " :hover { background: #E0E7FF }"),
+    ("Pill", "background: #F3F4F6; color: #111827; border: 1px solid #E5E7EB; border-radius: 18px; padding: 4px 16px;"
+             " :hover { background: #E5E7EB }"),
+    ("Dark", "background: #111827; color: #F9FAFB; border: none; border-radius: 10px; :hover { background: #1F2937 }"),
+    ("Danger", "background: #DC2626; color: #FFFFFF; border: none; border-radius: 10px; font-weight: 600; :hover { background: #B91C1C }"),
+    ("Success", "background: #16A34A; color: #FFFFFF; border: none; border-radius: 10px; font-weight: 600; :hover { background: #15803D }"),
+    ("Glow", "border: 1px solid #A5B4FC; border-radius: 12px; box-shadow: 0 0 18px rgba(99,102,241,0.45)"),
+    ("Sunset", "background: linear-gradient(135deg, #F59E0B, #EC4899); color: #FFFFFF; border: none; border-radius: 12px"),
+    ("Ocean", "background: linear-gradient(135deg, #06B6D4, #3B82F6); color: #FFFFFF; border: none; border-radius: 12px"),
+    ("Input field", "background: #FFFFFF; border: 2px solid #DDD6FE; border-radius: 12px; padding: 0 10px;"
+                    " :focus { border: 2px solid #6366F1 }"),
+    ("Note", "background: #FEF3C7; color: #78350F; border: 1px solid #FDE68A; border-radius: 10px; padding: 4px 8px"),
+    ("(none)", ""),
+)
+
+
 class GridView(QScrollArea):
     def __init__(self, node):
         super().__init__()
@@ -919,9 +944,49 @@ class GridView(QScrollArea):
                 h.addWidget(ed, 1)
                 h.addWidget(Swatch(ed))
                 widget = box
+            elif name in ("Style", "Class"):
+                box = QWidget()
+                h = QHBoxLayout(box)
+                h.setContentsMargins(0, 0, 0, 0)
+                h.setSpacing(4)
+                h.addWidget(ed, 1)
+                pick = QToolButton()
+                pick.setText("\u25be")
+                pick.setFixedSize(20, 20)
+                pick.setToolTip("Ready-made styles" if name == "Style" else "This form's shared styles (@Style)")
+                pick.setStyleSheet("QToolButton { border: 1px solid #9ca3af; border-radius: 3px; background: #fff; }")
+                pick.clicked.connect(lambda _=False, n=name, e=ed, b=pick: self.pick_style(n, e, b))
+                h.addWidget(pick)
+                widget = box
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.editors[name] = ed
         return widget
+
+    def pick_style(self, prop, ed, button):
+        """Style: a menu of ready-made looks (each replaces the Style). Class: the form's @Style names, ticked on and off."""
+        menu = QMenu(button)
+        if prop == "Style":
+            for label, css in STYLE_PRESETS:
+                act = menu.addAction(label)
+                act.setToolTip(css)
+                act.triggered.connect(lambda _=False, c=css: (ed.setText(c), self.commit("Style", c)))
+        else:
+            have = [c for c in str(ed.text()).replace(",", " ").split() if c]
+            names = sorted(getattr(self.engine, "styles", {}) or {})
+            if not names:
+                none = menu.addAction("No shared styles in this form yet (@Style blocks)")
+                none.setEnabled(False)
+            for n in names:
+                act = menu.addAction(n)
+                act.setCheckable(True)
+                act.setChecked(n in have)
+
+                def toggle(on, n=n):
+                    now = [c for c in str(ed.text()).replace(",", " ").split() if c and c != n] + ([n] if on else [])
+                    ed.setText(" ".join(now))
+                    self.commit("Class", " ".join(now))
+                act.toggled.connect(toggle)
+        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
 
     def commit(self, prop, value):
         if self._loading or not self.target:

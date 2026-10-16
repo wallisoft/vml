@@ -89,6 +89,16 @@ NAMED = {"black": (0, 0, 0), "white": (255, 255, 255), "red": (255, 0, 0), "blue
          "gray": (128, 128, 128), "grey": (128, 128, 128), "purple": (128, 0, 128), "orange": (255, 165, 0)}
 
 
+GRADIENT = {"down": "to bottom", "right": "to right", "diagonal": "135deg", "up": "to top", "left": "to left"}
+
+
+def gradient(start, to, direction=""):
+    """Background=start, GradientTo=to, GradientDirection=Down|Right|Diagonal|Up|Left -> a linear-gradient."""
+    from .registry import colour
+    way = GRADIENT.get(str(direction or "Down").strip().lower(), "to bottom")
+    return f"linear-gradient({way}, {colour(start)}, {colour(to)})"
+
+
 def shadow_level(level, tint=""):
     """Shadow=0..10 (and ShadowColour) -> a box-shadow: 0 none, 1 a hairline lift, 10 floating well clear."""
     try:

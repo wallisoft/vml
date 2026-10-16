@@ -172,6 +172,10 @@ class Page:
             css.append(f"border-style:solid;border-color:{colour(brush or '#808080')};border-width:{t}px {r}px {b}px {l}px")
         if p.get("CornerRadius"):
             css.append(f"border-radius:{int(num(str(p['CornerRadius']).split(',')[0]))}px")
+        start = p.get("Fill") or (p.get("Background") if ctype != "Rectangle" else "")
+        if start and p.get("GradientTo"):
+            from . import styles as _styles
+            css.append(f"background:{_styles.gradient(start, p['GradientTo'], p.get('GradientDirection'))}")
         if p.get("Shadow") not in (None, ""):
             from . import styles as _styles
             drop = _styles.shadow_level(p.get("Shadow"), p.get("ShadowColour"))
@@ -236,9 +240,11 @@ class Page:
                 self.handlers.append((eid, ev, p[ev], name))
         css = self.style(p, ctype) + self.placed(p, parent_type, ref) + list(extra_css)
         styled = ""
-        if p.get("Class") or p.get("Style"):                # shared styles, then its own CSS: after the rest, so they win
+        hover = [(k, colour(p[n])) for n, k in (("HoverBackground", "background"), ("HoverForeground", "color")) if p.get(n)]
+        if p.get("Class") or p.get("Style") or hover:       # shared styles, then its own CSS: after the rest, so they win
             from . import styles as _styles
-            merged = _styles.merge(*[self.styles.get(c) for c in _styles.classes(p.get("Class"))], _styles.parse(p.get("Style")))
+            merged = _styles.merge({"hover": hover} if hover else {},
+                                   *[self.styles.get(c) for c in _styles.classes(p.get("Class"))], _styles.parse(p.get("Style")))
             css += [f"{k}:{v}".replace('"', "'") for k, v in merged.get("", {}).items()]
             rules = _styles.web_rules(f"#{eid}", merged)
             if rules:                                       # (its own tag, so a change at run time replaces it)
@@ -246,7 +252,10 @@ class Page:
             styled = (f' data-class="{esc(p["Class"])}"' if p.get("Class") else "") + (f' data-style="{esc(p["Style"])}"' if p.get("Style") else "")
         disabled = " disabled" if str(p.get("IsEnabled", "true")).lower() == "false" else ""
         tip = f' title="{esc(p["ToolTip"])}"' if p.get("ToolTip") else ""
-        lift = "".join(f' data-{k.lower()}="{esc(p[k])}"' for k in ("Shadow", "ShadowColour") if p.get(k))
+        lift = "".join(f' data-{k.lower()}="{esc(p[k])}"' for k in ("Shadow", "ShadowColour", "GradientTo", "GradientDirection",
+                                                                       "HoverBackground", "HoverForeground") if p.get(k))
+        if p.get("GradientTo"):
+            lift += f' data-gbase="{esc(p.get("Fill") or p.get("Background") or "")}"'
         attrs = f'id="{eid}" data-name="{esc(name)}" data-type="{ctype}"{tip}{styled}{lift}'
         kids = self.kids.get(cid, [])
 
@@ -825,6 +834,12 @@ const commands = {
     else if (e.matches(".slide") && ["Value", "Minimum", "Maximum"].includes(prop)) e[{ Value: "value", Minimum: "min", Maximum: "max" }[prop]] = String(Math.round(Number(value) || 0));
     else if (prop === "Class" || prop === "Style") restyle(e, prop, value);
     else if (prop === "Shadow" || prop === "ShadowColour") { e.dataset[prop.toLowerCase()] = value; e.style.boxShadow = shadowCss(e.dataset.shadow, e.dataset.shadowcolour) || "none"; }
+    else if (prop === "GradientTo" || prop === "GradientDirection" || (prop === "Background" && e.dataset.gradientto)) {
+      if (prop === "Background") e.dataset.gbase = value; else e.dataset[prop.toLowerCase()] = value;
+      const g = gradientCss(e);
+      e.style.background = g || e.dataset.gbase || "";
+    }
+    else if (prop === "HoverBackground" || prop === "HoverForeground") { e.dataset[prop.toLowerCase()] = value; restyle(e); }
     else if (prop === "Opacity") e.style.opacity = String(Math.max(0, Math.min(100, Number(value) || 0)) / 100);
     else if (prop === "Text" || prop === "Content" || prop === "Header") setText(e, value);
     else if (css[prop]) e.style[css[prop]] = value;
@@ -1821,15 +1836,20 @@ function shadowCss(level, tint) {
   const alpha = (tinted ? 0.18 : 0.10) + n * (tinted ? 0.03 : 0.017);
   return `0 ${Math.round(n * 1.6)}px ${Math.round(n * 3.6)}px rgba(${rgb.join(",")},${alpha.toFixed(2)})`;
 }
+function gradientCss(e) {
+  const way = { down: "to bottom", right: "to right", diagonal: "135deg", up: "to top", left: "to left" }[String(e.dataset.gradientdirection || "Down").toLowerCase()] || "to bottom";
+  return e.dataset.gbase && e.dataset.gradientto ? `linear-gradient(${way}, ${e.dataset.gbase}, ${e.dataset.gradientto})` : "";
+}
 function mergedStyle(e) {
   const merged = {};
-  const sheets = String(e.dataset.class || "").split(/[\s,]+/).filter(Boolean).map(c => (VML.styles || {})[c]).concat([parseCss(e.dataset.style)]);
+  const hover = [["background", e.dataset.hoverbackground], ["color", e.dataset.hoverforeground]].filter(([, v]) => v);
+  const sheets = [hover.length ? { hover } : {}].concat(String(e.dataset.class || "").split(/[\s,]+/).filter(Boolean).map(c => (VML.styles || {})[c]).concat([parseCss(e.dataset.style)]));
   for (const sh of sheets) for (const [state, decls] of Object.entries(sh || {})) for (const [p, v] of decls) { (merged[state] = merged[state] || {}); delete merged[state][p]; merged[state][p] = v; }
   return merged;
 }
 function restyle(e, prop, value) {
   if (e._styled === undefined) e._styled = Object.keys(mergedStyle(e)[""] || {});     // (what the page was written with)
-  if (prop === "Class") e.dataset.class = value; else e.dataset.style = value;
+  if (prop === "Class") e.dataset.class = value; else if (prop === "Style") e.dataset.style = value;
   const merged = mergedStyle(e);
   for (const p of e._styled) e.style.removeProperty(p);                   // what the last Class/Style set, gone
   e._styled = Object.keys(merged[""] || {});

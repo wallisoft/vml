@@ -124,8 +124,14 @@ def restyle(node):
     """The control's style sheet: its ordinary properties, then its Class styles, then its Style (vml/styles.py)."""
     from . import styles
     own = {k: v for k, v in node.style.items() if v not in (None, "")}
+    p = node.props
+    start, to = p.get("Background") or p.get("Fill"), p.get("GradientTo")
+    if start and to:                                       # Background (or Fill) fading into GradientTo
+        own.pop("background-color", None)
+        own["background"] = styles.gradient(start, to, p.get("GradientDirection"))
+    hover = {k: colour(p[n]) for n, k in (("HoverBackground", "background"), ("HoverForeground", "color")) if p.get(n)}
     shared = getattr(getattr(node, "engine", None), "styles", {}) or {}
-    sheets = [{"": own}] + [shared.get(c) for c in styles.classes(node.props.get("Class"))]
+    sheets = [{"": own, **({"hover": hover} if hover else {})}] + [shared.get(c) for c in styles.classes(node.props.get("Class"))]
     if node.props.get("Style"):
         sheets.append(styles.parse(node.props.get("Style")))
     merged = styles.merge(*sheets)
@@ -148,6 +154,8 @@ def restyle(node):
     owner = getattr(node, "host", None) or node.widget
     if owner is not node.widget and node.widget.graphicsEffect() is not None:
         node.widget.setGraphicsEffect(None)
+    if owner.graphicsEffect() is not None and owner.graphicsEffect().objectName() == "vml_fade":
+        drop = opacity = None                              # (hidden, in the designer: shown faded, and that wins)
     if drop:
         from PySide6.QtWidgets import QGraphicsDropShadowEffect
         from PySide6.QtGui import QColor
@@ -187,6 +195,9 @@ def restyle(node):
                 log(f"'{what}' (on {node.name}, and any like it) shows on the web only: the desktop leaves it out")
             except Exception:
                 pass
+
+
+GRADIENT_DIRECTIONS = ("Down", "Right", "Diagonal", "Up", "Left")
 
 
 def set_shadow(node):
@@ -239,8 +250,10 @@ def set_visible(node, value):
         node.host.setVisible(True)
         if on:
             node.host.setGraphicsEffect(None)
+            restyle(node)                                  # (its own shadow or opacity, back again)
         else:
             fade = QGraphicsOpacityEffect(node.host)
+            fade.setObjectName("vml_fade")
             fade.setOpacity(0.35)
             node.host.setGraphicsEffect(fade)
         surface = node.parent
@@ -275,6 +288,10 @@ COMMON = [
     Prop("ShadowColour", "colour", "Appearance", apply=lambda n, v: set_shadow(n)),                  # black unless said
     Prop("Opacity", "slider", "Appearance", options=("0", "100"),                                      # 100 solid .. 0 see-through
          apply=style("opacity", lambda v: None if num(v, 100) >= 100 else f"{max(0, num(v, 100)) / 100:g}")),
+    Prop("GradientTo", "colour", "Appearance", apply=lambda n, v: restyle(n)),                       # Background fades into this
+    Prop("GradientDirection", "choice", "Appearance", options=tuple(GRADIENT_DIRECTIONS), apply=lambda n, v: restyle(n)),
+    Prop("HoverBackground", "colour", "Appearance", apply=lambda n, v: restyle(n)),                  # with the pointer over it
+    Prop("HoverForeground", "colour", "Appearance", apply=lambda n, v: restyle(n)),
     Prop("Class", "text", "Appearance", apply=lambda n, v: restyle(n)),        # shared @Style names (vml/styles.py)
     Prop("Style", "text", "Appearance", apply=lambda n, v: restyle(n)),        # CSS for this control alone
     Prop("FontSize", "number", "Text", apply=style("font-size", lambda v: f"{int(num(v, 12))}px")),

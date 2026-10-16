@@ -136,6 +136,13 @@ def test_desktop():
         assert type(fx).__name__ == "QGraphicsOpacityEffect" and abs(fx.opacity() - 0.4) < 0.01
         eng.cmd_SetProperty("btnOne", "Opacity", "100")
         assert n["btnOne"].host.graphicsEffect() is None
+        eng.cmd_SetProperty("btnOne", "Class", "")
+        eng.cmd_SetProperty("btnOne", "Background", "#10B981")            # a gradient and a hover colour, as properties
+        eng.cmd_SetProperty("btnOne", "GradientTo", "#3B82F6")
+        eng.cmd_SetProperty("btnOne", "GradientDirection", "Right")
+        eng.cmd_SetProperty("btnOne", "HoverBackground", "#1E3A8A")
+        s = n["btnOne"].widget.styleSheet()
+        assert "qlineargradient(x1:0, y1:0.5, x2:1, y2:0.5" in s and "#btnOne:hover { background: #1E3A8A; }" in s, s
 
 
 def test_web():
