@@ -515,6 +515,16 @@ Parent=Help
 Text=Visualised
 IsEnabled=false
 
+@MenuItem HelpTutorials
+Parent=Help
+Text=Tutorials
+OnClick=Help
+
+@MenuItem HelpReference
+Parent=Help
+Text=Reference (F1)
+OnClick=Help Reference
+
 @MenuItem HelpSep
 Parent=Help
 IsSeparator=true
