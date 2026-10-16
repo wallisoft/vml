@@ -39,7 +39,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QW
 HEIGHT = 24
 SETUP_EXE = "https://github.com/wallisoft/vml-releases/releases/latest/download/Visualised-Setup.exe"
 INSTALL_SH = "https://github.com/wallisoft/vml-releases/releases/latest/download/install.sh"
-VISUALISED_TERMS = "https://tiny-web.uk/terms.php"            # Visualised is a TinyWeb service: TinyWeb's terms
+VISUALISED_TERMS = "https://raw.githubusercontent.com/wallisoft/vml/main/legal/terms.md"   # TinyWeb's terms (Visualised is a TinyWeb service), kept in git: legal/
 
 
 def number(v):
