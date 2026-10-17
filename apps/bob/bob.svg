@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Bob: a builder's hard hat, leaning in as Mountie's hat does, a green tick on its badge -->
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FCD34D"/><stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="peak" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="64" cy="110" rx="50" ry="6" fill="#000" opacity="0.13"/>
+  <g transform="translate(64 64) rotate(-16) translate(-64 -64)">
+    <!-- the brim -->
+    <path d="M10 84 C10 76 20 74 30 74 L106 74 C116 74 122 78 120 84 C118 90 108 91 96 91 L26 91 C16 91 10 89 10 84 Z"
+          fill="url(#peak)" stroke="#9A4D0C" stroke-width="2.6" stroke-linejoin="round"/>
+    <!-- the shell -->
+    <path d="M24 78 C22 48 40 26 64 25 C89 24 106 46 104 78 Z" fill="url(#shell)" stroke="#9A4D0C" stroke-width="2.6" stroke-linejoin="round"/>
+    <!-- the ridge over the top -->
+    <path d="M56 26.5 C50 40 49 60 50 78 L78 78 C79 60 78 40 72 26 Z" fill="#FDE68A" opacity="0.75"/>
+    <path d="M56 26.5 C50 40 49 60 50 78 M72 26 C78 40 79 60 78 78" fill="none" stroke="#B45309" stroke-width="2" opacity="0.55"/>
+    <path d="M34 56 C36 44 44 35 54 31" fill="none" stroke="#FFFBEB" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+    <!-- a badge on the front: a tick, for a green build -->
+    <rect x="50" y="50" width="28" height="22" rx="5" fill="#1F2937"/>
+    <path d="M57 61 L62 66 L71 56" fill="none" stroke="#4ADE80" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
