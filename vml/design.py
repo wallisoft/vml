@@ -14,7 +14,7 @@ import json
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QMenuBar,
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QCheckBox, QColorDialog, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QMenuBar,
                                QScrollArea, QSizePolicy, QSlider, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from .registry import (COMMON, REGISTRY, ControlType, Prop, anchor_set, anchored_rect, colour, num, register, theme_sheets,
@@ -725,6 +725,79 @@ REGISTRY["DesignSurface"].design_only = True
 
 # ====================================================================== PropertyGrid
 
+class TabsBox(QDialog):
+    """Edit Tabs: a strip's tabs in order. Add, rename (double-click, or Rename), delete, move up and down."""
+
+    def __init__(self, parent, tabs):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Tabs")
+        self.setMinimumWidth(360)
+        lay = QVBoxLayout(self)
+        tip = QLabel("The tabs, in order. Double-click one to rename it.")
+        tip.setStyleSheet("color: #6b7280; font-size: 11px;")
+        lay.addWidget(tip)
+        row = QHBoxLayout()
+        self.list = QListWidget()
+        for page, header, count in tabs:
+            self.add_item(header, page, count)
+        self.list.itemDoubleClicked.connect(self.list.editItem)
+        row.addWidget(self.list, 1)
+        side = QVBoxLayout()
+        for text, fn in (("Add", self.add), ("Rename", self.rename), ("Delete", self.remove), ("Move Up", lambda: self.move(-1)),
+                         ("Move Down", lambda: self.move(1))):
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            side.addWidget(b)
+        side.addStretch(1)
+        row.addLayout(side)
+        lay.addLayout(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+
+    def add_item(self, header, page="", count=0):
+        item = QListWidgetItem(header)
+        item.setData(Qt.UserRole, page)
+        item.setData(Qt.UserRole + 1, count)
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+        self.list.addItem(item)
+        return item
+
+    def add(self):
+        item = self.add_item(f"Tab {self.list.count() + 1}")
+        self.list.setCurrentItem(item)
+        self.list.editItem(item)
+
+    def rename(self):
+        if self.list.currentItem() is not None:
+            self.list.editItem(self.list.currentItem())
+
+    def remove(self):
+        item = self.list.currentItem()
+        if item is None:
+            return
+        count = int(item.data(Qt.UserRole + 1) or 0)
+        if count and QMessageBox.question(self, "Delete a tab", f"'{item.text()}' has {count} control{'s' if count != 1 else ''} "
+                                          "on its page. Delete the tab and everything on it?") != QMessageBox.Yes:
+            return
+        self.list.takeItem(self.list.row(item))
+
+    def move(self, step):
+        row = self.list.currentRow()
+        if row < 0 or not 0 <= row + step < self.list.count():
+            return
+        item = self.list.takeItem(row)
+        self.list.insertItem(row + step, item)
+        self.list.setCurrentRow(row + step)
+
+    def result_tabs(self):
+        return [{"page": self.list.item(i).data(Qt.UserRole) or "", "header": self.list.item(i).text().strip()}
+                for i in range(self.list.count())]
+
+
 class Swatch(QToolButton):
     def __init__(self, edit):
         super().__init__()
@@ -917,6 +990,12 @@ class GridView(QScrollArea):
         lay.addWidget(head)
         if not design_form:
             lay.addLayout(self.row_layout("Name", self.name_editor(target.name)))
+        strip = target if target.type.name == "TabStrip" else target.parent if target.type.name == "TabPage" else None
+        if strip is not None:                                    # a tab strip (or one of its pages): its tabs, in one place
+            tabs = QPushButton(f"Edit Tabs...   ({len(strip.widget.pages())})")
+            tabs.setStyleSheet("font-size: 11px; padding: 4px 10px;")
+            tabs.clicked.connect(lambda _=False, s=strip.name: self.edit_tabs(s))
+            lay.addLayout(self.row_layout("Tabs", tabs))
         props = json.loads(self.engine.cmd_GetControlPropertiesJson(target.name))
         on_canvas = target.parent is not None and target.parent.type.name in ("DesignSurface", "Canvas")
         groups = {}
@@ -945,6 +1024,15 @@ class GridView(QScrollArea):
                 lay.addLayout(self.row_layout(label, self.editor(p)))
         lay.addStretch(1)
         self.setWidget(body)
+
+    def edit_tabs(self, strip_name):
+        strip = self.engine.find(strip_name)
+        if strip is None:
+            return
+        box = TabsBox(self.window(), [(p.name, str(p.props.get("Header") or p.name), len(p.children)) for p in strip.widget.pages()])
+        if box.exec():
+            self.engine.cmd_SetTabs(strip_name, json.dumps(box.result_tabs()))
+            self.rebuild()
 
     def rebuild_menu_item(self, body, lay):
         """A menu item on the design surface: its caption, shortcut, enabled and separator, and its script."""
@@ -1187,5 +1275,5 @@ DESIGN_DEFAULTS = {
     "MarkdownEditor": {"Width": "460", "Height": "240"},
     "StatusBar": {"Panels": "Ready|{date}|{time}", "Height": "26", "Background": "#F3F4F6", "Anchor": "Bottom,Left,Right"},
     "Toolbar": {"Items": "📄 New, 📂 Open, 💾 Save", "Height": "34", "Background": "#F9FAFB", "Anchor": "Top,Left,Right"},
-    "TabStrip": {"Width": "320", "Height": "220"},
+    "TabStrip": {"Width": "320", "Height": "220", "BorderThickness": "2", "BorderBrush": "#CBD5E1", "CornerRadius": "6"},
 }

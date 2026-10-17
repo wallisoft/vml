@@ -146,12 +146,31 @@ sv = again.find(strip)
 check("saved and opened again: the strip, its pages and the button in page two",
       ([p.name for p in sv.widget.pages()], again.find(btn).parent.name), ([p.name for p in sw.pages()], second.name))
 
+# placement, border, and the Edit Tabs command
+from vml.tabs import strip_geometry
+check("tabs down the left: the page sits beside them", strip_geometry({"TabPlacement": "Left", "BorderThickness": "2"}, 400, 200)[3], (122, 2, 276, 196))
+check("tabs along the bottom: the page above them", strip_geometry({"TabPlacement": "Bottom"}, 400, 200)[3], (0, 0, 400, 166))
+eng.cmd_SetProperty("tabs", "TabPlacement", "Left"); settle()
+pg = eng.find("pOne").host if t.current() == 0 else eng.find("pTwo").host
+check("set to Left at run time, the page moves beside the tabs", pg.x(), 120)
+eng.cmd_SetProperty("tabs", "TabPlacement", "Top"); settle()
+check("a new strip in the designer has a 2px border", (des.find(strip).props.get("BorderThickness"), des.find(strip).props.get("BorderBrush")), ("2", "#CBD5E1"))
+pages = sw.pages()
+spec = [{"page": pages[2].name, "header": "Third, now first"}, {"page": pages[1].name, "header": "Two"}, {"page": "", "header": "Brand new"}]
+des.cmd_SetTabs(strip, json.dumps(spec)); settle()
+check("Edit Tabs: reordered, renamed, one added and one deleted", sw.headers(), ["Third, now first", "Two", "Brand new"])
+check("the tab left out is gone", any(pg is pages[0] for pg in sw.pages()), False)
+check("the page with the button kept it", des.find(btn).parent.name, pages[1].name)
+des.cmd_ExportVml("Surface", saved)
+again2 = Engine(); again2.load(saved); settle()
+check("and it saves in the new order", again2.find(strip).widget.headers(), ["Third, now first", "Two", "Brand new"])
+
 # the web
 out = os.path.join(d, "t.html")
 subprocess.run([sys.executable, "-m", "vml", "html", form, out], capture_output=True, cwd=ROOT,
                env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
 page = open(out).read() if os.path.exists(out) else ""
-check("on the web: two tabs, the second chosen", re.findall(r'<div class="vtabh">(.*?)</div>', page)[:1],
+check("on the web: two tabs, the second chosen", re.findall(r'<div class="vtabh"[^>]*>(.*?)</div>', page)[:1],
       ['<button type="button">One</button><button type="button" class=on>Two</button>'])
 check("the first page hidden, the second shown", [("display:none" in m) for m in re.findall(r'class="vtabp" style="([^"]*)"', page)], [True, False])
 check("the toolbar's three buttons and a divider", len(re.findall(r'data-run="[^"]*">', page)), 3)

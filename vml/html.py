@@ -363,18 +363,22 @@ class Page:
             size = ' size="6"' if ctype == "ListBox" else ""
             alt = ' class="alt"' if ctype == "ListBox" and str(p.get("AlternatingRows", "")).lower() == "true" else ""
             return f'<select {attrs}{size}{alt} style="{";".join(css)}"{disabled}>{opts}</select>'
-        if ctype == "TabStrip":                                 # vml/tabs.py: tabs along the top, the chosen page under them
+        if ctype == "TabStrip":                                 # vml/tabs.py: tabs (top, bottom or down a side), the chosen page
+            from .tabs import strip_geometry
             pages = [k for k in kids if self.by_id[k][2] == "TabPage"]
             sel = max(0, min(int(num(p.get("SelectedIndex"), 0)), len(pages) - 1)) if pages else 0
             heads = "".join(f'<button type="button"{" class=on" if i == sel else ""}>'
                             f'{esc(self.props.get(k, {}).get("Header") or self.by_id[k][3])}</button>' for i, k in enumerate(pages))
-            ref_size = (num(p.get("Width"), 320), num(p.get("Height"), 220) - 34)
-            body = "".join(self.render(k, "TabStrip", ref_size, [] if i == sel else ["display:none"]) for i, k in enumerate(pages))
+            place, b, band, page = strip_geometry(p, num(p.get("Width"), 320), num(p.get("Height"), 220))
+            at = lambda r: [f"left:{int(r[0] - b)}px", f"top:{int(r[1] - b)}px", f"width:{int(r[2])}px", f"height:{int(r[3])}px"]
+            body = "".join(self.render(k, "TabStrip", (page[2], page[3]),
+                                       ["position:absolute", *at(page)] + ([] if i == sel else ["display:none"]))
+                           for i, k in enumerate(pages))
             accent = colour(p.get("Accent") or "#4F46E5")
-            return (f'<div {attrs} class="vtabs" data-sel="{sel}" style="--accent:{accent};{";".join(css)}">'
-                    f'<div class="vtabh">{heads}</div>{body}</div>')
+            css += ["box-sizing:border-box", "overflow:hidden"]
+            return (f'<div {attrs} class="vtabs" data-sel="{sel}" data-place="{place.lower()}" style="--accent:{accent};{";".join(css)}">'
+                    f'<div class="vtabh" style="{";".join(at(band))}">{heads}</div>{body}</div>')
         if ctype == "TabPage":
-            css += ["position:absolute", "left:0", "right:0", "top:34px", "bottom:0"]
             return f'<div {attrs} class="vtabp" style="{";".join(css)}">{inner("Frame", ref)}</div>'
         if ctype == "Toolbar":                                  # a row of buttons: "words=Handler", | for a divider
             from .tabs import toolbar_items
@@ -702,10 +706,21 @@ TEMPLATE = r"""<!DOCTYPE html>
   .vcal .gr span.out { color: #D1D5DB; pointer-events: none; }
   .vlink { color: #2563EB; text-decoration: underline; cursor: pointer; }
   .vtabs { box-sizing: border-box; }
-  .vtabh { display: flex; height: 34px; border-bottom: 1px solid #E5E7EB; padding-left: 4px; box-sizing: border-box; }
-  .vtabh button { border: none; background: none; padding: 0 14px; color: #6B7280; font: inherit; cursor: pointer; position: relative; }
+  .vtabh { position: absolute; display: flex; padding-left: 4px; box-sizing: border-box; border: 0 solid #E5E7EB; }
+  .vtabs[data-place="top"] > .vtabh { border-bottom-width: 1px; }
+  .vtabs[data-place="bottom"] > .vtabh { border-top-width: 1px; }
+  .vtabs[data-place="left"] > .vtabh, .vtabs[data-place="right"] > .vtabh { flex-direction: column; padding: 6px 4px; gap: 2px; }
+  .vtabs[data-place="left"] > .vtabh { border-right-width: 1px; }
+  .vtabs[data-place="right"] > .vtabh { border-left-width: 1px; }
+  .vtabh button { border: none; background: none; padding: 0 14px; color: #6B7280; font: inherit; cursor: pointer; position: relative; flex: none; }
+  .vtabs[data-place="left"] > .vtabh button, .vtabs[data-place="right"] > .vtabh button { height: 34px; text-align: left; padding: 0 12px; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .vtabh button.on { color: #111827; font-weight: 600; }
-  .vtabh button.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 3px; border-radius: 2px; background: var(--accent); }
+  .vtabs[data-place="left"] > .vtabh button.on, .vtabs[data-place="right"] > .vtabh button.on { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+  .vtabh button.on::after { content: ""; position: absolute; background: var(--accent); border-radius: 2px; }
+  .vtabs[data-place="top"] > .vtabh button.on::after { left: 6px; right: 6px; bottom: -1px; height: 3px; }
+  .vtabs[data-place="bottom"] > .vtabh button.on::after { left: 6px; right: 6px; top: -1px; height: 3px; }
+  .vtabs[data-place="left"] > .vtabh button.on::after { left: 0; top: 6px; bottom: 6px; width: 3px; }
+  .vtabs[data-place="right"] > .vtabh button.on::after { right: 0; top: 6px; bottom: 6px; width: 3px; }
   .vtool { display: flex; align-items: center; gap: 2px; padding: 0 6px; background: #F9FAFB; border-bottom: 1px solid #E5E7EB; box-sizing: border-box; overflow: hidden; }
   .vtool button { border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; background: transparent; font: inherit; cursor: pointer; white-space: nowrap; }
   .vtool button:hover { background: rgba(79,70,229,0.08); border-color: rgba(79,70,229,0.25); }

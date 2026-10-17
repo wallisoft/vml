@@ -1609,6 +1609,33 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             self.current_control = new
         return True
 
+    def cmd_SetTabs(self, strip_name, spec):
+        """A tab strip's pages, in tab order: JSON [{"page": its name, or "" for a new one, "header": its words}].
+        A page left out is deleted, with what's on it. The designer's Edit Tabs box uses this."""
+        strip = self._node(strip_name)
+        want = json.loads(spec) if isinstance(spec, str) else spec
+        have = {p.name: p for p in strip.widget.pages()}
+        keep = {w.get("page") for w in want if w.get("page") in have}
+        for name, page in have.items():
+            if name not in keep:
+                self.delete(name, page.scope)
+        order = []
+        for w in want:
+            name = w.get("page") if w.get("page") in have else ""
+            if not name:
+                name = self._unique("TabPage")
+                self.cmd_CreateControl("TabPage", name, strip.name)
+            self.cmd_SetProperty(name, "Header", str(w.get("header") or name))
+            order.append(self.find(name, strip.scope))
+        strip.children[:] = [p for p in order if p is not None] + [c for c in strip.children if c.type.name != "TabPage"]
+        strip.widget.select(strip.widget.wanted)
+        surf = strip
+        while surf is not None and surf.type.name != "DesignSurface":
+            surf = surf.parent
+        if surf is not None:
+            surf.widget.emit("OnChanged", {"selected_control": strip.name})
+        return "true"
+
     def cmd_BringToFront(self, name):
         node = self._node(name)
         if node.parent is not None:
