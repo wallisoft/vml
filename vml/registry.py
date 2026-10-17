@@ -229,9 +229,9 @@ def set_size(dim):
     def apply(node, value):
         w = node.widget
         if node.type.name == "Window":
-            size = w.size()
+            size, extra = w.size(), (w.bar_h() if hasattr(w, "bar_h") else 0)   # (its own title bar goes on top)
             w.resize(int(num(value, size.width())) if dim == "w" else size.width(),
-                     int(num(value, size.height())) if dim == "h" else size.height())
+                     int(num(value, size.height() - extra)) + extra if dim == "h" else size.height())
             return
         if value in (None, "", "Auto", "NaN"):
             (w.setMinimumWidth if dim == "w" else w.setMinimumHeight)(0)
@@ -275,7 +275,8 @@ def set_alignment(node, _value):
 def read_geom(what):
     def read(node):
         g = node.host.geometry()
-        return {"X": g.x(), "Y": g.y(), "Width": node.widget.width(), "Height": node.widget.height()}[what]
+        h = node.widget.height() - (node.widget.bar_h() if node.type.name == "Window" and hasattr(node.widget, "bar_h") else 0)
+        return {"X": g.x(), "Y": g.y(), "Width": node.widget.width(), "Height": h}[what]
     return read
 
 
@@ -645,23 +646,291 @@ SCROLL_POLICY = {"Auto": Qt.ScrollBarAsNeeded, "Visible": Qt.ScrollBarAlwaysOn, 
 # ------------------------------------------------------------------ makers
 
 class _Edge(QWidget):
-    """The thin line round a window, drawn on top of its outermost pixels (so nothing inside moves or shrinks)."""
+    """The thin line round a window, drawn on top of its outermost pixels (so nothing inside moves or shrinks). With
+    rounded corners (a window with no frame from the desktop), it also cuts the corners away, so whatever is under
+    them shows through, and the line follows the curve."""
 
     def __init__(self, window):
         super().__init__(window)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self.colour, self.width_px = None, 0
+        self.colour, self.width_px, self.radius = None, 0, (0, 0)      # radius: (top corners, bottom corners)
         self.hide()
 
     def paintEvent(self, e):
-        if self.colour is None:
+        if self.colour is None and not any(self.radius):
             return
         p = _QPainter(self)
-        w, h, m = self.width(), self.height(), self.width_px
-        for r in ((0, 0, w, m), (0, h - m, w, m), (0, 0, m, h), (w - m, 0, m, h)):
-            p.fillRect(*r, self.colour)
+        w, h, m, (rt, rb) = self.width(), self.height(), self.width_px, self.radius
+        if not (rt or rb):
+            for rect in ((0, 0, w, m), (0, h - m, w, m), (0, 0, m, h), (w - m, 0, m, h)):
+                p.fillRect(*rect, self.colour)
+            p.end()
+            return
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QPainterPath
+        p.setRenderHint(_QPainter.Antialiasing, True)
+        round_ = rounded_path(QRectF(0, 0, w, h), rt, rb)
+        whole = QPainterPath()
+        whole.addRect(QRectF(0, 0, w, h))
+        p.setCompositionMode(_QPainter.CompositionMode_Clear)     # the corners: see-through
+        p.fillPath(whole.subtracted(round_), _QColor(0, 0, 0, 0))
+        p.setCompositionMode(_QPainter.CompositionMode_SourceOver)
+        if self.colour is not None and m > 0:
+            pen = _QPen(self.colour, m)
+            pen.setJoinStyle(Qt.MiterJoin)
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(rounded_path(QRectF(m / 2, m / 2, w - m, h - m), max(0.0, rt - m / 2), max(0.0, rb - m / 2)))
         p.end()
+
+
+def rounded_path(r, top, bottom):
+    """A rectangle with its top corners rounded by top and its bottom ones by bottom."""
+    from PySide6.QtGui import QPainterPath
+    path = QPainterPath()
+    x, y, w, h = r.x(), r.y(), r.width(), r.height()
+    path.moveTo(x + top, y)
+    path.lineTo(x + w - top, y)
+    if top:
+        path.arcTo(x + w - 2 * top, y, 2 * top, 2 * top, 90, -90)
+    path.lineTo(x + w, y + h - bottom)
+    if bottom:
+        path.arcTo(x + w - 2 * bottom, y + h - 2 * bottom, 2 * bottom, 2 * bottom, 0, -90)
+    path.lineTo(x + bottom, y + h)
+    if bottom:
+        path.arcTo(x, y + h - 2 * bottom, 2 * bottom, 2 * bottom, 270, -90)
+    path.lineTo(x, y + top)
+    if top:
+        path.arcTo(x, y, 2 * top, 2 * top, 180, -90)
+    path.closeSubpath()
+    return path
+
+
+def _host():
+    import os
+    import sys
+    if sys.platform == "win32":
+        return "win11" if sys.getwindowsversion().build >= 22000 else "win10"
+    if sys.platform == "darwin":
+        return "mac"
+    desk = (os.environ.get("XDG_CURRENT_DESKTOP") or os.environ.get("DESKTOP_SESSION") or "").lower()
+    return "gnome" if any(k in desk for k in ("gnome", "ubuntu", "unity", "budgie", "pantheon")) else "linux"
+
+
+def host_radius():
+    """How round this desktop draws its windows' corners, (top, bottom): Windows 11 all four at 8, Windows 10
+    square, a Mac all four at 10, GNOME the top two at 12 and the bottom square."""
+    return {"win11": (8, 8), "win10": (0, 0), "mac": (10, 10), "gnome": (12, 0)}.get(_host(), (8, 8))
+
+
+def _windows_accent():
+    """Windows' accent colour, if it's set to colour title bars (Settings, Personalisation, Colours), else None."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\DWM") as k:
+            if winreg.QueryValueEx(k, "ColorPrevalence")[0] != 1:
+                return None
+            abgr = winreg.QueryValueEx(k, "AccentColor")[0]
+        return "#%02X%02X%02X" % (abgr & 0xFF, (abgr >> 8) & 0xFF, (abgr >> 16) & 0xFF)
+    except Exception:
+        return None
+
+
+def host_title_bar():
+    """This desktop's title bar: its colour (light or dark, as the desktop is set) and where its title goes."""
+    from PySide6.QtWidgets import QApplication
+    dark = False
+    try:
+        dark = QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
+    except Exception:
+        pass
+    host = _host()
+    if host.startswith("win"):
+        accent = _windows_accent()                     # "Show accent colour on title bars" is on: that colour
+        return accent or ("#202020" if dark else "#F3F3F3"), "left"
+    if host == "mac":
+        return ("#2D2D2D" if dark else "#E8E8E8"), "center"
+    return ("#303030" if dark else "#EBEBEB"), "center"          # GNOME's header bar, and most Linux desktops
+
+# ------------------------------------------------------------------ a window's own title bar (TitleBar=Own)
+
+TITLE_BAR_H = 34
+GRIP = 5                      # how far in from a window's edge the pointer can take hold of it to resize it
+
+
+def _ink_on(c):
+    """Black or white: whichever reads better on c."""
+    return _QColor("#111827") if (0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()) > 150 else _QColor("#FFFFFF")
+
+
+class _CapButton(QWidget):
+    """Minimise, maximise/restore or close, drawn as thin lines in the bar's own ink."""
+    W = 46
+
+    def __init__(self, bar, kind):
+        super().__init__(bar)
+        self.bar, self.kind, self.hover = bar, kind, False
+        self.setFixedSize(self.W, TITLE_BAR_H)
+        self.setCursor(Qt.ArrowCursor)
+        self.setToolTip({"min": "Minimise", "max": "Maximise", "close": "Close"}[kind])
+
+    def enterEvent(self, e):
+        self.hover = True
+        self.update()
+
+    def leaveEvent(self, e):
+        self.hover = False
+        self.update()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            w = self.window()
+            if self.kind == "min":
+                w.showMinimized()
+            elif self.kind == "max":
+                w.showNormal() if w.isMaximized() else w.showMaximized()
+            else:
+                w.close()
+
+    def mousePressEvent(self, e):
+        e.accept()                                     # (not a drag of the bar)
+
+    def paintEvent(self, e):
+        g = _QPainter(self)
+        g.setRenderHint(_QPainter.Antialiasing, False)
+        ink = self.bar.ink
+        if self.hover:
+            g.fillRect(self.rect(), _QColor("#E81123") if self.kind == "close" else
+                       _QColor(ink.red(), ink.green(), ink.blue(), 36))
+            if self.kind == "close":
+                ink = _QColor("#FFFFFF")
+        g.setPen(_QPen(ink, 1))
+        cx, cy = self.width() // 2, self.height() // 2
+        if self.kind == "min":
+            g.drawLine(cx - 5, cy, cx + 5, cy)
+        elif self.kind == "max":
+            if self.window().isMaximized():            # restore: two windows, one behind the other
+                g.drawRect(cx - 5, cy - 3, 8, 8)
+                g.drawLine(cx - 3, cy - 5, cx + 5, cy - 5)
+                g.drawLine(cx + 5, cy - 5, cx + 5, cy + 3)
+            else:
+                g.drawRect(cx - 5, cy - 5, 10, 10)
+        else:
+            g.setRenderHint(_QPainter.Antialiasing, True)
+            g.drawLine(cx - 5, cy - 5, cx + 5, cy + 5)
+            g.drawLine(cx + 5, cy - 5, cx - 5, cy + 5)
+        g.end()
+
+
+class _TitleBar(QWidget):
+    """The window's own title bar: its icon and title, drag it to move the window (and to a screen edge to snap it,
+    where the desktop does that), double-click it to maximise, and the three buttons. In the desktop's own title bar
+    colour (TitleBackground to choose), with the window's edge (BorderBrush) round the whole window, title bar and all."""
+
+    def __init__(self, window):
+        super().__init__(window)
+        self.win = window
+        self.colour, self.ink = _QColor("#1F2937"), _QColor("#FFFFFF")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 0, 0, 0)
+        row.setSpacing(8)
+        self.icon = QLabel()
+        self.icon.setFixedSize(18, 18)
+        self.title = QLabel(self)                      # across the whole bar, so centred means the window's centre
+        self.title.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.align = "left"
+        row.addWidget(self.icon)
+        row.addStretch(1)
+        self.buttons = {k: _CapButton(self, k) for k in ("min", "max", "close")}
+        for b in self.buttons.values():
+            row.addWidget(b)
+        window.windowTitleChanged.connect(lambda *a: self.show_title())
+        window.windowIconChanged.connect(self.set_icon)
+        self.set_icon(window.windowIcon())
+        self.show_title()
+
+    def show_title(self):
+        """The window's title, and its Version beside it, quieter."""
+        import html
+        title, version = self.win.windowTitle(), str(self.win.node.props.get("Version") or "").strip()
+        if not version:
+            self.title.setTextFormat(Qt.PlainText)
+            self.title.setText(title)
+        else:
+            quiet = _QColor(self.ink)
+            quiet.setAlphaF(0.6)
+            mix = _QColor(round(quiet.red() * 0.6 + self.colour.red() * 0.4), round(quiet.green() * 0.6 + self.colour.green() * 0.4),
+                          round(quiet.blue() * 0.6 + self.colour.blue() * 0.4))
+            self.title.setTextFormat(Qt.RichText)
+            self.title.setText(f'{html.escape(title)}&nbsp;&nbsp;<span style="color:{mix.name()}; font-weight:400">'
+                               f'{html.escape(version)}</span>')
+        self.place_title()
+
+    def place_title(self):
+        left = 10 + (26 if self.icon.isVisible() else 0)
+        right = sum(b.width() for b in self.buttons.values() if b.isVisible())
+        if self.align == "center":                     # the window's middle, unless the buttons would cover it
+            room = min(self.width() // 2 - left, self.width() // 2 - right)
+            self.title.setGeometry(self.width() // 2 - room, 0, 2 * max(0, room), self.height())
+            self.title.setAlignment(Qt.AlignCenter)
+        else:
+            self.title.setGeometry(left, 0, max(0, self.width() - left - right - 8), self.height())
+            self.title.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.place_title()
+
+    def set_icon(self, icon):
+        pm = icon.pixmap(18, 18) if icon is not None and not icon.isNull() else None
+        self.icon.setPixmap(pm) if pm is not None else self.icon.clear()
+        self.icon.setVisible(pm is not None)
+
+    def set_colours(self, colour, ink=None):
+        self.colour = colour
+        self.ink = ink if ink is not None else _ink_on(colour)
+        self.title.setStyleSheet(f"color: {self.ink.name()}; background: transparent; font-weight: 600;")
+        self.show_title()
+        self.update()
+        for b in self.buttons.values():
+            b.update()
+
+    def set_resizable(self, on):
+        self.buttons["max"].setVisible(on)
+        self.place_title()
+
+    def paintEvent(self, e):
+        g = _QPainter(self)
+        g.fillRect(self.rect(), self.colour)
+        g.end()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.win.windowHandle() is not None:
+            self.win.windowHandle().startSystemMove()
+
+    def mouseDoubleClickEvent(self, e):
+        if e.button() == Qt.LeftButton and self.buttons["max"].isVisible():
+            self.win.showNormal() if self.win.isMaximized() else self.win.showMaximized()
+
+
+class _Grip(QWidget):
+    """A thin strip along one edge (or a corner) of a window with no frame of its own, to take hold of to resize it."""
+
+    def __init__(self, window, edges):
+        super().__init__(window)
+        self.edges = edges
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        horizontal, vertical = bool(edges & (Qt.LeftEdge | Qt.RightEdge)), bool(edges & (Qt.TopEdge | Qt.BottomEdge))
+        if horizontal and vertical:
+            tl_br = edges in (Qt.TopEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge)
+            self.setCursor(Qt.SizeFDiagCursor if tl_br else Qt.SizeBDiagCursor)
+        else:
+            self.setCursor(Qt.SizeHorCursor if horizontal else Qt.SizeVerCursor)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.window().windowHandle() is not None:
+            self.window().windowHandle().startSystemResize(self.edges)
 
 
 class WindowWidget(QWidget):
@@ -672,14 +941,127 @@ class WindowWidget(QWidget):
         super().__init__()
         self.node = node
         self.edge = _Edge(self)
+        self.bar, self.grips, self.bar_mode = None, [], "System"
 
     def set_edge(self, value, width=1):
         on = bool(value) and int(width) > 0
-        self.edge.colour, self.edge.width_px = (qcolour(value), max(1, int(width))) if on else (None, 0)
-        self.edge.setGeometry(self.rect())
-        self.edge.setVisible(on)
-        self.edge.raise_()
-        self.edge.update()
+        self.edge.colour, self.edge_width = (qcolour(value), max(1, int(width))) if on else (None, 0)
+        self.update_edge()
+        self.colour_bar()
+
+    def full_screen(self):
+        return self.isMaximized() or self.isFullScreen()
+
+    def radius(self):
+        """Its corners' roundness, (top, bottom): CornerRadius if the form says (all four), else as the desktop rounds
+        its own. Square filling the screen, and with the desktop's own frame (the desktop rounds that itself)."""
+        if self.bar_mode == "System" or self.full_screen():
+            return (0, 0)
+        v = self.node.props.get("CornerRadius")
+        if v not in (None, ""):
+            r = int(num(str(v).split(",")[0], 0))
+            return (r, r)
+        return host_radius()
+
+    def update_edge(self):
+        e = self.edge
+        e.width_px = min(1, getattr(self, "edge_width", 0)) if self.full_screen() else getattr(self, "edge_width", 0)
+        e.radius = self.radius()                         # (thin all round when it fills the screen)
+        e.setGeometry(self.rect())
+        e.setVisible(e.colour is not None or any(e.radius))
+        e.raise_()
+        e.update()
+
+    def paintEvent(self, e):
+        if self.testAttribute(Qt.WA_TranslucentBackground):     # (rounded: the window itself is see-through, so
+            g = _QPainter(self)                                 #  fill it, lest a form with no background shows through)
+            g.fillRect(self.rect(), self.palette().window())
+            g.end()
+        else:
+            super().paintEvent(e)
+
+    def round_natively(self):
+        """Windows 11 rounds a frameless window's corners itself when asked, smoothly and with its shadow."""
+        import sys
+        if sys.platform != "win32" or self.bar_mode == "System":
+            return
+        try:
+            import ctypes
+            pref = ctypes.c_int(2 if any(self.radius()) else 1)         # DWMWCP_ROUND, DWMWCP_DONOTROUND
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(int(self.winId()), 33, ctypes.byref(pref), ctypes.sizeof(pref))
+        except Exception:
+            pass
+
+    # TitleBar: System (the desktop's own), Own (drawn here, in the edge's colour), None (no title bar at all)
+    def bar_h(self):
+        return TITLE_BAR_H if self.bar is not None and self.bar_mode == "Own" else 0
+
+    def set_title_bar(self, mode):
+        mode = mode if mode in ("Own", "None") else "System"
+        if mode == self.bar_mode:
+            return
+        before = self.bar_h()
+        self.bar_mode = mode
+        visible = self.isVisible()
+        self.setWindowFlag(Qt.FramelessWindowHint, mode != "System")      # (hides a shown window: shown again below)
+        self.setAttribute(Qt.WA_TranslucentBackground, mode != "System")  # (so its corners can be rounded)
+        if mode == "Own" and self.bar is None:
+            self.bar = _TitleBar(self)
+        if self.bar is not None:
+            self.bar.setVisible(mode == "Own")
+        if mode != "System" and not self.grips:
+            E = Qt.Edge
+            self.grips = [_Grip(self, e) for e in (E.LeftEdge, E.RightEdge, E.TopEdge, E.BottomEdge,
+                                                   E.TopEdge | E.LeftEdge, E.TopEdge | E.RightEdge,
+                                                   E.BottomEdge | E.LeftEdge, E.BottomEdge | E.RightEdge)]
+        self.layout().setContentsMargins(0, self.bar_h(), 0, 0)
+        self.resize(self.width(), self.height() - before + self.bar_h())     # the form keeps its designed height
+        self.place_frame()
+        self.colour_bar()
+        if visible:
+            self.show()
+
+    def colour_bar(self):
+        if self.bar is None:
+            return
+        p = self.node.props
+        host_bg, align = host_title_bar()              # the desktop's own (light or dark as it's set, Windows' accent
+        bg = p.get("TitleBackground") or host_bg       # colour if title bars wear it), unless TitleBackground says
+        ink = qcolour(p["TitleForeground"]) if p.get("TitleForeground") else None
+        self.bar.align = align
+        self.bar.set_colours(qcolour(bg), ink)
+        self.bar.set_resizable(str(p.get("Resizable", "true")).lower() != "false")
+
+    def place_frame(self):
+        w, h = self.width(), self.height()
+        if self.bar is not None:
+            self.bar.setGeometry(0, 0, w, TITLE_BAR_H)
+            self.bar.raise_()
+        resizable = str(self.node.props.get("Resizable", "true")).lower() != "false"
+        for grip in self.grips:
+            e, g = grip.edges, GRIP
+            x = 0 if e & Qt.LeftEdge else w - g if e & Qt.RightEdge else g
+            y = 0 if e & Qt.TopEdge else h - g if e & Qt.BottomEdge else g
+            gw = g if e & (Qt.LeftEdge | Qt.RightEdge) else w - 2 * g
+            gh = g if e & (Qt.TopEdge | Qt.BottomEdge) else h - 2 * g
+            grip.setGeometry(x, y, gw, gh)
+            grip.setVisible(self.bar_mode != "System" and resizable and not self.full_screen())
+            grip.raise_()
+        self.update_edge()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() == QEvent.WindowStateChange and self.bar_mode != "System":
+            self.place_frame()                         # square corners and a thin edge when it fills the screen
+            self.round_natively()
+            if self.bar is not None:
+                self.bar.buttons["max"].update()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self.colour_bar()                              # (the edge may have taken its menu's colour since)
+        self.place_frame()
+        self.round_natively()
 
     def edge_name(self):
         return self.edge.colour.name() if self.edge.colour is not None else ""
@@ -699,8 +1081,7 @@ class WindowWidget(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self.edge.setGeometry(self.rect())
-        self.edge.raise_()
+        self.place_frame()
 
 
 def make_window(node):
@@ -895,7 +1276,8 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                      remove_child=layout_remove, category="Containers",
                      events={"OnOpened": None, "OnClosing": None, **KEY_EVENTS}),   # OnOpened/OnClosing fired by the engine
          COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or ""))),
-                  Prop("Version", "text", "Common"),                             # the app's own version; a phone shows it beside the app
+                  Prop("Version", "text", "Common",                              # the app's own version; a phone shows it beside the app,
+                       apply=lambda n, v: n.widget.bar.show_title() if getattr(n.widget, "bar", None) else None),   # and its own title bar beside the title
                   Prop("Icon", "text", "Common", apply=window_icon),             # a picture for the app: its icon on a phone, and its window's and tray's here
                   Prop("WebAddress", "text", "Common"),                          # where the app is on the web, if it is: LinkAddress builds on it
                   Prop("AndroidPackage", "text", "Common"),                      # its package name as an Android app, to choose one's own (com.example.myapp)
@@ -910,6 +1292,12 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                   Prop("WebFit", "choice", "Behaviour", options=("Window", "Fill")),  # as a web page with room to spare: a window in the middle at its own size, or fill the page  # as a web page on a phone: scale to the screen's width, or leave alone
                   Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window
                   Prop("BorderThickness", "thickness", "Appearance", apply=window_edge),
+                  # the title bar: the desktop's own (System), one drawn in the edge's colour so the edge goes round
+                  # it too (Own), or none (None: a splash, or a form that draws its own)
+                  Prop("TitleBar", "choice", "Appearance", options=("System", "Own", "None"), default="System",
+                       apply=lambda n, v: n.widget.set_title_bar(str(v or "System"))),
+                  Prop("TitleBackground", "colour", "Appearance", apply=lambda n, v: n.widget.colour_bar()),   # (the edge's colour if not set)
+                  Prop("TitleForeground", "colour", "Appearance", apply=lambda n, v: n.widget.colour_bar()),   # (black or white, whichever reads)
                   Prop("Resizable", "bool", "Behaviour", default="true"),        # applied by the engine when shown
                   Prop("Modal", "bool", "Behaviour", default="false"),
                   Prop("MaxWidth", "number", "Layout", apply=lambda n, v: n.widget.setMaximumWidth(int(num(v, 16777215)) or 16777215)),

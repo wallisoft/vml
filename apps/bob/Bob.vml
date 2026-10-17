@@ -24,6 +24,9 @@ Height=640
 MinWidth=780
 MinHeight=520
 OnOpened=Opened
+TitleBar=Own
+BorderBrush=#1F2937
+BorderThickness=2
 
 @Canvas c
 Parent=Bob

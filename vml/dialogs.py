@@ -1,14 +1,18 @@
-"""Visualised's own message, question and input boxes.
+"""Visualised's own message, question and input boxes, and its file and colour choosers.
 
-They have their own title bar and a thin edge, both in the colour of the window that opened them, so the frame goes
-all the way round and a white box over a white form can still be seen; the text can be selected and copied, and long messages scroll instead of running off the screen."""
+Drawn as today's desktops draw theirs: a white card with rounded corners (as round as the desktop rounds its own),
+a soft shadow, a thin line round it, the title in bold at its head, the buttons on a pale band along its foot. The
+colour of the window that opened it runs along its top edge and fills its main button. The text can be selected and
+copied, and long messages scroll instead of running off the screen."""
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QToolButton,
                                QVBoxLayout, QWidget)
 
 NEUTRAL = "#6B7280"
-EDGE = 3                                                         # the frame's width, as every form's: plain on any background
+EDGE = 3                                                         # (the Markdown window's frame, which keeps the old look)
+SHADOW = 16                                                      # room round a box's card for its shadow
+ACCENT = 3                                                       # the opener's colour along the card's top
 
 
 def strong(colour):
@@ -30,10 +34,10 @@ def box_sheet(edge):
     """The look of a box: white, quiet text, and buttons like the rest of Visualised (the first in the edge's colour)."""
     ink = "#FFFFFF" if edge.lightnessF() < 0.6 else "#111827"
     e, dark = edge.name(), edge.darker(115).name()
-    return (f"QDialog#VmlBox {{ background: #FFFFFF; }}"
+    return (f"QDialog#VmlBox {{ background: transparent; }}"
             f" QDialog#VmlBox QLabel {{ color: #1F2937; font-size: 13px; background: transparent; }}"
-            f" QDialog#VmlBox QPushButton {{ background: #FFFFFF; color: #1F2937; border: 1px solid #D1D5DB; border-radius: 8px;"
-            f" padding: 6px 16px; font-size: 13px; }}"
+            f" QDialog#VmlBox QPushButton {{ background: #FFFFFF; color: #1F2937; border: 1px solid #D1D5DB; border-radius: 6px;"
+            f" padding: 7px 18px; font-size: 13px; }}"
             f" QDialog#VmlBox QPushButton:hover {{ background: #F3F4F6; }}"
             f" QDialog#VmlBox QPushButton:default {{ background: {e}; color: {ink}; border: 1px solid {e}; font-weight: 600; }}"
             f" QDialog#VmlBox QPushButton:default:hover {{ background: {dark}; border-color: {dark}; }}"
@@ -48,20 +52,27 @@ class _Bar(QWidget):
     """A box's own title bar, in the colour of its edge, so the edge and the bar read as one frame round all of it.
     Drag it to move the box."""
 
-    def __init__(self, box, title, colour):
+    def __init__(self, box, title, colour, look="solid"):
         super().__init__(box)
         self.box = box
-        self.setAutoFillBackground(True)
-        self.setFixedHeight(30)
+        card = look == "card"                                   # a box's head: no fill, the title in bold, a quiet close
+        self.setAutoFillBackground(not card)
+        self.setFixedHeight(52 if card else 30)
         ink = "#FFFFFF" if colour.lightnessF() < 0.6 else "#111827"
-        self.setStyleSheet(f"_Bar, QWidget#VmlBar {{ background: {colour.name()}; }}"
-                           f" QLabel {{ color: {ink}; font-weight: 600; background: transparent; }}"
-                           f" QToolButton {{ color: {ink}; border: none; background: transparent; font-size: 15px; padding: 0 6px; }}"
-                           f" QToolButton:hover {{ background: rgba(127,127,127,0.35); }}")
+        if card:
+            self.setStyleSheet("QWidget#VmlBar { background: transparent; }"
+                               " QLabel { color: #111827; font-weight: 600; font-size: 15px; background: transparent; }"
+                               " QToolButton { color: #6B7280; border: none; border-radius: 6px; background: transparent; font-size: 13px; }"
+                               " QToolButton:hover { background: #F3F4F6; color: #111827; }")
+        else:
+            self.setStyleSheet(f"_Bar, QWidget#VmlBar {{ background: {colour.name()}; }}"
+                               f" QLabel {{ color: {ink}; font-weight: 600; background: transparent; }}"
+                               f" QToolButton {{ color: {ink}; border: none; background: transparent; font-size: 15px; padding: 0 6px; }}"
+                               f" QToolButton:hover {{ background: rgba(127,127,127,0.35); }}")
         self.setObjectName("VmlBar")
         self.setAttribute(Qt.WA_StyledBackground, True)
         row = QHBoxLayout(self)
-        row.setContentsMargins(12, 0, 4, 0)
+        row.setContentsMargins(*((22, 8, 10, 0) if card else (12, 0, 4, 0)))
         self.caption = QLabel(str(title))
         row.addWidget(self.caption, 1)
         close = QToolButton()
@@ -77,15 +88,50 @@ class _Bar(QWidget):
             handle.startSystemMove()                            # the desktop moves it: works on Windows, X11 and Wayland
 
 
+def corner():
+    """How round this desktop draws its windows' corners: the boxes match (all four)."""
+    try:
+        from .registry import host_radius
+        return max(host_radius())
+    except Exception:                                           # (never let a corner stop a box being drawn)
+        return 8
+
+
 class _Framed:
-    """What every box of ours shares: the edge drawn all the way round, and staying in front while it waits."""
+    """What every box of ours shares: the card it's drawn on, and staying in front while it waits."""
+    footer = None                                               # a widget along the foot, drawn on the pale band
+
+    def card_setup(self):
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)  # our own head and card: no desktop frame
+        self.setAttribute(Qt.WA_TranslucentBackground, True)    # (the corners and the shadow show what's behind)
 
     def paintEvent(self, e):
-        super().paintEvent(e)
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QPainterPath, QPen
         p = QPainter(self)
-        w, h, t = self.width(), self.height(), EDGE
-        for r in ((0, 0, w, t), (0, h - t, w, t), (0, 0, t, h), (w - t, 0, t, h)):
-            p.fillRect(*r, self.edge)
+        p.setRenderHint(QPainter.Antialiasing)
+        card = QRectF(self.rect()).adjusted(SHADOW, SHADOW, -SHADOW, -SHADOW)
+        r = corner()
+        for k in range(SHADOW, 0, -2):                          # the shadow: soft, a little below
+            grow = QRectF(card).adjusted(-k * 0.6, -k * 0.35 + 3, k * 0.6, k * 0.6 + 3)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(0, 0, 0, max(1, int(5 * (1 - k / SHADOW)) + 1)))
+            p.drawRoundedRect(grow, r + k * 0.6, r + k * 0.6)
+        path = QPainterPath()
+        path.addRoundedRect(card, r, r)
+        p.fillPath(path, QColor("#FFFFFF"))
+        p.save()
+        p.setClipPath(path)
+        p.fillRect(QRectF(card.left(), card.top(), card.width(), ACCENT), self.edge)     # the opener's colour, along the top
+        if self.footer is not None and not self.footer.isHidden():
+            top = self.footer.mapTo(self, self.footer.rect().topLeft()).y()
+            p.fillRect(QRectF(card.left(), top, card.width(), card.bottom() - top), QColor("#F7F8FA"))
+            p.setPen(QPen(QColor("#E5E7EB"), 1))
+            p.drawLine(int(card.left()), top, int(card.right()), top)
+        p.restore()
+        p.setPen(QPen(QColor(0, 0, 0, 40), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
         p.end()
 
     def eventFilter(self, watched, event):
@@ -110,21 +156,20 @@ class Box(_Framed, QDialog):
     def __init__(self, parent, title, message, buttons=("OK",), edge="", ask=None, picture=None):
         super().__init__(parent if parent is not None else QApplication.activeWindow())     # never adrift: it stays in front of a window
         self.setWindowTitle(str(title))
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)  # our own bar and edge: one frame, all the way round
+        self.card_setup()
         self.setModal(True)
         self.edge = strong(edge or NEUTRAL)
         self.setObjectName("VmlBox")
-        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(box_sheet(self.edge))
         self.answer, self.buttons, self.input = "", list(buttons), None
         frame = QVBoxLayout(self)
-        frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)
+        frame.setContentsMargins(SHADOW, SHADOW + ACCENT, SHADOW, SHADOW)
         frame.setSpacing(0)
-        self.bar = _Bar(self, title, self.edge)
+        self.bar = _Bar(self, title, self.edge, look="card")
         frame.addWidget(self.bar)
         outer = QVBoxLayout()
         frame.addLayout(outer)
-        outer.setContentsMargins(24, 20, 24, 18)
+        outer.setContentsMargins(22, 2, 22, 20)
         outer.setSpacing(12)
         self.picture = None
         if picture:                                             # a picture above the words: a data: address, or a file
@@ -171,7 +216,11 @@ class Box(_Framed, QDialog):
             self.input.setMinimumWidth(440)
             self.input.selectAll()
             outer.addWidget(self.input)
-        row = QHBoxLayout()
+        self.footer = QWidget()                                 # the buttons, on a pale band along the foot
+        self.footer.setAttribute(Qt.WA_TranslucentBackground, True)
+        row = QHBoxLayout(self.footer)
+        row.setContentsMargins(22, 14, 22, 14)
+        row.setSpacing(8)
         row.addStretch(1)
         for i, label in enumerate(self.buttons):
             b = QPushButton(label)
@@ -180,7 +229,7 @@ class Box(_Framed, QDialog):
             b.setAutoDefault(i == 0)
             b.clicked.connect(self.pressed)                    # a method, not a lambda holding the box: no cycle to outlive Qt
             row.addWidget(b)
-        outer.addLayout(row)
+        frame.addWidget(self.footer)
         if self.input is not None:
             self.input.setFocus()
 
@@ -337,14 +386,14 @@ class FileBox(_Framed, QDialog):
         from PySide6.QtWidgets import QFileDialog
         super().__init__(parent if parent is not None else QApplication.activeWindow())
         self.setWindowTitle(str(title))
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.card_setup()
         self.setModal(True)
         self.edge = strong(edge or NEUTRAL)
         self.path = ""
         frame = QVBoxLayout(self)
-        frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)
+        frame.setContentsMargins(SHADOW + 6, SHADOW + ACCENT, SHADOW + 6, SHADOW + 6)
         frame.setSpacing(0)
-        self.bar = _Bar(self, title, self.edge)
+        self.bar = _Bar(self, title, self.edge, look="card")
         frame.addWidget(self.bar)
         fd = QFileDialog(self, str(title), str(start or ""), str(filters or "All files (*)"))
         fd.setOption(QFileDialog.DontUseNativeDialog, True)    # a desktop's own would come with its own window again
@@ -453,14 +502,14 @@ class ColourBox(_Framed, QDialog):
         from PySide6.QtWidgets import QColorDialog
         super().__init__(parent if parent is not None else QApplication.activeWindow())
         self.setWindowTitle(str(title))
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.card_setup()
         self.setModal(True)
         self.edge = strong(edge or NEUTRAL)
         self.colour = QColor()
         frame = QVBoxLayout(self)
-        frame.setContentsMargins(EDGE, EDGE, EDGE, EDGE)
+        frame.setContentsMargins(SHADOW + 6, SHADOW + ACCENT, SHADOW + 6, SHADOW + 6)
         frame.setSpacing(0)
-        frame.addWidget(_Bar(self, title, self.edge))
+        frame.addWidget(_Bar(self, title, self.edge, look="card"))
         cd = QColorDialog(QColor(start), self)
         cd.setWindowFlags(Qt.Widget)
         cd.setOption(QColorDialog.DontUseNativeDialog, True)

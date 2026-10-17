@@ -130,17 +130,29 @@ class Overlay(QWidget):
         """A window title bar above the form, so it looks like the window it will become."""
         v, f = self.view, self.view.form.geometry()
         bar = QRect(f.left(), f.top() - v.menu_h() - TITLE_H, f.width(), TITLE_H)
-        p.setPen(QPen(QColor("#9ca3af"), 1))
-        p.setBrush(QColor("#f3f4f6"))
+        mode = str(v.node.props.get("FormTitleBar") or "System")
+        if mode == "None":                               # no title bar: just where it would be, faintly
+            p.setPen(QPen(QColor("#9ca3af"), 1, Qt.DashLine))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(bar.adjusted(0, 0, -1, 0))
+            p.drawText(bar.adjusted(12, 0, 0, 0), Qt.AlignVCenter | Qt.AlignLeft, "(no title bar)")
+            return
+        from .registry import host_title_bar
+        own = QColor(str(v.node.props.get("FormTitleBackground") or host_title_bar()[0])) \
+            if mode == "Own" else None
+        ink = (QColor("#111827") if 0.299 * own.red() + 0.587 * own.green() + 0.114 * own.blue() > 150 else QColor("#FFFFFF")) \
+            if own is not None else QColor("#111827")
+        p.setPen(QPen(own if own is not None else QColor("#9ca3af"), 1))
+        p.setBrush(own if own is not None else QColor("#f3f4f6"))
         p.drawRect(bar.adjusted(0, 0, -1, 0))
         title = str(v.node.props.get("FormTitle") or v.node.props.get("FormName") or "Form1")
-        p.setPen(QColor("#111827"))
+        p.setPen(ink)
         p.drawText(bar.adjusted(12, 0, -120, 0), Qt.AlignVCenter | Qt.AlignLeft, title)
         resizable = str(v.node.props.get("FormResizable", "true")).lower() != "false"
         x = bar.right() - 36
         for glyph in ("close", "max", "min"):
             r = QRect(x, bar.top() + 7, 16, 16)
-            p.setPen(QPen(QColor("#9ca3af") if glyph == "max" and not resizable else QColor("#374151"), 1.4))
+            p.setPen(QPen(QColor("#9ca3af") if glyph == "max" and not resizable else (ink if own is not None else QColor("#374151")), 1.4))
             if glyph == "close":
                 p.drawLine(r.left() + 3, r.top() + 3, r.right() - 3, r.bottom() - 3)
                 p.drawLine(r.right() - 3, r.top() + 3, r.left() + 3, r.bottom() - 3)
@@ -716,6 +728,14 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
           Prop("FormBackground", "colour", "Form", default="#ffffff", apply=lambda n, v: n.widget.set_form_bg(v)),
           Prop("FormBorder", "colour", "Form", apply=lambda n, v: n.widget.set_form_bg(None)),    # an edge round the window
           Prop("FormResizable", "bool", "Form", default="true", apply=lambda n, v: n.widget.overlay.update()),
+          Prop("FormBorderThickness", "number", "Form"),                       # the edge's width (1 if not set)
+          Prop("FormTitleBar", "choice", "Form", options=("System", "Own", "None"), default="System",
+               apply=lambda n, v: n.widget.overlay.update()),               # Own: drawn in FormBorder's colour, edge and all
+          Prop("FormTitleBackground", "colour", "Form", apply=lambda n, v: n.widget.overlay.update()),
+          Prop("FormBorderThickness", "number", "Form"),                       # the edge's width (1 if not set)
+          Prop("FormTitleBar", "choice", "Form", options=("System", "Own", "None"), default="System",
+               apply=lambda n, v: n.widget.overlay.update()),               # Own: the desktop's colours, FormBorder round it all
+          Prop("FormTitleBackground", "colour", "Form", apply=lambda n, v: n.widget.overlay.update()),
           Prop("FormModal", "bool", "Form", default="false"),
           Prop("FormMinWidth", "number", "Form"), Prop("FormMinHeight", "number", "Form"),
           Prop("FormMaxWidth", "number", "Form"), Prop("FormMaxHeight", "number", "Form"),

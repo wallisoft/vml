@@ -1665,7 +1665,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.export_names, surf.carried = {}, []
         for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
             surf.props.pop(ev, None)
-        for prop in ("FormBorder", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight",
+        for prop in ("FormBorder", "FormBorderThickness", "FormTitleBar", "FormTitleBackground", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight",
                      *(p for _, p in self.APP_KEYS)):
             if surf.props.get(prop):                         # the last form's window options don't carry over
                 self.cmd_SetProperty(surf.name, prop, "")
@@ -1673,7 +1673,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.widget.set_menu([])
         surf.widget.apply_menu_settings()
         for k, v in (("FormName", "Form1"), ("FormTitle", "Form1"), ("FormWidth", "640"), ("FormHeight", "480"),
-                     ("FormBackground", "#ffffff")):
+                     ("FormBackground", "#ffffff"), ("FormTitleBar", "Own")):    # a new form wears its own title bar
             self.cmd_SetProperty(surf.name, k, v)
 
     # What a form says about the app it is, in its @Window, and the designer's name for each: read when a form is
@@ -1705,10 +1705,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
-                          ("BorderBrush", "FormBorder"), *self.APP_KEYS,
+                          ("BorderBrush", "FormBorder"), ("BorderThickness", "FormBorderThickness"), ("TitleBar", "FormTitleBar"), ("TitleBackground", "FormTitleBackground"),
+                          *self.APP_KEYS,
                           ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp")):
             v = str(surf.props.get(prop, "") or "")
-            if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false"):
+            if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false") \
+                    and not (key == "TitleBar" and v == "System"):
                 end = out.index("", out.index(f"@Window {form}"))   # the end of the window's own lines
                 out.insert(end, f"{key}={v}")
         first = ["Canvas.Left", "Canvas.Top", "Width", "Height"]
@@ -1861,9 +1863,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             self.cmd_SetProperty(surf.name, k, v)
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
-                          ("BorderBrush", "FormBorder"), *self.APP_KEYS):
+                          ("BorderBrush", "FormBorder"), ("BorderThickness", "FormBorderThickness"), ("TitleBar", "FormTitleBar"), ("TitleBackground", "FormTitleBackground"),
+                          *self.APP_KEYS):
             if wp.get(key):
                 self.cmd_SetProperty(surf.name, prop, wp[key])
+        if not wp.get("TitleBar"):
+            self.cmd_SetProperty(surf.name, "FormTitleBar", "System")     # (a form from before keeps the desktop's own)
         count, placed = 0, {canvas[0]: surf.name}
         for cid, parent_id, ctype, name in rows:               # parents always come before their children
             if parent_id not in placed:
