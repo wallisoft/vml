@@ -336,7 +336,8 @@ class SurfaceView(QScrollArea):
         self.form.setAttribute(Qt.WA_StyledBackground, True)
         self.form.move(PAGE_MARGIN, PAGE_MARGIN + TITLE_H)
         self.menu_items, self.menu_settings = [], {}
-        self.menubar = QMenuBar(self.page)                  # the designed form's menu, shown as it will look
+        from .menus import VmlMenuBar
+        self.menubar = VmlMenuBar(self.page)                # the designed form's menu, shown as it will look
         self.menubar.setNativeMenuBar(False)
         self.menubar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.menubar.hide()
@@ -541,7 +542,8 @@ class SurfaceView(QScrollArea):
                 continue
             has_kids = i + 1 < len(items) and int(items[i + 1].get("level", 0)) > level
             if has_kids or level == 0:
-                menu = QMenu(it.get("text") or "", target)
+                from .menus import VmlMenu
+                menu = VmlMenu(it.get("text") or "", target)
                 menu.installEventFilter(self._menu_filter(menu))
                 act = target.addMenu(menu)
                 parents[level] = menu
@@ -558,11 +560,9 @@ class SurfaceView(QScrollArea):
     def apply_menu_settings(self):
         """The bar's colours, as the running form will show them (a MenuTheme)."""
         st = {k: v for k, v in self.menu_settings.items() if v and k != "OpenOnHover"}
-        if st:
-            bar_css, popup_css = theme_sheets(st)
-            self.menubar.setStyleSheet(bar_css + popup_css)
-        else:
-            self.menubar.setStyleSheet("")
+        self.menubar.menu_theme = st or None                # (its drop-downs ask the bar: vml/menus.py)
+        self.menubar.set_height(num(st.get("Height"), 0) if st else 0)
+        self.menubar.update()
         self.overlay.update()
 
     def reopen_menu_for(self, name):
@@ -1215,7 +1215,8 @@ class GridView(QScrollArea):
 
     def pick_style(self, prop, ed, button):
         """Style: a menu of ready-made looks (each replaces the Style). Class: the form's @Style names, ticked on and off."""
-        menu = QMenu(button)
+        from .menus import VmlMenu
+        menu = VmlMenu(button)
         if prop == "Style":
             for label, css in STYLE_PRESETS:
                 act = menu.addAction(label)

@@ -112,7 +112,7 @@ def steps():
     grid.editors["Background"].setText("#1E3A8A"); grid.editors["Background"].editingFinished.emit()
     grid.editors["Foreground"].setText("White"); grid.editors["Foreground"].editingFinished.emit()
     grid.editors["OpenOnHover"].setChecked(True); settle()
-    check("bar restyled on the design surface", "#1E3A8A" in view.menubar.styleSheet(), True)
+    check("bar restyled on the design surface", (view.menubar.menu_theme or {}).get("Background", "").upper(), "#1E3A8A")
 
     eng.cmd_PreviewDesign("Surface"); settle()
     prev = [w for w in eng.windows if "vml-preview" in w.scope][-1]
@@ -123,7 +123,12 @@ def steps():
     check("preview: menu item runs its script", eng.store.get_setting("menu_test"), "new clicked")
     check("preview: canvas below the menu, controls in place",
           eng.scopes[sc][btn].host.mapTo(prev.widget, QPoint(0, 0)).y() >= bar.height() + 24, True)
-    check("preview: bar themed", "#1E3A8A" in bar.styleSheet(), True)
+    check("preview: bar themed", (bar.menu_theme or {}).get("Background", "").upper(), "#1E3A8A")
+    from vml.menus import VmlMenu, VmlMenuBar
+    menus = [n.menu for n in eng.scopes[sc].values() if getattr(n, "menu", None) is not None]
+    check("preview: the bar and its drop-downs are ours, and carry the theme",
+          (type(bar).__name__, bool(menus) and all(isinstance(m, VmlMenu) and (m.menu_theme or {}).get("Background", "").upper() == "#1E3A8A" for m in menus)),
+          ("VmlMenuBar", True))
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtCore import QEvent, QPointF
     help_act = bar.actions()[1]

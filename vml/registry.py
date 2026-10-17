@@ -719,39 +719,16 @@ def _host():
 
 
 def host_radius():
-    """How round this desktop draws its windows' corners, (top, bottom): Windows 11 all four at 8, Windows 10
-    square, a Mac all four at 10, GNOME the top two at 12 and the bottom square."""
-    return {"win11": (8, 8), "win10": (0, 0), "mac": (10, 10), "gnome": (12, 0)}.get(_host(), (8, 8))
-
-
-def _windows_accent():
-    """Windows' accent colour, if it's set to colour title bars (Settings, Personalisation, Colours), else None."""
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\DWM") as k:
-            if winreg.QueryValueEx(k, "ColorPrevalence")[0] != 1:
-                return None
-            abgr = winreg.QueryValueEx(k, "AccentColor")[0]
-        return "#%02X%02X%02X" % (abgr & 0xFF, (abgr >> 8) & 0xFF, (abgr >> 16) & 0xFF)
-    except Exception:
-        return None
+    """How round this desktop draws its windows' corners, (top, bottom): see vml/theme.py."""
+    from .theme import theme
+    return theme().corners
 
 
 def host_title_bar():
-    """This desktop's title bar: its colour (light or dark, as the desktop is set) and where its title goes."""
-    from PySide6.QtWidgets import QApplication
-    dark = False
-    try:
-        dark = QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
-    except Exception:
-        pass
-    host = _host()
-    if host.startswith("win"):
-        accent = _windows_accent()                     # "Show accent colour on title bars" is on: that colour
-        return accent or ("#202020" if dark else "#F3F3F3"), "left"
-    if host == "mac":
-        return ("#2D2D2D" if dark else "#E8E8E8"), "center"
-    return ("#303030" if dark else "#EBEBEB"), "center"          # GNOME's header bar, and most Linux desktops
+    """This desktop's title bar: its colour and where its title goes (see vml/theme.py)."""
+    from .theme import theme
+    t = theme()
+    return t.title_bg, t.title_align
 
 # ------------------------------------------------------------------ a window's own title bar (TitleBar=Own)
 
@@ -1675,7 +1652,8 @@ def make_menuitem(node):
 
 def ensure_menu(node):
     if node.menu is None:
-        node.menu = QMenu(node.action.text())
+        from .menus import VmlMenu                      # (drawn by us: vml/menus.py)
+        node.menu = VmlMenu(node.action.text())
         node.action.setMenu(node.menu)
     return node.menu
 
@@ -1713,7 +1691,8 @@ def set_separator(node, value):
 
 
 def make_contextmenu(node):
-    node.menu = QMenu()
+    from .menus import VmlMenu
+    node.menu = VmlMenu()
     node.action = None
     return QWidget()
 
@@ -1747,9 +1726,8 @@ REGISTRY["MenuTheme"].virtual = True
 
 
 def make_menubar(node):
-    bar = QMenuBar()
-    bar.setNativeMenuBar(False)
-    return bar
+    from .menus import VmlMenuBar                       # (drawn by us: vml/menus.py)
+    return VmlMenuBar()
 
 
 class _HoverOpen(QObject):

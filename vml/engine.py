@@ -459,13 +459,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         t = self.themes.get(scope)
         if not t:
             return
-        bar_css, popup_css = theme_sheets(t)
-        bar = self._menubar(scope)
+        bar = self._menubar(scope)                      # (our menus draw themselves from the theme: vml/menus.py)
         if bar:
-            bar.widget.setStyleSheet(bar_css)
+            bar.widget.menu_theme = dict(t)
+            if hasattr(bar.widget, "set_height"):
+                bar.widget.set_height(float(t.get("Height") or 0))
+            bar.widget.update()
         for node in self.scopes.get(scope, {}).values():
             if getattr(node, "menu", None) is not None:
-                node.menu.setStyleSheet(popup_css)
+                node.menu.menu_theme = dict(t)
 
     # ================================================================ events
 
