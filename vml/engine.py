@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QVBoxLayout, QW
 from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout_remove, make_box, theme_sheets,
                        truthy)
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
+from . import statusbar  # noqa: F401  (registers StatusBar)
 from . import pickers  # noqa: F401  (registers ColorPicker, DatePicker, TimePicker, NumberBox, ToggleSwitch)
 from . import mdview  # noqa: F401  (registers MarkdownView, MarkdownEditor)
 from .store import LUA_DIR, PARSER_LOG, Store
@@ -1446,7 +1447,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         ("Buttons and choices", ["Button", "CheckBox", "RadioButton", "ToggleButton", "ToggleSwitch", "ComboBox"]),
         ("Pickers", ["DatePicker", "TimePicker", "Calendar", "ColorPicker", "NumberBox", "Slider"]),
         ("Lists and data", ["ListBox", "DataGrid", "TreeView"]),
-        ("Documents and media", ["MarkdownView", "MarkdownEditor", "Image", "Rectangle", "ProgressBar"]),
+        ("Documents and media", ["MarkdownView", "MarkdownEditor", "Image", "Rectangle"]),
+        ("Bars", ["StatusBar", "ProgressBar"]),
         ("Containers", ["Canvas", "Frame", "Border", "ScrollViewer"]),
         ("Layout (advanced)", ["StackPanel", "DockPanel", "Grid"]),
         ("Behind the scenes", ["Timer"]),
@@ -1493,6 +1495,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 defaults[key] = name
         snap = surf.widget.snap
         defaults["Canvas.Left"], defaults["Canvas.Top"] = str(snap(float(x or 0))), str(snap(float(y or 0)))
+        if ctype == "StatusBar":                    # along the foot of the form, full width, staying there as it's resized
+            box = container.widget if container is not surf else view.form
+            h = int(float(defaults.get("Height", 26)))
+            defaults.update({"Canvas.Left": "0", "Canvas.Top": str(max(0, box.height() - h)), "Width": str(box.width())})
         for k, v in defaults.items():
             self.cmd_SetProperty(name, k, v)
         surf.widget.select(name, user=True)

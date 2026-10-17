@@ -1171,4 +1171,5 @@ DESIGN_DEFAULTS = {
     "ToggleButton": {"Content": "Toggle", "Width": "100", "Height": "30"},
     "MarkdownView": {"Text": "Some **Markdown**, shown as a page.", "Width": "300", "Height": "200"},
     "MarkdownEditor": {"Width": "460", "Height": "240"},
+    "StatusBar": {"Panels": "Ready|{date}|{time}", "Height": "26", "Background": "#F3F4F6", "Anchor": "Bottom,Left,Right"},
 }

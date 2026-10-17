@@ -363,6 +363,12 @@ class Page:
             size = ' size="6"' if ctype == "ListBox" else ""
             alt = ' class="alt"' if ctype == "ListBox" and str(p.get("AlternatingRows", "")).lower() == "true" else ""
             return f'<select {attrs}{size}{alt} style="{";".join(css)}"{disabled}>{opts}</select>'
+        if ctype == "StatusBar":                                # vml/statusbar.py: panels split by |, {time} {date} kept current
+            panels = [s.strip() for s in str(p.get("Panels") or "Ready").split("|")]
+            if p.get("Text") not in (None, ""):
+                panels[0] = str(p["Text"])
+            spans = "".join(f'<span data-tpl="{esc(t)}">{esc(t)}</span>' for t in panels)
+            return f'<div {attrs} class="sbar" style="{";".join(css)}">{spans}</div>'
         if ctype == "Timer":                                    # not seen: it ticks (see wire() in the page)
             on = "false" if str(p.get("IsEnabled", "true")).lower() == "false" else "true"
             return f'<span {attrs} data-interval="{int(num(p.get("Interval"), 1000))}" data-on="{on}" hidden></span>'
@@ -672,6 +678,9 @@ TEMPLATE = r"""<!DOCTYPE html>
   .vcal .gr span.on { background: #4F46E5; color: #fff; }
   .vcal .gr span.out { color: #D1D5DB; pointer-events: none; }
   .vlink { color: #2563EB; text-decoration: underline; cursor: pointer; }
+  .sbar { display: flex; align-items: center; background: #F3F4F6; color: #374151; border-top: 1px solid #D1D5DB; box-sizing: border-box; overflow: hidden; font-size: 12px; }
+  .sbar span { padding: 0 10px; white-space: nowrap; border-left: 1px solid #D1D5DB; }
+  .sbar span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; border-left: none; }
   .vlink:hover { color: #1E40AF; }
   .tbtn[aria-pressed=true] { filter: brightness(.88); box-shadow: inset 0 2px 4px rgba(0,0,0,.18); }
   .pbar { position: absolute; overflow: hidden; display: flex; align-items: center; }
@@ -740,6 +749,10 @@ const textOf = e => e.matches("input,textarea") ? e.value : e.matches("label.cb"
 const setText = (e, v) => { if (e.matches("input,textarea")) e.value = v; else if (e.matches("label.cb")) e.querySelector("span").textContent = v;
   else if (e.matches("[data-type=MenuItem]")) e.querySelector(".mt").textContent = v.replace(/&/g, ""); else e.textContent = v; };
 const truthy = v => ["true", "1", "yes"].includes(String(v).toLowerCase());
+const sbarFill = t => { if (!t.includes("{")) return t; const d = new Date(), hm = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+  dt = `${d.getDate()} ${d.toLocaleString("en-GB", { month: "short" })} ${d.getFullYear()}`;
+  return t.replace(/\{datetime\}/g, `${dt} ${hm}`).replace(/\{date\}/g, dt).replace(/\{time\}/g, hm); };
+const sbarDraw = b => b.querySelectorAll("span").forEach(s => s.textContent = sbarFill(s.dataset.tpl || ""));
 let lastPointer = { x: 40, y: 40 }, lua = null;
 document.addEventListener("mousemove", e => lastPointer = { x: e.clientX, y: e.clientY }, true);
 
@@ -936,6 +949,11 @@ const commands = {
       else if (prop === "Text") { e.dataset.md = value; if (!e.dataset.src) mdDraw(e, String(value).replace(/\\n/g, "\n")); }
       return "";
     }
+    if (e.matches(".sbar") && (prop === "Text" || prop === "Panels")) {
+      if (prop === "Text") { const s = e.querySelector("span"); if (s) { s.dataset.tpl = String(value); s.textContent = sbarFill(String(value)); } }
+      else e.innerHTML = String(value || "Ready").split("|").map(t => `<span data-tpl="${t.trim().replace(/"/g, "&quot;")}"></span>`).join(""), sbarDraw(e);
+      return "";
+    }
     if (e.matches(".vmde") && (prop === "Text" || prop === "ShowPreview")) {
       if (prop === "Text") { const ta = e.querySelector("textarea"); ta.value = String(value); mdDraw(e.querySelector(".vmd"), ta.value); }
       else e.classList.toggle("nopv", !truthy(value));
@@ -1015,6 +1033,8 @@ const commands = {
     const e = el(name);
     if (!e) return "";
     if (e.matches(".vmde") && prop === "Text") return e.querySelector("textarea").value;
+    if (e.matches(".sbar") && prop === "Text") return (e.querySelector("span") || {}).textContent || "";
+    if (e.matches(".sbar") && prop === "Panels") return [...e.querySelectorAll("span")].map(s => s.dataset.tpl).join("|");
     if (e.matches(".vmd") && prop === "Text") return e._md ?? e.dataset.md ?? "";
     if (prop === "Text" || prop === "Content" || prop === "Header") return textOf(e);
     if (e.matches(".tbtn") && prop === "IsChecked") return e.getAttribute("aria-pressed") === "true" ? "true" : "false";
@@ -2599,6 +2619,8 @@ function mdBox(source, title = "", editable = false, handler = "") {
 }
 
 function wire() {
+  document.querySelectorAll(".sbar").forEach(sbarDraw);
+  setInterval(() => document.querySelectorAll(".sbar").forEach(sbarDraw), 1000);
   document.querySelectorAll(".vcal").forEach(drawCal);
   document.querySelectorAll(".vmd[data-src], .vmd[data-md]").forEach(v => {
     let where = v.dataset.src ? mdSource(v.dataset.src) : { kind: "text", text: v.dataset.md.replace(/\\n/g, "\n"), anchor: "" };
