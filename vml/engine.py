@@ -1688,7 +1688,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         form, canvas = g("FormName", "Form1"), g("FormName", "Form1") + "Canvas"
         menu = surf.widget.menu_items
         mh = surf.widget.menu_h()
-        out = [f"# {form}: designed in the VML designer", "", f"@Window {form}", f"Title={g('FormTitle', form)}",
+        # the #! line lets a form run as a program on Linux and macOS once it's made executable (chmod +x): left to
+        # the user, as with any script. Windows and VML itself read it as a comment.
+        out = ["#!/usr/bin/env vml", f"# {form}: designed in the VML designer", "", f"@Window {form}", f"Title={g('FormTitle', form)}",
                f"Width={g('FormWidth', 640)}", f"Height={int(float(g('FormHeight', 480))) + mh}", ""]
         settings = {k: v for k, v in surf.widget.menu_settings.items() if v not in ("", None)}
         if menu:

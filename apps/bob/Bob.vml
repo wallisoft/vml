@@ -1,11 +1,15 @@
+#!/usr/bin/env vml
 # ============================================================================
 #   Bob: builds Visualised. Linux on this computer (tools/build-local.sh),
 #   Windows on A8 over SSH (tools/build-windows.sh), one at a time or both at
 #   once, with a light, the stage it's at and the time it's taken for each,
 #   and every line of each build on its own tab.
 #
-#   Where the repo is: the preference bob_repo (Repo... changes it), or
-#   BOB_REPO in the environment; ~/projects/vml-github if neither.
+#   Set up… says where the repo is (~/projects/vml-github unless you say)
+#   and which Windows PC builds for Windows (a8, a name from ~/.ssh/config).
+#   They're kept as the preferences bob_repo and bob_host; BOB_REPO and
+#   BOB_HOST in the environment win over both.
+#   Run it as a program: chmod +x Bob.vml, then ./Bob.vml
 #   Each build's log is also kept in ~/.cache/bob-linux.log and
 #   ~/.cache/bob-windows.log.
 #
@@ -54,7 +58,7 @@ Canvas.Top=48
 Width=520
 Height=22
 Foreground=#CBD5E1
-Text=builds Visualised: Linux on this computer, Windows on A8
+Text=builds Visualised: Linux on this computer, Windows over SSH
 
 @TextBlock lblVersion
 Parent=head
@@ -196,7 +200,7 @@ Canvas.Top=36
 Width=290
 Height=20
 Foreground=#6B7280
-Text=on A8: asking…
+Text=asking…
 
 @TextBlock stageW
 Parent=cardW
@@ -263,21 +267,21 @@ OnClick=Stop
 Parent=c
 Canvas.Left=346
 Canvas.Top=272
-Width=270
+Width=260
 Height=24
 IsChecked=true
 Content=Install the Linux build on this computer
 
 @Button btnRepo
 Parent=c
-Canvas.Left=624
+Canvas.Left=612
 Canvas.Top=264
-Width=64
+Width=76
 Height=40
 Anchor=Top,Right
-Content=Repo…
-ToolTip=Where the Visualised repo is
-OnClick=PickRepo
+Content=Set up…
+ToolTip=Where the Visualised repo is, and which PC builds for Windows
+OnClick=SetUp
 
 @Button btnOpen
 Parent=c
@@ -367,6 +371,15 @@ local r = Vml("Shell", 'printf %s "${BOB_REPO:-' .. (pref ~= "" and pref or "$HO
 return ((r or ""):gsub("%s+$", ""))
 LUA
 
+@Script Host
+Interpreter=lua
+<<LUA
+-- Which PC builds for Windows: BOB_HOST, else the preference, else a8 (a name from ~/.ssh/config)
+local pref = Vml("GetPreference", "bob_host", "")
+local h = Vml("Shell", 'printf %s "${BOB_HOST:-' .. (pref ~= "" and pref or "a8") .. '}"')
+return ((h or ""):gsub("%s+$", ""))
+LUA
+
 @Script Opened
 Interpreter=lua
 <<LUA
@@ -389,15 +402,19 @@ local function last(file, stage)
 end
 last("$HOME/.cache/vml-build/vml-linux-x86_64.tar.gz", "stageL")
 last("$HOME/.cache/vml-build-windows/Visualised-Setup.exe", "stageW")
--- is A8 awake? (asked in the background: an asleep PC takes a few seconds to not answer)
-Vml("RunProcess", "ssh -o BatchMode=yes -o ConnectTimeout=6 a8 hostname", "", "A8Answered")
+-- is the Windows PC awake? (asked in the background: an asleep PC takes a few seconds to not answer)
+local host = Vml("RunScript", "Host")
+Vml("SetProperty", "hostW", "Text", "on " .. host .. ": asking…")
+Vml("SetProperty", "hostW", "Foreground", "#6B7280")
+Vml("RunProcess", "ssh -o BatchMode=yes -o ConnectTimeout=6 '" .. host .. "' hostname", "", "A8Answered")
 LUA
 
 @Script A8Answered
 Interpreter=lua
 <<LUA
 local up = Vml("GetSetting", "exit_code") == "0"
-Vml("SetProperty", "hostW", "Text", up and "on A8, over SSH" or "on A8: not answering (asleep, or off?)")
+local host = Vml("RunScript", "Host")
+Vml("SetProperty", "hostW", "Text", up and ("on " .. host .. ", over SSH") or ("on " .. host .. ": not answering (asleep, or off?)"))
 Vml("SetProperty", "hostW", "Foreground", up and "#6B7280" or "#DC2626")
 LUA
 
@@ -427,7 +444,7 @@ local repo = Vml("RunScript", "Repo")
 local linux = side == "L"
 local log = linux and "$HOME/.cache/bob-linux.log" or "$HOME/.cache/bob-windows.log"
 local tool = linux and ("tools/build-local.sh" .. (Vml("GetProperty", "chkInstall", "IsChecked") == "true" and "" or " --no-install"))
-                    or "tools/build-windows.sh"
+                    or ("tools/build-windows.sh '" .. Vml("RunScript", "Host") .. "'")
 Vml("SetProperty", "light" .. side, "Foreground", "#F59E0B")
 Vml("SetProperty", "stage" .. side, "Text", "Starting…")
 Vml("SetProperty", "detail" .. side, "Text", "")
@@ -545,12 +562,12 @@ LUA
 @Script Stop
 Interpreter=lua
 <<LUA
--- Stop whatever is building: here, and the build on A8 too (stopping the ssh alone would leave it running there)
+-- Stop whatever is building: here, and the build on the Windows PC too (stopping the ssh alone would leave it running there)
 local yes = Vml("ConfirmDialog", "Stop the build" .. ((Vml("GetSetting", "bob_l_run") == "1" and Vml("GetSetting", "bob_w_run") == "1") and "s" or "") .. "?", "Stop")
 if yes ~= true and yes ~= "true" and yes ~= "True" then return end
 Vml("SetSetting", "bob_stopping", "1")
 if Vml("GetSetting", "bob_w_run") == "1" then
-    Vml("Shell", [[PS='Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*build-windows.ps1*" } | ForEach-Object { taskkill /F /T /PID $_.ProcessId | Out-Null }'; ssh -o BatchMode=yes -o ConnectTimeout=6 a8 "powershell -NoProfile -EncodedCommand $(printf %s "$PS" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)" >/dev/null 2>&1; pkill -f "tools/build-windows.sh"; pkill -f "vml-build.build-windows.ps1"; true]])
+    Vml("Shell", "H='" .. Vml("RunScript", "Host") .. "'; " .. [[PS='Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*build-windows.ps1*" } | ForEach-Object { taskkill /F /T /PID $_.ProcessId | Out-Null }'; ssh -o BatchMode=yes -o ConnectTimeout=6 "$H" "powershell -NoProfile -EncodedCommand $(printf %s "$PS" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)" >/dev/null 2>&1; pkill -f "tools/build-windows.sh"; pkill -f "vml-build.build-windows.ps1"; true]])
 end
 if Vml("GetSetting", "bob_l_run") == "1" then
     Vml("Shell", [[pkill -f "tools/build-local.sh"; pkill -f "vml-build-venv/bin/python -m nuitka"; true]])
@@ -561,15 +578,17 @@ for _, side in ipairs({ "l", "w" }) do
 end
 LUA
 
-@Script PickRepo
+@Script SetUp
 Interpreter=lua
 <<LUA
-local now = Vml("RunScript", "Repo")
-local r = Vml("PromptDialog", "Repo", "Where's the Visualised repo? (the folder with tools/ in it)", now)
-if r and r ~= "" and r ~= now then
-    Vml("SetPreference", "bob_repo", r)
-    Vml("RunScript", "Opened")
-end
+-- The two things that differ from one lab to the next: where the repo is, and which PC builds for Windows
+local repo = Vml("RunScript", "Repo")
+local r = Vml("PromptDialog", "Set up", "Where's the Visualised repo? (the folder with tools/ in it)", repo)
+if r and r ~= "" and r ~= repo then Vml("SetPreference", "bob_repo", r) end
+local host = Vml("RunScript", "Host")
+local h = Vml("PromptDialog", "Set up", "Which PC builds for Windows? (its name in ~/.ssh/config, or user@address)", host)
+if h and h ~= "" and h ~= host then Vml("SetPreference", "bob_host", h) end
+Vml("RunScript", "Opened")
 LUA
 
 @Script OpenBuilds
