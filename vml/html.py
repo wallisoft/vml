@@ -363,6 +363,35 @@ class Page:
             size = ' size="6"' if ctype == "ListBox" else ""
             alt = ' class="alt"' if ctype == "ListBox" and str(p.get("AlternatingRows", "")).lower() == "true" else ""
             return f'<select {attrs}{size}{alt} style="{";".join(css)}"{disabled}>{opts}</select>'
+        if ctype == "TabStrip":                                 # vml/tabs.py: tabs along the top, the chosen page under them
+            pages = [k for k in kids if self.by_id[k][2] == "TabPage"]
+            sel = max(0, min(int(num(p.get("SelectedIndex"), 0)), len(pages) - 1)) if pages else 0
+            heads = "".join(f'<button type="button"{" class=on" if i == sel else ""}>'
+                            f'{esc(self.props.get(k, {}).get("Header") or self.by_id[k][3])}</button>' for i, k in enumerate(pages))
+            ref_size = (num(p.get("Width"), 320), num(p.get("Height"), 220) - 34)
+            body = "".join(self.render(k, "TabStrip", ref_size, [] if i == sel else ["display:none"]) for i, k in enumerate(pages))
+            accent = colour(p.get("Accent") or "#4F46E5")
+            return (f'<div {attrs} class="vtabs" data-sel="{sel}" style="--accent:{accent};{";".join(css)}">'
+                    f'<div class="vtabh">{heads}</div>{body}</div>')
+        if ctype == "TabPage":
+            css += ["position:absolute", "left:0", "right:0", "top:34px", "bottom:0"]
+            return f'<div {attrs} class="vtabp" style="{";".join(css)}">{inner("Frame", ref)}</div>'
+        if ctype == "Toolbar":                                  # a row of buttons: "words=Handler", | for a divider
+            from .tabs import toolbar_items
+            out, i = [], 0
+            for words, handler in toolbar_items(p.get("Items")):
+                if words == "|":
+                    out.append('<i class="sep"></i>')
+                    continue
+                out.append(f'<button type="button" data-i="{i}" data-run="{esc(handler)}">{esc(words)}</button>')
+                i += 1
+            return f'<div {attrs} class="vtool" style="{";".join(css)}">{"".join(out)}</div>'
+        if ctype == "StatusBar":                                # vml/statusbar.py: panels split by |, {time} {date} kept current
+            panels = [s.strip() for s in str(p.get("Panels") or "Ready").split("|")]
+            if p.get("Text") not in (None, ""):
+                panels[0] = str(p["Text"])
+            spans = "".join(f'<span data-tpl="{esc(t)}">{esc(t)}</span>' for t in panels)
+            return f'<div {attrs} class="sbar" style="{";".join(css)}">{spans}</div>'
         if ctype == "Timer":                                    # not seen: it ticks (see wire() in the page)
             on = "false" if str(p.get("IsEnabled", "true")).lower() == "false" else "true"
             return f'<span {attrs} data-interval="{int(num(p.get("Interval"), 1000))}" data-on="{on}" hidden></span>'
@@ -672,6 +701,18 @@ TEMPLATE = r"""<!DOCTYPE html>
   .vcal .gr span.on { background: #4F46E5; color: #fff; }
   .vcal .gr span.out { color: #D1D5DB; pointer-events: none; }
   .vlink { color: #2563EB; text-decoration: underline; cursor: pointer; }
+  .vtabs { box-sizing: border-box; }
+  .vtabh { display: flex; height: 34px; border-bottom: 1px solid #E5E7EB; padding-left: 4px; box-sizing: border-box; }
+  .vtabh button { border: none; background: none; padding: 0 14px; color: #6B7280; font: inherit; cursor: pointer; position: relative; }
+  .vtabh button.on { color: #111827; font-weight: 600; }
+  .vtabh button.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 3px; border-radius: 2px; background: var(--accent); }
+  .vtool { display: flex; align-items: center; gap: 2px; padding: 0 6px; background: #F9FAFB; border-bottom: 1px solid #E5E7EB; box-sizing: border-box; overflow: hidden; }
+  .vtool button { border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; background: transparent; font: inherit; cursor: pointer; white-space: nowrap; }
+  .vtool button:hover { background: rgba(79,70,229,0.08); border-color: rgba(79,70,229,0.25); }
+  .vtool .sep { width: 1px; height: 20px; background: #E5E7EB; margin: 0 4px; }
+  .sbar { display: flex; align-items: center; background: #F3F4F6; color: #374151; border-top: 1px solid #D1D5DB; box-sizing: border-box; overflow: hidden; font-size: 12px; }
+  .sbar span { padding: 0 10px; white-space: nowrap; border-left: 1px solid #D1D5DB; }
+  .sbar span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; border-left: none; }
   .vlink:hover { color: #1E40AF; }
   .tbtn[aria-pressed=true] { filter: brightness(.88); box-shadow: inset 0 2px 4px rgba(0,0,0,.18); }
   .pbar { position: absolute; overflow: hidden; display: flex; align-items: center; }
@@ -740,6 +781,24 @@ const textOf = e => e.matches("input,textarea") ? e.value : e.matches("label.cb"
 const setText = (e, v) => { if (e.matches("input,textarea")) e.value = v; else if (e.matches("label.cb")) e.querySelector("span").textContent = v;
   else if (e.matches("[data-type=MenuItem]")) e.querySelector(".mt").textContent = v.replace(/&/g, ""); else e.textContent = v; };
 const truthy = v => ["true", "1", "yes"].includes(String(v).toLowerCase());
+const sbarFill = t => { if (!t.includes("{")) return t; const d = new Date(), hm = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+  dt = `${d.getDate()} ${d.toLocaleString("en-GB", { month: "short" })} ${d.getFullYear()}`;
+  return t.replace(/\{datetime\}/g, `${dt} ${hm}`).replace(/\{date\}/g, dt).replace(/\{time\}/g, hm); };
+const tabPick = (t, i) => {
+  const heads = [...t.querySelectorAll(":scope > .vtabh > button")], pages = [...t.querySelectorAll(":scope > .vtabp")];
+  if (!pages.length) return false;
+  i = Math.max(0, Math.min(Number(i) || 0, pages.length - 1));
+  const moved = String(i) !== t.dataset.sel;
+  heads.forEach((h, k) => h.classList.toggle("on", k === i));
+  pages.forEach((pg, k) => pg.style.display = k === i ? "" : "none");
+  t.dataset.sel = String(i);
+  return moved;
+};
+const toolButtons = (t, items) => { let i = 0; t.innerHTML = String(items || "").split(",").map(s => s.trim()).filter(Boolean).map(s => {
+  if (s === "|") return '<i class="sep"></i>';
+  const [w, h = ""] = s.split("="), b = document.createElement("button");
+  b.type = "button"; b.dataset.i = String(i++); b.dataset.run = h.trim(); b.textContent = w.trim(); return b.outerHTML; }).join(""); };
+const sbarDraw = b => b.querySelectorAll("span").forEach(s => s.textContent = sbarFill(s.dataset.tpl || ""));
 let lastPointer = { x: 40, y: 40 }, lua = null;
 document.addEventListener("mousemove", e => lastPointer = { x: e.clientX, y: e.clientY }, true);
 
@@ -936,6 +995,18 @@ const commands = {
       else if (prop === "Text") { e.dataset.md = value; if (!e.dataset.src) mdDraw(e, String(value).replace(/\\n/g, "\n")); }
       return "";
     }
+    if (e.matches(".vtabs") && prop === "SelectedIndex") { tabPick(e, value); return ""; }
+    if (e.matches(".vtabp") && prop === "Header") {
+      const strip = e.parentNode, k = [...strip.querySelectorAll(":scope > .vtabp")].indexOf(e), h = strip.querySelectorAll(":scope > .vtabh > button")[k];
+      if (h) h.textContent = String(value);
+      return "";
+    }
+    if (e.matches(".vtool") && prop === "Items") { toolButtons(e, value); return ""; }
+    if (e.matches(".sbar") && (prop === "Text" || prop === "Panels")) {
+      if (prop === "Text") { const s = e.querySelector("span"); if (s) { s.dataset.tpl = String(value); s.textContent = sbarFill(String(value)); } }
+      else e.innerHTML = String(value || "Ready").split("|").map(t => `<span data-tpl="${t.trim().replace(/"/g, "&quot;")}"></span>`).join(""), sbarDraw(e);
+      return "";
+    }
     if (e.matches(".vmde") && (prop === "Text" || prop === "ShowPreview")) {
       if (prop === "Text") { const ta = e.querySelector("textarea"); ta.value = String(value); mdDraw(e.querySelector(".vmd"), ta.value); }
       else e.classList.toggle("nopv", !truthy(value));
@@ -1015,6 +1086,10 @@ const commands = {
     const e = el(name);
     if (!e) return "";
     if (e.matches(".vmde") && prop === "Text") return e.querySelector("textarea").value;
+    if (e.matches(".vtabs") && prop === "SelectedIndex") return e.dataset.sel || "0";
+    if (e.matches(".vtabp") && prop === "Header") { const strip = e.parentNode, k = [...strip.querySelectorAll(":scope > .vtabp")].indexOf(e); return (strip.querySelectorAll(":scope > .vtabh > button")[k] || {}).textContent || ""; }
+    if (e.matches(".sbar") && prop === "Text") return (e.querySelector("span") || {}).textContent || "";
+    if (e.matches(".sbar") && prop === "Panels") return [...e.querySelectorAll("span")].map(s => s.dataset.tpl).join("|");
     if (e.matches(".vmd") && prop === "Text") return e._md ?? e.dataset.md ?? "";
     if (prop === "Text" || prop === "Content" || prop === "Header") return textOf(e);
     if (e.matches(".tbtn") && prop === "IsChecked") return e.getAttribute("aria-pressed") === "true" ? "true" : "false";
@@ -2599,6 +2674,17 @@ function mdBox(source, title = "", editable = false, handler = "") {
 }
 
 function wire() {
+  document.querySelectorAll(".sbar").forEach(sbarDraw);
+  document.querySelectorAll(".vtabs").forEach(t => t.querySelector(".vtabh").addEventListener("click", ev => {
+    const b = ev.target.closest("button");
+    if (b && tabPick(t, [...b.parentNode.children].indexOf(b))) t.dispatchEvent(new Event("change"));   // SelectionChanged
+  }));
+  document.querySelectorAll(".vtool").forEach(t => t.addEventListener("click", ev => {                       // (before OnClick)
+    const b = ev.target.closest("button");
+    settings.toolbar_item = b ? b.textContent : ""; settings.toolbar_index = b ? b.dataset.i : "-1";
+    if (b && b.dataset.run) handle(b.dataset.run, t.dataset.name);
+  }, true));
+  setInterval(() => document.querySelectorAll(".sbar").forEach(sbarDraw), 1000);
   document.querySelectorAll(".vcal").forEach(drawCal);
   document.querySelectorAll(".vmd[data-src], .vmd[data-md]").forEach(v => {
     let where = v.dataset.src ? mdSource(v.dataset.src) : { kind: "text", text: v.dataset.md.replace(/\\n/g, "\n"), anchor: "" };

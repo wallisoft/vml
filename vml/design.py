@@ -69,7 +69,9 @@ class Overlay(QWidget):
         container = container or self.view.node
         for node in reversed(container.children):
             if node.host.isVisible() and self.rect_of(node).contains(pos):
-                if node.type.name in ("Frame", "Canvas"):           # a page or a frame: what's inside it first
+                if node.type.name in ("Frame", "Canvas", "TabPage"):    # a page or a frame: what's inside it first
+                    return self.hit(pos, node) or node
+                if node.type.name == "TabStrip":                    # the page showing, then the strip (its tabs)
                     return self.hit(pos, node) or node
                 return node
         return None
@@ -194,6 +196,15 @@ class Overlay(QWidget):
                 act.menu().popup(v.menubar.mapToGlobal(geo.bottomLeft()))
             return
         node = self.hit(pos)
+        if node is not None and node.type.name == "TabStrip" and e.button() == Qt.LeftButton:
+            tab = node.widget.tab_at(node.widget.mapFrom(v.page, pos))
+            if tab >= 0:                                         # a tab: show its page, to design on
+                node.widget.select(tab)
+                v.engine.cmd_SetProperty(node.name, "SelectedIndex", str(tab))
+                page = node.widget.pages()[tab]
+                v.select(page.name, user=True)
+                self.update()
+                return
         v.select(node.name if node else "", user=True)
         fpos = pos - v.form.pos()
         v.engine.store.set_setting("click_x", fpos.x())
@@ -334,13 +345,16 @@ class SurfaceView(QScrollArea):
         while True:
             nxt = None
             for n in reversed(container.children):
-                if n is exclude or n.type.name not in ("Frame", "Canvas") or not n.host.isVisible():
+                if n is exclude or n.type.name not in ("Frame", "Canvas", "TabStrip", "TabPage") or not n.host.isVisible():
                     continue
                 if self.overlay.rect_of(n).contains(page_pos):
                     nxt = n
                     break
             if nxt is None:
                 return found
+            if nxt.type.name == "TabStrip":                 # (a strip itself holds only pages: look in the one showing)
+                container = nxt
+                continue
             found = container = nxt
 
     def select(self, name, user=False):
@@ -1171,4 +1185,7 @@ DESIGN_DEFAULTS = {
     "ToggleButton": {"Content": "Toggle", "Width": "100", "Height": "30"},
     "MarkdownView": {"Text": "Some **Markdown**, shown as a page.", "Width": "300", "Height": "200"},
     "MarkdownEditor": {"Width": "460", "Height": "240"},
+    "StatusBar": {"Panels": "Ready|{date}|{time}", "Height": "26", "Background": "#F3F4F6", "Anchor": "Bottom,Left,Right"},
+    "Toolbar": {"Items": "📄 New, 📂 Open, 💾 Save", "Height": "34", "Background": "#F9FAFB", "Anchor": "Top,Left,Right"},
+    "TabStrip": {"Width": "320", "Height": "220"},
 }

@@ -28,6 +28,8 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QVBoxLayout, QW
 from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout_remove, make_box, theme_sheets,
                        truthy)
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
+from . import statusbar  # noqa: F401  (registers StatusBar)
+from . import tabs  # noqa: F401  (registers TabStrip, TabPage, Toolbar)
 from . import pickers  # noqa: F401  (registers ColorPicker, DatePicker, TimePicker, NumberBox, ToggleSwitch)
 from . import mdview  # noqa: F401  (registers MarkdownView, MarkdownEditor)
 from .store import LUA_DIR, PARSER_LOG, Store
@@ -1446,8 +1448,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         ("Buttons and choices", ["Button", "CheckBox", "RadioButton", "ToggleButton", "ToggleSwitch", "ComboBox"]),
         ("Pickers", ["DatePicker", "TimePicker", "Calendar", "ColorPicker", "NumberBox", "Slider"]),
         ("Lists and data", ["ListBox", "DataGrid", "TreeView"]),
-        ("Documents and media", ["MarkdownView", "MarkdownEditor", "Image", "Rectangle", "ProgressBar"]),
-        ("Containers", ["Canvas", "Frame", "Border", "ScrollViewer"]),
+        ("Documents and media", ["MarkdownView", "MarkdownEditor", "Image", "Rectangle"]),
+        ("Bars", ["Toolbar", "StatusBar", "ProgressBar"]),
+        ("Containers", ["Canvas", "Frame", "TabStrip", "TabPage", "Border", "ScrollViewer"]),
         ("Layout (advanced)", ["StackPanel", "DockPanel", "Grid"]),
         ("Behind the scenes", ["Timer"]),
     ]
@@ -1479,9 +1482,23 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         from PySide6.QtCore import QPoint
         page_pt = view.form.pos() + QPoint(int(float(x or 0)), int(float(y or 0)))
         container = view.container_at(page_pt) or surf
+        if ctype in ("Toolbar", "StatusBar"):          # these belong to the form itself, wherever it was right-clicked
+            container = surf
         if container is not surf:
             local = container.widget.mapFrom(view.page, page_pt)
             x, y = local.x(), local.y()
+        if ctype == "TabPage":                      # a page goes on the tab strip that was right-clicked, as its last tab
+            strip = container.parent if container.type.name == "TabPage" else container
+            if strip is None or strip.type.name != "TabStrip":
+                self.cmd_InfoDialog("Right-click on a tab strip to add a page to it.", "Add a page")
+                return ""
+            name = self._unique("TabPage")
+            self.cmd_CreateControl("TabPage", name, strip.name)
+            self.cmd_SetProperty(name, "Header", f"Tab {len(strip.widget.pages())}")
+            self.cmd_SetProperty(strip.name, "SelectedIndex", str(len(strip.widget.pages()) - 1))
+            surf.widget.select(name, user=True)
+            surf.widget.emit("OnChanged", {"selected_control": name})
+            return name
         name = self._unique(ctype)
         if self.cmd_CreateControl(ctype, name, container.name) == "Failed":
             return ""
@@ -1493,8 +1510,20 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 defaults[key] = name
         snap = surf.widget.snap
         defaults["Canvas.Left"], defaults["Canvas.Top"] = str(snap(float(x or 0))), str(snap(float(y or 0)))
+        box = container.widget if container is not surf else view.form
+        if ctype == "StatusBar":                    # along the foot of the form, full width, staying there as it's resized
+            h = int(float(defaults.get("Height", 26)))
+            defaults.update({"Canvas.Left": "0", "Canvas.Top": str(max(0, box.height() - h)), "Width": str(box.width())})
+        if ctype == "Toolbar":                      # along the top, full width
+            defaults.update({"Canvas.Left": "0", "Canvas.Top": "0", "Width": str(box.width())})
         for k, v in defaults.items():
             self.cmd_SetProperty(name, k, v)
+        if ctype == "TabStrip":                     # two pages to start with
+            for k in (1, 2):
+                page = self._unique("TabPage")
+                self.cmd_CreateControl("TabPage", page, name)
+                self.cmd_SetProperty(page, "Header", f"Tab {k}")
+            self.cmd_SetProperty(name, "SelectedIndex", "0")
         surf.widget.select(name, user=True)
         surf.widget.emit("OnChanged", {"selected_control": name})
         return name
