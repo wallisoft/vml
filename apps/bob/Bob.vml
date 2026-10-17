@@ -9,6 +9,9 @@
 #   and which Windows PC builds for Windows (a8, a name from ~/.ssh/config).
 #   They're kept as the preferences bob_repo and bob_host; BOB_REPO and
 #   BOB_HOST in the environment win over both.
+#   Away from desk locks this computer and the Windows PC, and logs how long
+#   you were away (~/.local/share/bob/away.csv: date, away, back, minutes),
+#   with today's total along the foot.
 #   Run it as a program: chmod +x Bob.vml, then ./Bob.vml
 #   Each build's log is also kept in ~/.cache/bob-linux.log and
 #   ~/.cache/bob-windows.log.
@@ -18,15 +21,16 @@
 
 @Window Bob
 Title=Bob
-Version=1.0
+Version=1.1
+Icon=bob.png
+TitleBar=Own
+BorderBrush=#1F2937
+BorderThickness=2
 Width=780
 Height=640
 MinWidth=780
 MinHeight=520
 OnOpened=Opened
-TitleBar=Own
-BorderBrush=#1F2937
-BorderThickness=2
 
 @Canvas c
 Parent=Bob
@@ -43,9 +47,17 @@ Height=84
 Background=#1F2937
 Anchor=Top,Left,Right
 
+@Image imgHat
+Parent=head
+Canvas.Left=14
+Canvas.Top=8
+Width=64
+Height=64
+Source=bob.svg
+
 @TextBlock lblBob
 Parent=head
-Canvas.Left=20
+Canvas.Left=84
 Canvas.Top=10
 Width=200
 Height=36
@@ -56,18 +68,18 @@ Text=Bob
 
 @TextBlock lblWhat
 Parent=head
-Canvas.Left=20
+Canvas.Left=84
 Canvas.Top=48
-Width=520
+Width=330
 Height=22
 Foreground=#CBD5E1
-Text=builds Visualised: Linux on this computer, Windows over SSH
+Text=builds Visualised: Linux here, Windows over SSH
 
 @TextBlock lblVersion
 Parent=head
-Canvas.Left=540
+Canvas.Left=420
 Canvas.Top=18
-Width=220
+Width=190
 Height=26
 FontSize=16
 FontWeight=Bold
@@ -77,14 +89,28 @@ Text=
 
 @TextBlock lblRepo
 Parent=head
-Canvas.Left=540
+Canvas.Left=420
 Canvas.Top=48
-Width=220
+Width=190
 Height=22
 FontSize=11
 Foreground=#94A3B8
 Anchor=Top,Right
 Text=
+
+@Button btnAway
+Parent=head
+Canvas.Left=624
+Canvas.Top=22
+Width=140
+Height=40
+Anchor=Top,Right
+Background=#F59E0B
+Foreground=#1F2937
+FontWeight=Bold
+Content=Away from desk
+ToolTip=Lock this computer and the Windows PC, and log how long you're away
+OnClick=Away
 
 # --- the two builds --------------------------------------------------------------
 
@@ -354,7 +380,14 @@ Width=780
 Height=32
 Background=#E5E7EB
 Anchor=Bottom,Left,Right
-Panels=Ready|{time}
+Panels=Ready|Away today 0m|{time}
+
+# every few seconds while you're away: is the screen unlocked yet?
+@Timer tmrDesk
+Parent=c
+Interval=3000
+IsEnabled=false
+OnTick=DeskCheck
 
 # once a second while a build runs: its stage and how long it has taken
 @Timer tmr
@@ -405,6 +438,7 @@ local function last(file, stage)
 end
 last("$HOME/.cache/vml-build/vml-linux-x86_64.tar.gz", "stageL")
 last("$HOME/.cache/vml-build-windows/Visualised-Setup.exe", "stageW")
+Vml("RunScript", "AwayToday")
 -- is the Windows PC awake? (asked in the background: an asleep PC takes a few seconds to not answer)
 local host = Vml("RunScript", "Host")
 Vml("SetProperty", "hostW", "Text", "on " .. host .. ": asking…")
@@ -598,4 +632,58 @@ LUA
 Interpreter=lua
 <<LUA
 Vml("Shell", 'mkdir -p "$HOME/.cache/vml-build-windows"; xdg-open "$HOME/.cache/vml-build-windows" >/dev/null 2>&1 & xdg-open "$HOME/.cache/vml-build" >/dev/null 2>&1 &')
+LUA
+
+@Script Minutes
+Interpreter=lua
+<<LUA
+-- 45 -> "45m", 65 -> "1h 05m"
+local m = math.floor(tonumber((...)) or 0)
+return m < 60 and (m .. "m") or string.format("%dh %02dm", math.floor(m / 60), m % 60)
+LUA
+
+@Script AwayToday
+Interpreter=lua
+<<LUA
+-- Today's time away from the desk, from the log, along the foot
+local total = Vml("Shell", [[awk -F, -v d="$(date +%F)" '$1 == d { t += $4 } END { print t + 0 }' "$HOME/.local/share/bob/away.csv" 2>/dev/null]])
+Vml("SetProperty", "sb", "Panels", "Ready|Away today " .. Vml("RunScript", "Minutes", ((total or "0"):gsub("%s+", ""))) .. "|{time}")
+LUA
+
+@Script Away
+Interpreter=lua
+<<LUA
+-- Away from desk: lock the Windows PC and this computer, and time it till the screen is unlocked again
+Vml("SetSetting", "bob_away_start", tostring(os.time()))
+Vml("SetSetting", "bob_away_seen", "")
+Vml("SetProperty", "sb", "Text", "Away from desk since " .. os.date("%H:%M"))
+Vml("Shell", "ssh -o BatchMode=yes -o ConnectTimeout=4 '" .. Vml("RunScript", "Host") .. "' 'tsdiscon console' >/dev/null 2>&1 &")
+Vml("SetProperty", "tmrDesk", "IsEnabled", "true")
+Vml("Shell", "(loginctl lock-session 2>/dev/null || xdg-screensaver lock 2>/dev/null) &")
+LUA
+
+@Script DeskCheck
+Interpreter=lua
+<<LUA
+-- Locked still? Once it has been locked and isn't any more, you're back: log it
+local out = Vml("Shell", [[gdbus call --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.GetActive 2>/dev/null || loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null]]) or ""
+local locked = out:find("true") ~= nil or out:find("yes") ~= nil
+local start = tonumber(Vml("GetSetting", "bob_away_start")) or os.time()
+if locked then
+    Vml("SetSetting", "bob_away_seen", "1")
+    return
+end
+if Vml("GetSetting", "bob_away_seen") ~= "1" then
+    if os.time() - start > 30 then                   -- it never locked: say so, log nothing
+        Vml("SetProperty", "tmrDesk", "IsEnabled", "false")
+        Vml("SetProperty", "sb", "Text", "Couldn't lock this screen (loginctl lock-session didn't)")
+    end
+    return
+end
+Vml("SetProperty", "tmrDesk", "IsEnabled", "false")
+local mins = math.floor((os.time() - start) / 60 + 0.5)
+Vml("Shell", string.format([[f="$HOME/.local/share/bob/away.csv"; mkdir -p "$(dirname "$f")"; [ -s "$f" ] || echo "date,away,back,minutes" > "$f"; echo "%s,%s,%s,%d" >> "$f"]],
+    os.date("%Y-%m-%d", start), os.date("%H:%M", start), os.date("%H:%M"), mins))
+Vml("SetProperty", "sb", "Text", "Welcome back: away " .. Vml("RunScript", "Minutes", mins) .. ", " .. os.date("%H:%M", start) .. " to " .. os.date("%H:%M"))
+Vml("RunScript", "AwayToday")
 LUA
