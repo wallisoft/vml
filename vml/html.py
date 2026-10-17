@@ -376,7 +376,9 @@ class Page:
                            for i, k in enumerate(pages))
             accent = colour(p.get("Accent") or "#4F46E5")
             css += ["box-sizing:border-box", "overflow:hidden"]
-            return (f'<div {attrs} class="vtabs" data-sel="{sel}" data-place="{place.lower()}" style="--accent:{accent};{";".join(css)}">'
+            from .tabs import upright
+            turned = ' data-turned="1"' if upright(p) else ""
+            return (f'<div {attrs} class="vtabs"{turned} data-sel="{sel}" data-place="{place.lower()}" style="--accent:{accent};{";".join(css)}">'
                     f'<div class="vtabh" style="{";".join(at(band))}">{heads}</div>{body}</div>')
         if ctype == "TabPage":
             return f'<div {attrs} class="vtabp" style="{";".join(css)}">{inner("Frame", ref)}</div>'
@@ -714,6 +716,10 @@ TEMPLATE = r"""<!DOCTYPE html>
   .vtabs[data-place="right"] > .vtabh { border-left-width: 1px; }
   .vtabh button { border: none; background: none; padding: 0 14px; color: #6B7280; font: inherit; cursor: pointer; position: relative; flex: none; }
   .vtabs[data-place="left"] > .vtabh button, .vtabs[data-place="right"] > .vtabh button { height: 34px; text-align: left; padding: 0 12px; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vtabs[data-turned] > .vtabh { padding: 6px 0; align-items: stretch; }
+  .vtabs[data-turned] > .vtabh button { height: auto !important; padding: 14px 0 !important; text-align: center !important; }
+  .vtabs[data-turned][data-place="left"] > .vtabh button { writing-mode: sideways-lr; }
+  .vtabs[data-turned][data-place="right"] > .vtabh button { writing-mode: vertical-rl; }
   .vtabh button.on { color: #111827; font-weight: 600; }
   .vtabs[data-place="left"] > .vtabh button.on, .vtabs[data-place="right"] > .vtabh button.on { background: color-mix(in srgb, var(--accent) 11%, transparent); }
   .vtabh button.on::after { content: ""; position: absolute; background: var(--accent); border-radius: 2px; }

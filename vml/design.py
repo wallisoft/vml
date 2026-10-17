@@ -196,6 +196,12 @@ class Overlay(QWidget):
                 act.menu().popup(v.menubar.mapToGlobal(geo.bottomLeft()))
             return
         node = self.hit(pos)
+        lift = node
+        while lift is not None and lift is not v.node:          # a container chosen: it, and what holds it, to the front
+            if lift.type.container:
+                lift.host.raise_()
+            lift = lift.parent
+        self.raise_()
         if node is not None and node.type.name == "TabStrip" and e.button() == Qt.LeftButton:
             tab = node.widget.tab_at(node.widget.mapFrom(v.page, pos))
             if tab >= 0:                                         # a tab: show its page, to design on
@@ -726,13 +732,29 @@ REGISTRY["DesignSurface"].design_only = True
 # ====================================================================== PropertyGrid
 
 class TabsBox(QDialog):
-    """Edit Tabs: a strip's tabs in order. Add, rename (double-click, or Rename), delete, move up and down."""
+    """Edit Tabs: a strip's tabs in order. Add, rename (double-click, or Rename), delete, move up and down.
+    Framed as every Visualised box is: an edge all the way round, and a title bar in its colour."""
 
-    def __init__(self, parent, tabs):
+    def __init__(self, parent, tabs, edge="#1E3A8A"):
+        from . import dialogs
         super().__init__(parent)
         self.setWindowTitle("Edit Tabs")
-        self.setMinimumWidth(360)
-        lay = QVBoxLayout(self)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setObjectName("VmlBox")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.edge = dialogs.strong(edge)
+        self.setStyleSheet(dialogs.box_sheet(self.edge) + " QListWidget { border: 1px solid #D1D5DB; border-radius: 8px; padding: 4px;"
+                           " font-size: 13px; } QListWidget::item { padding: 4px 6px; border-radius: 6px; }"
+                           f" QListWidget::item:selected {{ background: {self.edge.name()}; color: #FFFFFF; }}")
+        self.setMinimumWidth(380)
+        frame = QVBoxLayout(self)
+        frame.setContentsMargins(dialogs.EDGE, dialogs.EDGE, dialogs.EDGE, dialogs.EDGE)
+        frame.setSpacing(0)
+        frame.addWidget(dialogs._Bar(self, "Edit Tabs", self.edge))
+        inside = QWidget()
+        frame.addWidget(inside)
+        lay = QVBoxLayout(inside)
+        lay.setContentsMargins(14, 12, 14, 14)
         tip = QLabel("The tabs, in order. Double-click one to rename it.")
         tip.setStyleSheet("color: #6b7280; font-size: 11px;")
         lay.addWidget(tip)
@@ -746,17 +768,29 @@ class TabsBox(QDialog):
         for text, fn in (("Add", self.add), ("Rename", self.rename), ("Delete", self.remove), ("Move Up", lambda: self.move(-1)),
                          ("Move Down", lambda: self.move(1))):
             b = QPushButton(text)
+            b.setAutoDefault(False)                              # (OK is the one Enter presses)
             b.clicked.connect(fn)
             side.addWidget(b)
         side.addStretch(1)
         row.addLayout(side)
         lay.addLayout(row)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setDefault(True)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
         if self.list.count():
             self.list.setCurrentRow(0)
+
+    def paintEvent(self, e):
+        from PySide6.QtGui import QPainter as _P
+        from . import dialogs
+        super().paintEvent(e)
+        p = _P(self)
+        w, h, t = self.width(), self.height(), dialogs.EDGE
+        for r in ((0, 0, w, t), (0, h - t, w, t), (0, 0, t, h), (w - t, 0, t, h)):
+            p.fillRect(*r, self.edge)
+        p.end()
 
     def add_item(self, header, page="", count=0):
         item = QListWidgetItem(header)
@@ -1029,7 +1063,8 @@ class GridView(QScrollArea):
         strip = self.engine.find(strip_name)
         if strip is None:
             return
-        box = TabsBox(self.window(), [(p.name, str(p.props.get("Header") or p.name), len(p.children)) for p in strip.widget.pages()])
+        box = TabsBox(self.window(), [(p.name, str(p.props.get("Header") or p.name), len(p.children)) for p in strip.widget.pages()],
+                      self.engine._edge())
         if box.exec():
             self.engine.cmd_SetTabs(strip_name, json.dumps(box.result_tabs()))
             self.rebuild()

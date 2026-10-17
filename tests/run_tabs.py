@@ -153,6 +153,11 @@ check("tabs along the bottom: the page above them", strip_geometry({"TabPlacemen
 eng.cmd_SetProperty("tabs", "TabPlacement", "Left"); settle()
 pg = eng.find("pOne").host if t.current() == 0 else eng.find("pTwo").host
 check("set to Left at run time, the page moves beside the tabs", pg.x(), 120)
+eng.cmd_SetProperty("tabs", "TabOrientation", "Vertical"); settle()
+pg = eng.find("pOne").host if t.current() == 0 else eng.find("pTwo").host
+check("words running up the side: a narrow band, the page beside it", pg.x(), 34)
+check("each turned tab is as tall as its words", t.rects[0].height() > t.rects[0].width(), True)
+eng.cmd_SetProperty("tabs", "TabOrientation", "Horizontal")
 eng.cmd_SetProperty("tabs", "TabPlacement", "Top"); settle()
 check("a new strip in the designer has a 2px border", (des.find(strip).props.get("BorderThickness"), des.find(strip).props.get("BorderBrush")), ("2", "#CBD5E1"))
 pages = sw.pages()

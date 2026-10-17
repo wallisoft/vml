@@ -39,13 +39,19 @@ def _paint_background(widget, painter):
 PLACES = ("Top", "Bottom", "Left", "Right")
 
 
+def upright(props):
+    """Tabs down a side with their words running along the side (TabOrientation=Vertical)."""
+    return str(props.get("TabOrientation") or "").lower() == "vertical" and \
+        str(props.get("TabPlacement") or "Top").capitalize() in ("Left", "Right")
+
+
 def strip_geometry(props, w, h):
     """Where a strip's tab band and its page go, for a strip w x h: shared by the desktop, the designer and the web.
     Returns (place, border, band, page) with band and page as (x, y, width, height)."""
     place = str(props.get("TabPlacement") or "Top").capitalize()
     place = place if place in PLACES else "Top"
     b = int(num(props.get("BorderThickness"), 0))
-    side = int(num(props.get("TabWidth"), 120))
+    side = HEADER if upright(props) else int(num(props.get("TabWidth"), 120))
     iw, ih = max(0, w - 2 * b), max(0, h - 2 * b)
     if place == "Top":
         band, page = (b, b, iw, HEADER), (b, b + HEADER, iw, ih - HEADER)
@@ -134,6 +140,10 @@ class TabStripWidget(QWidget):
                 w = fm.horizontalAdvance(text) + 28
                 r = QRect(x, by, w, HEADER - 1)
                 x += w
+            elif upright(props):
+                tall = fm.horizontalAdvance(text) + 28
+                r = QRect(bx, y, bw, tall)
+                y += tall + 2
             else:
                 r = QRect(bx + 4, y, bw - 8, HEADER)
                 y += HEADER + 2
@@ -151,6 +161,12 @@ class TabStripWidget(QWidget):
             g.setPen(ink if chosen else QColor("#6B7280"))
             if place in ("Top", "Bottom"):
                 g.drawText(r, Qt.AlignCenter, text)
+            elif upright(props):                            # turned: reading up the left side, down the right
+                g.save()
+                g.translate(r.center())
+                g.rotate(-90 if place == "Left" else 90)
+                g.drawText(QRect(-r.height() // 2, -r.width() // 2, r.height(), r.width()), Qt.AlignCenter, text)
+                g.restore()
             else:
                 g.drawText(r.adjusted(12, 0, -8, 0), Qt.AlignVCenter | Qt.AlignLeft, fm.elidedText(text, Qt.ElideRight, r.width() - 20))
             if chosen:
@@ -191,6 +207,8 @@ register(ControlType("TabStrip", lambda n: TabStripWidget(n), container=True, ad
                read=lambda n: str(n.widget.current())),
           Prop("TabPlacement", "choice", "Common", options=PLACES, default="Top", apply=_redraw),     # Left/Right: tabs down the side
           Prop("TabWidth", "number", "Common", default="120", apply=_redraw),                        # the side tabs' width
+          Prop("TabOrientation", "choice", "Common", options=("Horizontal", "Vertical"), default="Horizontal",
+               apply=_redraw),                                       # Vertical: side tabs' words run along the side
           Prop("Accent", "colour", "Appearance", apply=_redraw),
           Prop("BorderBrush", "colour", "Appearance", apply=_redraw),
           Prop("BorderThickness", "number", "Appearance", apply=_redraw),
