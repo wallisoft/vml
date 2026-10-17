@@ -492,6 +492,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     def fire(self, node, event, details):
         if self._quiet:
             return
+        if isinstance(node, str):                           # an event raised by name: find the control (and say so)
+            log(f"event {event} was raised for '{node}' by name, not by control: please report this")
+            node = self.find(node)
+            if node is None:
+                return
         handler = str(node.props.get(event) or "").strip()
         if not handler:
             return
