@@ -1,0 +1,579 @@
+# ============================================================================
+#   Bob: builds Visualised. Linux on this computer (tools/build-local.sh),
+#   Windows on A8 over SSH (tools/build-windows.sh), one at a time or both at
+#   once, with a light, the stage it's at and the time it's taken for each,
+#   and every line of each build on its own tab.
+#
+#   Where the repo is: the preference bob_repo (Repo... changes it), or
+#   BOB_REPO in the environment; ~/projects/vml-github if neither.
+#   Each build's log is also kept in ~/.cache/bob-linux.log and
+#   ~/.cache/bob-windows.log.
+#
+#   Made with Visualised.
+# ============================================================================
+
+@Window Bob
+Title=Bob
+Version=1.0
+Width=780
+Height=640
+MinWidth=780
+MinHeight=520
+OnOpened=Opened
+
+@Canvas c
+Parent=Bob
+Background=#F3F4F6
+
+# --- the head ------------------------------------------------------------------
+
+@Canvas head
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=780
+Height=84
+Background=#1F2937
+Anchor=Top,Left,Right
+
+@TextBlock lblBob
+Parent=head
+Canvas.Left=20
+Canvas.Top=10
+Width=200
+Height=36
+FontSize=26
+FontWeight=Bold
+Foreground=#FFFFFF
+Text=Bob
+
+@TextBlock lblWhat
+Parent=head
+Canvas.Left=20
+Canvas.Top=48
+Width=520
+Height=22
+Foreground=#CBD5E1
+Text=builds Visualised: Linux on this computer, Windows on A8
+
+@TextBlock lblVersion
+Parent=head
+Canvas.Left=540
+Canvas.Top=18
+Width=220
+Height=26
+FontSize=16
+FontWeight=Bold
+Foreground=#F59E0B
+Anchor=Top,Right
+Text=
+
+@TextBlock lblRepo
+Parent=head
+Canvas.Left=540
+Canvas.Top=48
+Width=220
+Height=22
+FontSize=11
+Foreground=#94A3B8
+Anchor=Top,Right
+Text=
+
+# --- the two builds --------------------------------------------------------------
+
+@Canvas cardL
+Parent=c
+Canvas.Left=20
+Canvas.Top=100
+Width=360
+Height=150
+Background=#FFFFFF
+BorderBrush=#E5E7EB
+BorderThickness=1
+CornerRadius=10
+
+@TextBlock lightL
+Parent=cardL
+Canvas.Left=14
+Canvas.Top=2
+Width=40
+Height=50
+FontSize=34
+Foreground=#9CA3AF
+Text=●
+
+@TextBlock nameL
+Parent=cardL
+Canvas.Left=56
+Canvas.Top=12
+Width=290
+Height=24
+FontSize=16
+FontWeight=Bold
+Text=Linux
+
+@TextBlock hostL
+Parent=cardL
+Canvas.Left=56
+Canvas.Top=36
+Width=290
+Height=20
+Foreground=#6B7280
+Text=on this computer
+
+@TextBlock stageL
+Parent=cardL
+Canvas.Left=16
+Canvas.Top=66
+Width=330
+Height=22
+FontWeight=Bold
+Text=Not built yet
+
+@TextBlock detailL
+Parent=cardL
+Canvas.Left=16
+Canvas.Top=88
+Width=330
+Height=20
+FontSize=11
+Foreground=#6B7280
+Text=
+
+@TextBlock timeL
+Parent=cardL
+Canvas.Left=16
+Canvas.Top=116
+Width=180
+Height=22
+Foreground=#374151
+Text=
+
+@Button btnLinux
+Parent=cardL
+Canvas.Left=210
+Canvas.Top=106
+Width=136
+Height=34
+Content=Build Linux
+OnClick=BuildLinux
+
+@Canvas cardW
+Parent=c
+Canvas.Left=400
+Canvas.Top=100
+Width=360
+Height=150
+Background=#FFFFFF
+BorderBrush=#E5E7EB
+BorderThickness=1
+CornerRadius=10
+
+@TextBlock lightW
+Parent=cardW
+Canvas.Left=14
+Canvas.Top=2
+Width=40
+Height=50
+FontSize=34
+Foreground=#9CA3AF
+Text=●
+
+@TextBlock nameW
+Parent=cardW
+Canvas.Left=56
+Canvas.Top=12
+Width=290
+Height=24
+FontSize=16
+FontWeight=Bold
+Text=Windows
+
+@TextBlock hostW
+Parent=cardW
+Canvas.Left=56
+Canvas.Top=36
+Width=290
+Height=20
+Foreground=#6B7280
+Text=on A8: asking…
+
+@TextBlock stageW
+Parent=cardW
+Canvas.Left=16
+Canvas.Top=66
+Width=330
+Height=22
+FontWeight=Bold
+Text=Not built yet
+
+@TextBlock detailW
+Parent=cardW
+Canvas.Left=16
+Canvas.Top=88
+Width=330
+Height=20
+FontSize=11
+Foreground=#6B7280
+Text=
+
+@TextBlock timeW
+Parent=cardW
+Canvas.Left=16
+Canvas.Top=116
+Width=180
+Height=22
+Foreground=#374151
+Text=
+
+@Button btnWindows
+Parent=cardW
+Canvas.Left=210
+Canvas.Top=106
+Width=136
+Height=34
+Content=Build Windows
+OnClick=BuildWindows
+
+# --- the buttons for both ----------------------------------------------------------
+
+@Button btnBoth
+Parent=c
+Canvas.Left=20
+Canvas.Top=264
+Width=200
+Height=40
+Background=#F59E0B
+Foreground=#1F2937
+FontWeight=Bold
+Content=Build both
+OnClick=BuildBoth
+
+@Button btnStop
+Parent=c
+Canvas.Left=232
+Canvas.Top=264
+Width=100
+Height=40
+Content=Stop
+IsEnabled=false
+OnClick=Stop
+
+@CheckBox chkInstall
+Parent=c
+Canvas.Left=346
+Canvas.Top=272
+Width=270
+Height=24
+IsChecked=true
+Content=Install the Linux build on this computer
+
+@Button btnRepo
+Parent=c
+Canvas.Left=624
+Canvas.Top=264
+Width=64
+Height=40
+Anchor=Top,Right
+Content=Repo…
+ToolTip=Where the Visualised repo is
+OnClick=PickRepo
+
+@Button btnOpen
+Parent=c
+Canvas.Left=696
+Canvas.Top=264
+Width=64
+Height=40
+Anchor=Top,Right
+Content=Builds
+ToolTip=Open the folders the builds are in
+OnClick=OpenBuilds
+
+# --- the logs: every line of each build --------------------------------------------
+
+@TabStrip logs
+Parent=c
+Canvas.Left=20
+Canvas.Top=318
+Width=740
+Height=276
+BorderThickness=1
+BorderBrush=#D1D5DB
+CornerRadius=8
+Background=#FFFFFF
+Accent=#F59E0B
+Anchor=Top,Bottom,Left,Right
+
+@TabPage pLinux
+Parent=logs
+Header=Linux log
+
+@TextBox txtLinux
+Parent=pLinux
+Canvas.Left=8
+Canvas.Top=8
+Width=722
+Height=224
+AcceptsReturn=true
+IsReadOnly=true
+FontFamily=monospace
+FontSize=11
+Anchor=Top,Bottom,Left,Right
+Text=
+
+@TabPage pWindows
+Parent=logs
+Header=Windows log
+
+@TextBox txtWindows
+Parent=pWindows
+Canvas.Left=8
+Canvas.Top=8
+Width=722
+Height=224
+AcceptsReturn=true
+IsReadOnly=true
+FontFamily=monospace
+FontSize=11
+Anchor=Top,Bottom,Left,Right
+Text=
+
+@StatusBar sb
+Parent=c
+Canvas.Left=0
+Canvas.Top=608
+Width=780
+Height=32
+Background=#E5E7EB
+Anchor=Bottom,Left,Right
+Panels=Ready|{time}
+
+# once a second while a build runs: its stage and how long it has taken
+@Timer tmr
+Parent=c
+Interval=1000
+IsEnabled=false
+OnTick=Tick
+
+# --- scripts ------------------------------------------------------------------------
+
+@Script Repo
+Interpreter=lua
+<<LUA
+-- Where the repo is: BOB_REPO, else the preference, else ~/projects/vml-github
+local pref = Vml("GetPreference", "bob_repo", "")
+local r = Vml("Shell", 'printf %s "${BOB_REPO:-' .. (pref ~= "" and pref or "$HOME/projects/vml-github") .. '}"')
+return ((r or ""):gsub("%s+$", ""))
+LUA
+
+@Script Opened
+Interpreter=lua
+<<LUA
+for _, k in ipairs({ "bob_l_run", "bob_w_run", "bob_stopping", "bob_l_said", "bob_w_said" }) do Vml("SetSetting", k, "") end   -- (none running yet)
+local repo = Vml("RunScript", "Repo")
+Vml("SetProperty", "lblRepo", "Text", (repo:gsub("^" .. (os.getenv("HOME") or "~"), "~")))
+local v = Vml("Shell", 'grep -m1 __version__ "' .. repo .. '/vml/__init__.py" 2>/dev/null | cut -d\'"\' -f2')
+v = (v or ""):gsub("%s+$", "")
+if v == "" then
+    Vml("SetProperty", "lblVersion", "Text", "no repo here")
+    Vml("SetProperty", "sb", "Text", "Can't find the Visualised repo at " .. repo .. ": Repo… to say where it is")
+else
+    Vml("SetProperty", "lblVersion", "Text", "Visualised " .. v)
+end
+-- the last builds, if there are any
+local function last(file, stage)
+    local when = Vml("Shell", 'date -r "' .. file .. '" "+%-d %b, %H:%M" 2>/dev/null')
+    when = (when or ""):gsub("%s+$", "")
+    if when ~= "" then Vml("SetProperty", stage, "Text", "Last built " .. when) end
+end
+last("$HOME/.cache/vml-build/vml-linux-x86_64.tar.gz", "stageL")
+last("$HOME/.cache/vml-build-windows/Visualised-Setup.exe", "stageW")
+-- is A8 awake? (asked in the background: an asleep PC takes a few seconds to not answer)
+Vml("RunProcess", "ssh -o BatchMode=yes -o ConnectTimeout=6 a8 hostname", "", "A8Answered")
+LUA
+
+@Script A8Answered
+Interpreter=lua
+<<LUA
+local up = Vml("GetSetting", "exit_code") == "0"
+Vml("SetProperty", "hostW", "Text", up and "on A8, over SSH" or "on A8: not answering (asleep, or off?)")
+Vml("SetProperty", "hostW", "Foreground", up and "#6B7280" or "#DC2626")
+LUA
+
+@Script Busy
+Interpreter=lua
+<<LUA
+-- The buttons, the timer and the status bar, from which builds are running
+local l = Vml("GetSetting", "bob_l_run") == "1"
+local w = Vml("GetSetting", "bob_w_run") == "1"
+Vml("SetProperty", "btnLinux", "IsEnabled", l and "false" or "true")
+Vml("SetProperty", "btnWindows", "IsEnabled", w and "false" or "true")
+Vml("SetProperty", "btnBoth", "IsEnabled", (l or w) and "false" or "true")
+Vml("SetProperty", "btnStop", "IsEnabled", (l or w) and "true" or "false")
+Vml("SetProperty", "chkInstall", "IsEnabled", l and "false" or "true")
+Vml("SetProperty", "tmr", "IsEnabled", (l or w) and "true" or "false")
+local what = (l and w) and "Building Linux and Windows" or l and "Building Linux" or w and "Building Windows" or nil
+if what then Vml("SetProperty", "sb", "Text", what .. "…") end
+LUA
+
+@Script Start
+Interpreter=lua
+<<LUA
+-- Start one build. side: "L" (Linux) or "W" (Windows)
+local side = ...
+if Vml("GetSetting", "bob_" .. side:lower() .. "_run") == "1" then return end
+local repo = Vml("RunScript", "Repo")
+local linux = side == "L"
+local log = linux and "$HOME/.cache/bob-linux.log" or "$HOME/.cache/bob-windows.log"
+local tool = linux and ("tools/build-local.sh" .. (Vml("GetProperty", "chkInstall", "IsChecked") == "true" and "" or " --no-install"))
+                    or "tools/build-windows.sh"
+Vml("SetProperty", "light" .. side, "Foreground", "#F59E0B")
+Vml("SetProperty", "stage" .. side, "Text", "Starting…")
+Vml("SetProperty", "detail" .. side, "Text", "")
+Vml("SetProperty", "time" .. side, "Text", "0s")
+Vml("SetProperty", linux and "txtLinux" or "txtWindows", "Text", "")
+Vml("SetSetting", "bob_" .. side:lower() .. "_start", tostring(os.time()))
+Vml("SetSetting", "bob_stopping", "")
+Vml("SetSetting", "bob_" .. side:lower() .. "_said", "")
+Vml("SetSetting", "bob_" .. side:lower() .. "_run", "1")
+local cmd = 'cd "' .. repo .. '" && set -o pipefail && ' .. tool .. ' 2>&1 | tee "' .. log .. '"'
+local pid = Vml("RunProcess", cmd, linux and "txtLinux" or "txtWindows", linux and "LinuxDone" or "WindowsDone")
+Vml("SetSetting", "bob_" .. side:lower() .. "_pid", pid or "")
+Vml("RunScript", "Busy")
+LUA
+
+@Script BuildLinux
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "logs", "SelectedIndex", "0")
+Vml("RunScript", "Start", "L")
+LUA
+
+@Script BuildWindows
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "logs", "SelectedIndex", "1")
+Vml("RunScript", "Start", "W")
+LUA
+
+@Script BuildBoth
+Interpreter=lua
+<<LUA
+Vml("RunScript", "Start", "L")
+Vml("RunScript", "Start", "W")
+LUA
+
+@Script Took
+Interpreter=lua
+<<LUA
+-- How long a build has been going (or took): "2m 05s"
+local side = ...
+local s = os.time() - (tonumber(Vml("GetSetting", "bob_" .. side:lower() .. "_start")) or os.time())
+return s >= 60 and string.format("%dm %02ds", math.floor(s / 60), s % 60) or (s .. "s")
+LUA
+
+@Script Tick
+Interpreter=lua
+<<LUA
+-- Each running build: the stage it's at (its last "==>" line), the last thing it said, and the time so far
+for _, side in ipairs({ "L", "W" }) do
+    if Vml("GetSetting", "bob_" .. side:lower() .. "_run") == "1" then
+        local log = side == "L" and "$HOME/.cache/bob-linux.log" or "$HOME/.cache/bob-windows.log"
+        local out = Vml("Shell", 'f="' .. log .. '"; grep "^==>" "$f" 2>/dev/null | tail -1; grep -v "^\\s*$" "$f" 2>/dev/null | tail -1') or ""
+        local stage, detail = out:match("^==> ([^\n]*)\n([^\n]*)")
+        if stage then
+            Vml("SetProperty", "stage" .. side, "Text", stage)
+            if detail:sub(1, 4) ~= "==> " then
+                Vml("SetProperty", "detail" .. side, "Text", #detail > 64 and detail:sub(1, 62) .. "…" or detail)
+            end
+        end
+        Vml("SetProperty", "time" .. side, "Text", Vml("RunScript", "Took", side))
+    end
+end
+LUA
+
+@Script Finish
+Interpreter=lua
+<<LUA
+-- A build has ended: green with its time, or red with the last thing it said (and its log on show)
+local side, code = ...
+local good = code == "0"
+local took = Vml("RunScript", "Took", side)
+local name = side == "L" and "Linux" or "Windows"
+Vml("SetSetting", "bob_" .. side:lower() .. "_run", "")
+Vml("SetSetting", "bob_" .. side:lower() .. "_said", good and "green" or code == "stopped" and "stopped" or "failed")
+Vml("SetProperty", "light" .. side, "Foreground", good and "#16A34A" or "#DC2626")
+Vml("SetProperty", "time" .. side, "Text", took)
+if good then
+    Vml("SetProperty", "stage" .. side, "Text", "Green: built in " .. took)
+    Vml("SetProperty", "detail" .. side, "Text", side == "L" and "~/.cache/vml-build" or "~/.cache/vml-build-windows")
+else
+    local log = side == "L" and "$HOME/.cache/bob-linux.log" or "$HOME/.cache/bob-windows.log"
+    local why = (Vml("Shell", 'grep -m1 -E "FAILED|Error|error:|Can.t reach" "' .. log .. '" 2>/dev/null || tail -1 "' .. log .. '"') or ""):gsub("%s+$", "")
+    Vml("SetProperty", "stage" .. side, "Text", code == "stopped" and "Stopped" or "Failed")
+    Vml("SetProperty", "detail" .. side, "Text", #why > 64 and why:sub(1, 62) .. "…" or why)
+    Vml("SetProperty", "logs", "SelectedIndex", side == "L" and "0" or "1")
+end
+Vml("RunScript", "Busy")
+if Vml("GetSetting", "bob_l_run") ~= "1" and Vml("GetSetting", "bob_w_run") ~= "1" then
+    local said = {}
+    for _, k in ipairs({ { "l", "Linux" }, { "w", "Windows" } }) do
+        local r = Vml("GetSetting", "bob_" .. k[1] .. "_said")
+        if r ~= "" then said[#said + 1] = k[2] .. " " .. r end
+    end
+    Vml("SetProperty", "sb", "Text", table.concat(said, ", ") .. " at " .. os.date("%H:%M"))
+end
+-- a desktop notification, so a build finishing gets noticed with Bob behind other windows
+Vml("Shell", 'notify-send -a Bob "Bob" "' .. name .. (good and (" built in " .. took) or " build failed") .. '" >/dev/null 2>&1 &')
+LUA
+
+@Script LinuxDone
+Interpreter=lua
+<<LUA
+local code = Vml("GetSetting", "exit_code")
+Vml("RunScript", "Finish", "L", Vml("GetSetting", "bob_stopping") == "1" and "stopped" or code)
+LUA
+
+@Script WindowsDone
+Interpreter=lua
+<<LUA
+local code = Vml("GetSetting", "exit_code")
+Vml("RunScript", "Finish", "W", Vml("GetSetting", "bob_stopping") == "1" and "stopped" or code)
+LUA
+
+@Script Stop
+Interpreter=lua
+<<LUA
+-- Stop whatever is building: here, and the build on A8 too (stopping the ssh alone would leave it running there)
+local yes = Vml("ConfirmDialog", "Stop the build" .. ((Vml("GetSetting", "bob_l_run") == "1" and Vml("GetSetting", "bob_w_run") == "1") and "s" or "") .. "?", "Stop")
+if yes ~= true and yes ~= "true" and yes ~= "True" then return end
+Vml("SetSetting", "bob_stopping", "1")
+if Vml("GetSetting", "bob_w_run") == "1" then
+    Vml("Shell", [[PS='Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*build-windows.ps1*" } | ForEach-Object { taskkill /F /T /PID $_.ProcessId | Out-Null }'; ssh -o BatchMode=yes -o ConnectTimeout=6 a8 "powershell -NoProfile -EncodedCommand $(printf %s "$PS" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)" >/dev/null 2>&1; pkill -f "tools/build-windows.sh"; pkill -f "vml-build.build-windows.ps1"; true]])
+end
+if Vml("GetSetting", "bob_l_run") == "1" then
+    Vml("Shell", [[pkill -f "tools/build-local.sh"; pkill -f "vml-build-venv/bin/python -m nuitka"; true]])
+end
+for _, side in ipairs({ "l", "w" }) do
+    local pid = Vml("GetSetting", "bob_" .. side .. "_pid")
+    if pid ~= "" then Vml("CancelProcess", pid) end
+end
+LUA
+
+@Script PickRepo
+Interpreter=lua
+<<LUA
+local now = Vml("RunScript", "Repo")
+local r = Vml("PromptDialog", "Repo", "Where's the Visualised repo? (the folder with tools/ in it)", now)
+if r and r ~= "" and r ~= now then
+    Vml("SetPreference", "bob_repo", r)
+    Vml("RunScript", "Opened")
+end
+LUA
+
+@Script OpenBuilds
+Interpreter=lua
+<<LUA
+Vml("Shell", 'mkdir -p "$HOME/.cache/vml-build-windows"; xdg-open "$HOME/.cache/vml-build-windows" >/dev/null 2>&1 & xdg-open "$HOME/.cache/vml-build" >/dev/null 2>&1 &')
+LUA
