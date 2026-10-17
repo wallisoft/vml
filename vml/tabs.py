@@ -5,7 +5,8 @@ the web alike.
     TabStrip   tabs, a page under each. Its children are TabPages, in tab order. SelectedIndex (from 0);
                TabPlacement Top, Bottom, Left or Right (down the side, TabWidth wide); Accent (the chosen tab's
                mark); a border of its own (BorderThickness, BorderBrush, CornerRadius). SelectionChanged when the
-               user picks a tab.  Vml("SetProperty", "Tabs1", "SelectedIndex", "2") picks one from a script.
+               user picks a tab. TabStyle Underline (a bar under the chosen tab) or Folder (filing-cabinet tabs,
+               the chosen one open into its page).  Vml("SetProperty", "Tabs1", "SelectedIndex", "2") picks one.
     TabPage    one page of a TabStrip: Header (the tab's words). Holds controls as a Canvas does, anchors and all.
     Toolbar    a row of buttons under the menu. Items, comma-separated, left to right:
                    📄 New=FileNew, 📂 Open=FileOpen, |, 💾 Save
@@ -124,32 +125,32 @@ class TabStripWidget(QWidget):
         fm = self.fontMetrics()
         accent = qcolour(props.get("Accent") or ACCENT)
         ink = qcolour(props.get("Foreground") or "#111827")
-        g.setPen(QColor(LINE))                              # the line between the tabs and the page
-        if place == "Top":
-            g.drawLine(bx, by + bh - 1, bx + bw, by + bh - 1)
-        elif place == "Bottom":
-            g.drawLine(bx, by, bx + bw, by)
-        elif place == "Left":
-            g.drawLine(bx + bw - 1, by, bx + bw - 1, by + bh)
-        else:
-            g.drawLine(bx, by, bx, by + bh)
+        folder = str(props.get("TabStyle") or "").lower() == "folder"
+        turned = upright(props)
+        # the line between the tabs and the page: [(x1, y1, x2, y2)]; a folder tab breaks it where it opens on its page
+        divider = {"Top": (bx, by + bh - 1, bx + bw, by + bh - 1), "Bottom": (bx, by, bx + bw, by),
+                   "Left": (bx + bw - 1, by, bx + bw - 1, by + bh), "Right": (bx, by, bx, by + bh)}[place]
+        gap = 2 if folder else 0
         self.rects = []
         x, y = bx + 4, by + 6
         for k, text in enumerate(self.headers()):
             if place in ("Top", "Bottom"):
                 w = fm.horizontalAdvance(text) + 28
-                r = QRect(x, by, w, HEADER - 1)
-                x += w
-            elif upright(props):
+                r = QRect(x, by, w, HEADER - 1) if place == "Top" else QRect(x, by + 1, w, HEADER - 1)
+                x += w + gap
+            elif turned:
                 tall = fm.horizontalAdvance(text) + 28
-                r = QRect(bx, y, bw, tall)
+                r = QRect(bx + (2 if folder else 0), y, bw - (3 if folder else 0), tall) if place == "Left" else QRect(bx + 1, y, bw - 3 if folder else bw, tall)
                 y += tall + 2
             else:
-                r = QRect(bx + 4, y, bw - 8, HEADER)
+                r = QRect(bx + 4, y, bw - (5 if folder else 8), HEADER) if place == "Left" else QRect(bx + 1 if folder else bx + 4, y, bw - (5 if folder else 8), HEADER)
                 y += HEADER + 2
             self.rects.append(r)
             chosen = k == self.current()
-            if chosen and place in ("Left", "Right"):
+            if folder:
+                self.folder_tab(g, place, r, chosen, divider, accent,     # (the chosen tab is the page's colour)
+                                qcolour(props["Background"]) if props.get("Background") else self.palette().window().color())
+            elif chosen and place in ("Left", "Right"):
                 tint = QColor(accent)
                 tint.setAlpha(28)
                 g.setPen(Qt.NoPen)
@@ -161,7 +162,7 @@ class TabStripWidget(QWidget):
             g.setPen(ink if chosen else QColor("#6B7280"))
             if place in ("Top", "Bottom"):
                 g.drawText(r, Qt.AlignCenter, text)
-            elif upright(props):                            # turned: reading up the left side, down the right
+            elif turned:                                    # turned: reading up the left side, down the right
                 g.save()
                 g.translate(r.center())
                 g.rotate(-90 if place == "Left" else 90)
@@ -169,7 +170,7 @@ class TabStripWidget(QWidget):
                 g.restore()
             else:
                 g.drawText(r.adjusted(12, 0, -8, 0), Qt.AlignVCenter | Qt.AlignLeft, fm.elidedText(text, Qt.ElideRight, r.width() - 20))
-            if chosen:
+            if chosen and not folder:
                 g.setPen(Qt.NoPen)
                 g.setBrush(accent)
                 bar = {"Top": QRect(r.x() + 6, by + HEADER - 3, r.width() - 12, 3),
@@ -177,6 +178,18 @@ class TabStripWidget(QWidget):
                        "Left": QRect(r.x(), r.y() + 6, 3, r.height() - 12),
                        "Right": QRect(r.right() - 2, r.y() + 6, 3, r.height() - 12)}[place]
                 g.drawRoundedRect(bar, 1.5, 1.5)
+        g.setPen(QColor(LINE))
+        g.setBrush(Qt.NoBrush)
+        x1, y1, x2, y2 = divider
+        cut = self.rects[self.current()] if folder and self.rects else None
+        if cut is None:
+            g.drawLine(x1, y1, x2, y2)
+        elif place in ("Top", "Bottom"):                    # the line, with the open folder tab's mouth left out
+            g.drawLine(x1, y1, cut.left(), y1)
+            g.drawLine(cut.right() + 1, y1, x2, y2)
+        else:
+            g.drawLine(x1, y1, x1, cut.top())
+            g.drawLine(x1, cut.bottom() + 1, x2, y2)
         if b > 0:                                           # the strip's own border, round the lot
             pen = QPen(qcolour(props.get("BorderBrush") or "#CBD5E1"), b)
             g.setPen(pen)
@@ -184,6 +197,35 @@ class TabStripWidget(QWidget):
             radius = num(props.get("CornerRadius"), 6)
             g.drawRoundedRect(QRectF(b / 2, b / 2, self.width() - b, self.height() - b), radius, radius)
         g.end()
+
+    def folder_tab(self, g, place, r, chosen, divider, accent, page):
+        """An old-school filing-cabinet tab: rounded on its outer edge, open into its page when chosen, the others
+        a shade darker and set back a little."""
+        from PySide6.QtGui import QPainterPath
+        back = 0 if chosen else 3                           # the others sit a little further back
+        out = {"Top": (0, back, 0, 0), "Bottom": (0, 0, 0, -back), "Left": (back, 0, 0, 0), "Right": (0, 0, -back, 0)}[place]
+        tab = QRectF(r).adjusted(*out)
+        reach = {"Top": (0, 0, 0, 10), "Bottom": (0, -10, 0, 0), "Left": (0, 0, 10, 0), "Right": (-10, 0, 0, 0)}[place]
+        shape = QPainterPath()
+        shape.addRoundedRect(tab.adjusted(*reach), 7, 7)    # rounded all round, then the page side cut square below
+        keep = QPainterPath()
+        open_by = 1 if chosen else 0                        # the chosen one covers the line, so it opens on its page
+        keep.addRect(QRectF(r).adjusted(*{"Top": (-1, -1, 1, open_by), "Bottom": (-1, -open_by, 1, 1),
+                                         "Left": (-1, -1, open_by, 1), "Right": (-open_by, -1, 1, 1)}[place]))
+        shape = shape.intersected(keep)
+        g.setPen(QPen(QColor("#D1D5DB"), 1))
+        g.setBrush(page if chosen else QColor("#EEF1F4"))
+        g.drawPath(shape)
+        if chosen:                                          # a strip of the accent along its outer edge
+            edge = {"Top": QRectF(tab.x() + 1, tab.y() + 1, tab.width() - 2, 3),
+                    "Bottom": QRectF(tab.x() + 1, tab.bottom() - 4, tab.width() - 2, 3),
+                    "Left": QRectF(tab.x() + 1, tab.y() + 1, 3, tab.height() - 2),
+                    "Right": QRectF(tab.right() - 4, tab.y() + 1, 3, tab.height() - 2)}[place]
+            band = QPainterPath()
+            band.addRect(edge)
+            g.setPen(Qt.NoPen)
+            g.setBrush(accent)
+            g.drawPath(band.intersected(shape))
 
 
 def tabs_add(parent, child):
@@ -207,6 +249,8 @@ register(ControlType("TabStrip", lambda n: TabStripWidget(n), container=True, ad
                read=lambda n: str(n.widget.current())),
           Prop("TabPlacement", "choice", "Common", options=PLACES, default="Top", apply=_redraw),     # Left/Right: tabs down the side
           Prop("TabWidth", "number", "Common", default="120", apply=_redraw),                        # the side tabs' width
+          Prop("TabStyle", "choice", "Appearance", options=("Underline", "Folder"), default="Underline",
+               apply=_redraw),                                       # Folder: old-school filing-cabinet tabs
           Prop("TabOrientation", "choice", "Common", options=("Horizontal", "Vertical"), default="Horizontal",
                apply=_redraw),                                       # Vertical: side tabs' words run along the side
           Prop("Accent", "colour", "Appearance", apply=_redraw),

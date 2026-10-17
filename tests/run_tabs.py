@@ -158,6 +158,12 @@ pg = eng.find("pOne").host if t.current() == 0 else eng.find("pTwo").host
 check("words running up the side: a narrow band, the page beside it", pg.x(), 34)
 check("each turned tab is as tall as its words", t.rects[0].height() > t.rects[0].width(), True)
 eng.cmd_SetProperty("tabs", "TabOrientation", "Horizontal")
+eng.cmd_SetProperty("tabs", "TabStyle", "Folder"); settle()
+img = t.grab().toImage()
+r0 = t.rects[t.current()]
+check("folder tabs: the chosen one is drawn as an open tab (filled, not just underlined)",
+      img.pixelColor(r0.center().x(), r0.top() + 8).name() != img.pixelColor(t.rects[1 - t.current()].center().x(), t.rects[1 - t.current()].top() + 8).name(), True)
+eng.cmd_SetProperty("tabs", "TabStyle", "Underline")
 eng.cmd_SetProperty("tabs", "TabPlacement", "Top"); settle()
 check("a new strip in the designer has a 2px border", (des.find(strip).props.get("BorderThickness"), des.find(strip).props.get("BorderBrush")), ("2", "#CBD5E1"))
 pages = sw.pages()

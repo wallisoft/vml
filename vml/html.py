@@ -378,6 +378,10 @@ class Page:
             css += ["box-sizing:border-box", "overflow:hidden"]
             from .tabs import upright
             turned = ' data-turned="1"' if upright(p) else ""
+            if str(p.get("TabStyle") or "").lower() == "folder":
+                turned += f' data-folder="1"'
+                if p.get("Background"):
+                    css.append(f"--page:{colour(p['Background'])}")
             return (f'<div {attrs} class="vtabs"{turned} data-sel="{sel}" data-place="{place.lower()}" style="--accent:{accent};{";".join(css)}">'
                     f'<div class="vtabh" style="{";".join(at(band))}">{heads}</div>{body}</div>')
         if ctype == "TabPage":
@@ -721,6 +725,26 @@ TEMPLATE = r"""<!DOCTYPE html>
   .vtabs[data-turned][data-place="left"] > .vtabh button { writing-mode: sideways-lr; }
   .vtabs[data-turned][data-place="right"] > .vtabh button { writing-mode: vertical-rl; }
   .vtabh button.on { color: #111827; font-weight: 600; }
+  .vtabs[data-folder] > .vtabh { gap: 2px; overflow: visible; z-index: 1; }
+  .vtabs[data-folder] > .vtabh button { background: #EEF1F4; border: 1px solid #D1D5DB; overflow: hidden; }
+  .vtabs[data-folder] > .vtabh button.on { background: var(--page, #fff) !important; }
+  .vtabs[data-folder] > .vtabh button.on::after { border-radius: 0; }
+  .vtabs[data-folder][data-place="top"] > .vtabh { align-items: flex-end; }
+  .vtabs[data-folder][data-place="top"] > .vtabh button { border-bottom: none; border-radius: 7px 7px 0 0; height: 30px; }
+  .vtabs[data-folder][data-place="top"] > .vtabh button.on { height: 34px; margin-bottom: -1px; }
+  .vtabs[data-folder][data-place="top"] > .vtabh button.on::after { left: 0; right: 0; top: 0; bottom: auto; height: 3px; }
+  .vtabs[data-folder][data-place="bottom"] > .vtabh { align-items: flex-start; }
+  .vtabs[data-folder][data-place="bottom"] > .vtabh button { border-top: none; border-radius: 0 0 7px 7px; height: 30px; }
+  .vtabs[data-folder][data-place="bottom"] > .vtabh button.on { height: 34px; margin-top: -1px; }
+  .vtabs[data-folder][data-place="bottom"] > .vtabh button.on::after { left: 0; right: 0; bottom: 0; top: auto; height: 3px; }
+  .vtabs[data-folder][data-place="left"] > .vtabh { padding-right: 0; align-items: flex-end; }
+  .vtabs[data-folder][data-place="left"] > .vtabh button { border-right: none; border-radius: 7px 0 0 7px; width: calc(100% - 3px); }
+  .vtabs[data-folder][data-place="left"] > .vtabh button.on { width: calc(100% + 1px); margin-right: -1px; }
+  .vtabs[data-folder][data-place="left"] > .vtabh button.on::after { left: 0; top: 0; bottom: 0; width: 3px; }
+  .vtabs[data-folder][data-place="right"] > .vtabh { padding-left: 0; align-items: flex-start; }
+  .vtabs[data-folder][data-place="right"] > .vtabh button { border-left: none; border-radius: 0 7px 7px 0; width: calc(100% - 3px); }
+  .vtabs[data-folder][data-place="right"] > .vtabh button.on { width: calc(100% + 1px); margin-left: -1px; }
+  .vtabs[data-folder][data-place="right"] > .vtabh button.on::after { right: 0; top: 0; bottom: 0; width: 3px; }
   .vtabs[data-place="left"] > .vtabh button.on, .vtabs[data-place="right"] > .vtabh button.on { background: color-mix(in srgb, var(--accent) 11%, transparent); }
   .vtabh button.on::after { content: ""; position: absolute; background: var(--accent); border-radius: 2px; }
   .vtabs[data-place="top"] > .vtabh button.on::after { left: 6px; right: 6px; bottom: -1px; height: 3px; }
