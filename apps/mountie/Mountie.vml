@@ -76,87 +76,56 @@ FontWeight=SemiBold
 Foreground=#374151
 Text=Servers, disk images, folders and RAM, as drives.
 
-# --- the tabs ---------------------------------------------------------------------
+# --- the tabs: SSH has a page of its own; the five disk tabs share the ISO page (SameAs) -------
 
-@Button btnTabSsh
+@TabStrip tabs
 Parent=c
-Canvas.Left=24
+Canvas.Left=12
 Canvas.Top=88
-Width=67
-Height=36
-BorderThickness=0
-Background=#E5E7EB
-Foreground=#374151
-Content=SSH
-OnClick=TabSsh
+Width=456
+Height=566
+BorderThickness=2
+BorderBrush=#C9D6D2
+CornerRadius=8
+Background=#FFFFFF
+Accent=#127A68
+SelectionChanged=TabPicked
 
-@Button btnTabIso
-Parent=c
-Canvas.Left=97
-Canvas.Top=88
-Width=67
-Height=36
-BorderThickness=0
-Background=#E5E7EB
-Foreground=#374151
-Content=ISO
-OnClick=TabIso
+@TabPage pSsh
+Parent=tabs
+Header=SSH
 
-@Button btnTabVhd
-Parent=c
-Canvas.Left=170
-Canvas.Top=88
-Width=67
-Height=36
-BorderThickness=0
-Background=#E5E7EB
-Foreground=#374151
-Content=VHD
-OnClick=TabVhd
+@TabPage pIso
+Parent=tabs
+Header=ISO
 
-@Button btnTabPart
-Parent=c
-Canvas.Left=243
-Canvas.Top=88
-Width=67
-Height=36
-BorderThickness=0
-Background=#E5E7EB
-Foreground=#374151
-Content=Disks
-OnClick=TabPart
+@TabPage pVhd
+Parent=tabs
+Header=VHD
+SameAs=pIso
 
-@Button btnTabFold
-Parent=c
-Canvas.Left=316
-Canvas.Top=88
-Width=67
-Height=36
-BorderThickness=0
-Background=#E5E7EB
-Foreground=#374151
-Content=Folders
-OnClick=TabFold
+@TabPage pPart
+Parent=tabs
+Header=Disks
+SameAs=pIso
 
-@Button btnTabRam
-Parent=c
-Canvas.Left=389
-Canvas.Top=88
-Width=67
-Height=36
-BorderThickness=0
-Background=#E5E7EB
-Foreground=#374151
-Content=RAM
-OnClick=TabRam
+@TabPage pFold
+Parent=tabs
+Header=Folders
+SameAs=pIso
+
+@TabPage pRam
+Parent=tabs
+Header=RAM
+SameAs=pIso
 
 # --- the drives ---------------------------------------------------------------
 
 @ListBox lstDrives
-Parent=c
+Parent=pSsh
 AlternatingRows=true
-Canvas.Left=24
-Canvas.Top=136
+Canvas.Left=10
+Canvas.Top=12
 Width=432
 Height=220
 SelectionChanged=Picked
@@ -164,9 +133,9 @@ OnDoubleClick=OpenDrive
 OnContextMenu=DriveMenuShow
 
 @Button btnToggle
-Parent=c
-Canvas.Left=24
-Canvas.Top=366
+Parent=pSsh
+Canvas.Left=10
+Canvas.Top=242
 Width=132
 Height=40
 Background=#127A68
@@ -175,27 +144,27 @@ Content=Connect
 OnClick=Toggle
 
 @Button btnAdd
-Parent=c
-Canvas.Left=164
-Canvas.Top=366
+Parent=pSsh
+Canvas.Left=150
+Canvas.Top=242
 Width=92
 Height=40
 Content=Add
 OnClick=AddDrive
 
 @Button btnEdit
-Parent=c
-Canvas.Left=264
-Canvas.Top=366
+Parent=pSsh
+Canvas.Left=250
+Canvas.Top=242
 Width=92
 Height=40
 Content=Change
 OnClick=EditDrive
 
 @Button btnRemove
-Parent=c
-Canvas.Left=364
-Canvas.Top=366
+Parent=pSsh
+Canvas.Left=350
+Canvas.Top=242
 Width=92
 Height=40
 Content=Remove
@@ -204,7 +173,7 @@ OnClick=RemoveDrive
 @CheckBox chkBoot
 Parent=c
 Canvas.Left=24
-Canvas.Top=446
+Canvas.Top=490
 Width=432
 Height=28
 Content=Start with the computer, in the tray
@@ -213,9 +182,9 @@ OnClick=BootChanged
 @TextBlock lblStatus
 Parent=c
 Canvas.Left=24
-Canvas.Top=480
+Canvas.Top=524
 Width=432
-Height=172
+Height=128
 TextWrapping=Wrap
 FontSize=13
 Foreground=#374151
@@ -224,73 +193,67 @@ Text=
 # --- disk images and partitions (the ISO, VHD and Partitions tabs share these) ----
 
 @ListBox lstDisk
-Parent=c
+Parent=pIso
 AlternatingRows=true
-Canvas.Left=24
-Canvas.Top=136
+Canvas.Left=10
+Canvas.Top=12
 Width=432
 Height=220
-IsVisible=false
 SelectionChanged=DiskPicked
 OnDoubleClick=DiskOpen
 OnContextMenu=DiskMenuShow
 
 @Button btnDiskToggle
-Parent=c
-Canvas.Left=24
-Canvas.Top=366
+Parent=pIso
+Canvas.Left=10
+Canvas.Top=242
 Width=104
 Height=40
 Background=#127A68
 Foreground=#FFFFFF
-IsVisible=false
 Content=Mount
 OnClick=DiskToggle
 
 @Button btnDiskAdd
-Parent=c
-Canvas.Left=132
-Canvas.Top=366
+Parent=pIso
+Canvas.Left=118
+Canvas.Top=242
 Width=74
 Height=40
-IsVisible=false
 Content=Add
 OnClick=DiskAdd
 
 @Button btnDiskOpen
-Parent=c
-Canvas.Left=210
-Canvas.Top=366
+Parent=pIso
+Canvas.Left=196
+Canvas.Top=242
 Width=74
 Height=40
-IsVisible=false
 Content=Open
 OnClick=DiskOpen
 
 @Button btnDiskRename
-Parent=c
-Canvas.Left=288
-Canvas.Top=366
+Parent=pIso
+Canvas.Left=274
+Canvas.Top=242
 Width=82
 Height=40
-IsVisible=false
 Content=Rename
 OnClick=DiskRename
 
 @Button btnDiskRemove
-Parent=c
-Canvas.Left=374
-Canvas.Top=366
+Parent=pIso
+Canvas.Left=360
+Canvas.Top=242
 Width=82
 Height=40
-IsVisible=false
 Content=Remove
 OnClick=DiskRemove
 
 @Button btnDiskShows
-Parent=c
-Canvas.Left=24
-Canvas.Top=446
+Parent=pIso
+Canvas.Left=10
+Canvas.Top=322
 Width=432
 Height=36
 IsVisible=false
@@ -298,220 +261,206 @@ Content=What it shows...
 OnClick=DiskShows
 
 @CheckBox chkDiskRO
-Parent=c
-Canvas.Left=24
-Canvas.Top=412
+Parent=pIso
+Canvas.Left=10
+Canvas.Top=288
 Width=120
 Height=28
-IsVisible=false
 Content=Read only
 OnClick=DiskOptions
 
 @CheckBox chkDiskOn
-Parent=c
-Canvas.Left=330
-Canvas.Top=412
+Parent=pIso
+Canvas.Left=316
+Canvas.Top=288
 Width=126
 Height=28
-IsVisible=false
 Content=Enabled
 OnClick=DiskOptions
 
 @CheckBox chkDiskAuto
-Parent=c
-Canvas.Left=150
-Canvas.Top=412
+Parent=pIso
+Canvas.Left=136
+Canvas.Top=288
 Width=170
 Height=28
-IsVisible=false
 Content=Mount at start
 OnClick=DiskOptions
 
-# --- adding or changing a drive (shown over the list) --------------------------
+# --- adding or changing a drive: a panel over the tabs (the designer stacks the two) -------
+
+@Canvas pnlEdit
+Parent=c
+Canvas.Left=12
+Canvas.Top=88
+Width=456
+Height=566
+IsVisible=false
 
 @TextBlock lblForm
-Parent=c
-Canvas.Left=24
-Canvas.Top=136
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=48
 Width=432
 Height=24
 FontWeight=Bold
-IsVisible=false
 Text=A drive
 
 @TextBox txtName
-Parent=c
-Canvas.Left=24
-Canvas.Top=164
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=76
 Width=206
 Height=34
-IsVisible=false
 Watermark=Name (e.g. Web server)
 
 @TextBox txtMount
-Parent=c
-Canvas.Left=240
-Canvas.Top=164
+Parent=pnlEdit
+Canvas.Left=228
+Canvas.Top=76
 Width=216
 Height=34
-IsVisible=false
 Watermark=Drive letter or folder (blank: any)
 
 @TextBox txtHost
-Parent=c
-Canvas.Left=24
-Canvas.Top=206
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=118
 Width=300
 Height=34
-IsVisible=false
 Watermark=Server (e.g. tiny-web.uk)
 
 @TextBox txtPort
-Parent=c
-Canvas.Left=334
-Canvas.Top=206
+Parent=pnlEdit
+Canvas.Left=322
+Canvas.Top=118
 Width=122
 Height=34
-IsVisible=false
 Watermark=Port (22)
 
 @TextBox txtUser
-Parent=c
-Canvas.Left=24
-Canvas.Top=248
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=160
 Width=206
 Height=34
-IsVisible=false
 Watermark=User
 
 @TextBox txtRemote
-Parent=c
-Canvas.Left=240
-Canvas.Top=248
+Parent=pnlEdit
+Canvas.Left=228
+Canvas.Top=160
 Width=216
 Height=34
-IsVisible=false
 Watermark=Folder on the server (blank: home)
 
 @ComboBox cmbAuth
-Parent=c
-Canvas.Left=24
-Canvas.Top=290
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=202
 Width=206
 Height=34
-IsVisible=false
 Items=Password,Key file,SSH agent
 SelectionChanged=AuthChanged
 
 @TextBox txtSecret
-Parent=c
-Canvas.Left=240
-Canvas.Top=290
+Parent=pnlEdit
+Canvas.Left=228
+Canvas.Top=202
 Width=216
 Height=34
-IsVisible=false
 IsPassword=true
 Watermark=Password
 
 @TextBox txtKey
-Parent=c
-Canvas.Left=24
-Canvas.Top=332
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=244
 Width=340
 Height=34
-IsVisible=false
 Watermark=Key file (e.g. ~/.ssh/id_ed25519), or the key itself
 
 @Button btnBrowse
-Parent=c
-Canvas.Left=372
-Canvas.Top=332
+Parent=pnlEdit
+Canvas.Left=360
+Canvas.Top=244
 Width=84
 Height=34
-IsVisible=false
 Content=Browse
 OnClick=BrowseKey
 
 @TextBox txtActAs
-Parent=c
-Canvas.Left=24
-Canvas.Top=374
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=286
 Width=206
 Height=34
-IsVisible=false
 Watermark=Act as (blank: you; or root, www-data)
 
 @Button btnAllow
-Parent=c
-Canvas.Left=240
-Canvas.Top=374
+Parent=pnlEdit
+Canvas.Left=228
+Canvas.Top=286
 Width=216
 Height=34
-IsVisible=false
 Content=Allow it on the server
 OnClick=AllowSudo
 
 @CheckBox chkAuto
-Parent=c
-Canvas.Left=24
-Canvas.Top=416
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=328
 Width=206
 Height=28
-IsVisible=false
 Content=Connect by itself
 IsChecked=true
 
 @CheckBox chkReadOnly
-Parent=c
-Canvas.Left=240
-Canvas.Top=416
+Parent=pnlEdit
+Canvas.Left=228
+Canvas.Top=328
 Width=216
 Height=28
-IsVisible=false
 Content=Read only
 
 @Button btnTest
-Parent=c
-Canvas.Left=24
-Canvas.Top=456
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=368
 Width=132
 Height=40
-IsVisible=false
 Content=Test
 OnClick=TestDrive
 
 @Button btnSave
-Parent=c
-Canvas.Left=164
-Canvas.Top=456
+Parent=pnlEdit
+Canvas.Left=152
+Canvas.Top=368
 Width=160
 Height=40
 Background=#127A68
 Foreground=#FFFFFF
-IsVisible=false
 Content=Save and connect
 OnClick=SaveDrive
 
 @Button btnCancel
-Parent=c
-Canvas.Left=332
-Canvas.Top=456
+Parent=pnlEdit
+Canvas.Left=320
+Canvas.Top=368
 Width=124
 Height=40
-IsVisible=false
 Content=Cancel
 OnClick=CloseForm
 
 @TextBlock lblTest
-Parent=c
-Canvas.Left=24
-Canvas.Top=506
+Parent=pnlEdit
+Canvas.Left=12
+Canvas.Top=418
 Width=432
 Height=170
 TextWrapping=Wrap
 FontSize=13
 Foreground=#374151
-IsVisible=false
 Text=
 
 # --- the status bar ---------------------------------------------------------
@@ -633,7 +582,7 @@ State = {}          -- name -> {state=, detail=}
 Editing = nil       -- index of the drive being changed (nil: a new one)
 LIST = { "lstDrives", "btnToggle", "btnAdd", "btnEdit", "btnRemove" }
 FOOT = { "chkBoot", "lblStatus" }
-TABS = { "btnTabSsh", "btnTabIso", "btnTabVhd", "btnTabPart", "btnTabFold", "btnTabRam" }
+TABS = { "tabs" }
 DISK = { "lstDisk", "btnDiskToggle", "btnDiskAdd", "btnDiskOpen", "btnDiskRename", "btnDiskRemove", "chkDiskRO", "chkDiskAuto", "chkDiskOn" }
 Info = {}            -- path -> what the image is (format, size, label, partitions), read once
 Images = json.decode(Vml("GetSetting", "images") or "") or {}       -- {name, path, kind, readonly, automount, enabled}
@@ -643,7 +592,7 @@ DiskState = {}       -- name -> {state=, detail=}
 Tab = "Ssh"
 LOG = json.decode(Vml("GetSetting", "log") or "") or {}            -- {t, text, bad}, newest first
 Unseen = tonumber(Vml("GetSetting", "log_unseen") or "") or 0      -- problems not looked at yet
-FORM = { "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
+FORM = { "pnlEdit", "lblForm", "txtName", "txtMount", "txtHost", "txtPort", "txtUser", "txtRemote", "cmbAuth", "txtSecret",
          "txtKey", "btnBrowse", "txtActAs", "btnAllow", "chkAuto", "chkReadOnly", "btnTest", "btnSave", "btnCancel", "lblTest" }
 Tested = nil        -- the last good Test: {host, port, hostkey}, so saving keeps the key it was shown
 PickedKey = nil     -- a key picked on a phone: its text (a one-line box can't hold it), shown by name
@@ -677,40 +626,11 @@ ShowTab("Ssh")
 if Vml("LaunchedAtBoot") == "true" then Vml("HideForm", "Mountie") end
 LUA
 
-@Script TabSsh
+@Script TabPicked
 Interpreter=lua
 <<LUA
-ShowTab("Ssh")
-LUA
-
-@Script TabIso
-Interpreter=lua
-<<LUA
-ShowTab("Iso")
-LUA
-
-@Script TabVhd
-Interpreter=lua
-<<LUA
-ShowTab("Vhd")
-LUA
-
-@Script TabPart
-Interpreter=lua
-<<LUA
-ShowTab("Part")
-LUA
-
-@Script TabFold
-Interpreter=lua
-<<LUA
-ShowTab("Fold")
-LUA
-
-@Script TabRam
-Interpreter=lua
-<<LUA
-ShowTab("Ram")
+local names = { "Ssh", "Iso", "Vhd", "Part", "Fold", "Ram" }
+ShowTab(names[(tonumber(Vml("GetProperty", "tabs", "SelectedIndex")) or 0) + 1] or "Ssh")
 LUA
 
 @Script Closing

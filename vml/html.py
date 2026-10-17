@@ -371,9 +371,13 @@ class Page:
                             f'{esc(self.props.get(k, {}).get("Header") or self.by_id[k][3])}</button>' for i, k in enumerate(pages))
             place, b, band, page = strip_geometry(p, num(p.get("Width"), 320), num(p.get("Height"), 220))
             at = lambda r: [f"left:{int(r[0] - b)}px", f"top:{int(r[1] - b)}px", f"width:{int(r[2])}px", f"height:{int(r[3])}px"]
+            names = {self.by_id[k][3]: k for k in pages}
+            shown = pages[sel] if pages else None
+            same = str(self.props.get(shown, {}).get("SameAs") or "").strip() if shown else ""
+            shown = names.get(same, shown)
             body = "".join(self.render(k, "TabStrip", (page[2], page[3]),
-                                       ["position:absolute", *at(page)] + ([] if i == sel else ["display:none"]))
-                           for i, k in enumerate(pages))
+                                       ["position:absolute", *at(page)] + ([] if k == shown else ["display:none"]))
+                           for k in pages)
             accent = colour(p.get("Accent") or "#4F46E5")
             css += ["box-sizing:border-box", "overflow:hidden"]
             from .tabs import upright
@@ -385,7 +389,8 @@ class Page:
             return (f'<div {attrs} class="vtabs"{turned} data-sel="{sel}" data-place="{place.lower()}" style="--accent:{accent};{";".join(css)}">'
                     f'<div class="vtabh" style="{";".join(at(band))}">{heads}</div>{body}</div>')
         if ctype == "TabPage":
-            return f'<div {attrs} class="vtabp" style="{";".join(css)}">{inner("Frame", ref)}</div>'
+            same = f' data-same="{esc(str(p["SameAs"]).strip())}"' if str(p.get("SameAs") or "").strip() else ""
+            return f'<div {attrs} class="vtabp"{same} style="{";".join(css)}">{inner("Frame", ref)}</div>'
         if ctype == "Toolbar":                                  # a row of buttons: "words=Handler", | for a divider
             from .tabs import toolbar_items
             out, i = [], 0
@@ -835,7 +840,8 @@ const tabPick = (t, i) => {
   i = Math.max(0, Math.min(Number(i) || 0, pages.length - 1));
   const moved = String(i) !== t.dataset.sel;
   heads.forEach((h, k) => h.classList.toggle("on", k === i));
-  pages.forEach((pg, k) => pg.style.display = k === i ? "" : "none");
+  const same = pages[i].dataset.same, shown = (same && pages.find(pg => pg.dataset.name === same)) || pages[i];
+  pages.forEach(pg => pg.style.display = pg === shown ? "" : "none");
   t.dataset.sel = String(i);
   return moved;
 };

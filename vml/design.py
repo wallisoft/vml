@@ -198,8 +198,11 @@ class Overlay(QWidget):
         node = self.hit(pos)
         lift = node
         while lift is not None and lift is not v.node:          # a container chosen: it, and what holds it, to the front
-            if lift.type.container:
+            if lift.type.container and lift.parent is not None:
                 lift.host.raise_()
+                kids = lift.parent.children                     # (but not over what the form puts on top of it)
+                for later in kids[kids.index(lift) + 1:] if lift in kids else []:
+                    later.host.raise_()
             lift = lift.parent
         self.raise_()
         if node is not None and node.type.name == "TabStrip" and e.button() == Qt.LeftButton:
@@ -385,7 +388,7 @@ class SurfaceView(QScrollArea):
             return small > 0 and both.width() * both.height() >= small / 2
 
         def visit(container):
-            pages = [k for k in container.children if k.type.name in ("Canvas", "Frame")]
+            pages = [k for k in container.children if k.type.name in ("Canvas", "Frame", "TabStrip")]
             taken = set()
             for i, a in enumerate(pages):
                 if a.name in taken:

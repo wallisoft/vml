@@ -8,6 +8,7 @@ the web alike.
                user picks a tab. TabStyle Underline (a bar under the chosen tab) or Folder (filing-cabinet tabs,
                the chosen one open into its page).  Vml("SetProperty", "Tabs1", "SelectedIndex", "2") picks one.
     TabPage    one page of a TabStrip: Header (the tab's words). Holds controls as a Canvas does, anchors and all.
+               SameAs=pOther: this tab shows pOther's page (tabs that share one set of controls, told apart by script).
     Toolbar    a row of buttons under the menu. Items, comma-separated, left to right:
                    📄 New=FileNew, 📂 Open=FileOpen, |, 💾 Save
                "words=Handler" runs Handler when that button is pressed; | is a divider. OnClick runs for every
@@ -93,12 +94,21 @@ class TabStripWidget(QWidget):
         if user and self.current() != before:
             self.changed.emit()
 
+    def showing(self):
+        """The page on show: the chosen tab's, or the page it shares (SameAs), so tabs can share one set of controls."""
+        pages = self.pages()
+        if not pages:
+            return None
+        page = pages[self.current()]
+        same = str(page.props.get("SameAs") or "").strip()
+        return next((p for p in pages if p.name == same), page) if same else page
+
     def lay_out(self):
         _, _, _, page = strip_geometry(self.node.props, self.width(), self.height())
-        shown = self.current()
-        for k, pg in enumerate(self.pages()):
+        shown = self.showing()
+        for pg in self.pages():
             pg.host.setGeometry(*page)
-            pg.host.setVisible(k == shown)
+            pg.host.setVisible(pg is shown)
 
     def tab_at(self, pos):
         for k, r in enumerate(self.rects):
@@ -249,7 +259,7 @@ register(ControlType("TabStrip", lambda n: TabStripWidget(n), container=True, ad
                read=lambda n: str(n.widget.current())),
           Prop("TabPlacement", "choice", "Common", options=PLACES, default="Top", apply=_redraw),     # Left/Right: tabs down the side
           Prop("TabWidth", "number", "Common", default="120", apply=_redraw),                        # the side tabs' width
-          Prop("TabStyle", "choice", "Appearance", options=("Underline", "Folder"), default="Underline",
+          Prop("TabStyle", "choice", "Common", options=("Underline", "Folder"), default="Underline",
                apply=_redraw),                                       # Folder: old-school filing-cabinet tabs
           Prop("TabOrientation", "choice", "Common", options=("Horizontal", "Vertical"), default="Horizontal",
                apply=_redraw),                                       # Vertical: side tabs' words run along the side
@@ -280,7 +290,9 @@ def _header(n, v):
 register(ControlType("TabPage", lambda n: TabPageWidget(n), container=True, add_child=canvas_add, place_child=canvas_place,
                      remove_child=canvas_remove, category="Containers", events=dict(POINTER_EVENTS)),
          COMMON, ATTACHED,
-         [Prop("Header", "text", "Common", apply=_header)])
+         [Prop("Header", "text", "Common", apply=_header),
+          Prop("SameAs", "text", "Common", apply=lambda n, v: n.parent is not None and n.parent.type.name == "TabStrip"
+               and n.parent.widget.lay_out())])                       # another page's name: this tab shows that page
 
 
 # ------------------------------------------------------------------ Toolbar

@@ -88,7 +88,7 @@ class SystemCommands:
                 h, origin = self._ssh_handlers.get(name, ("", None))
                 q.put((h, (name, "hostkey", fp), origin))
             self._ssh_drives = Drives(on_change=changed, on_hostkey=hostkey)
-            QApplication.instance().aboutToQuit.connect(self._ssh_drives.down_all)
+            QApplication.instance().aboutToQuit.connect(lambda: self._downed or self._ssh_drives.down_all())
         return self._ssh_drives
 
     def cmd_SshMount(self, drive="{}", handler=""):
@@ -232,7 +232,7 @@ class SystemCommands:
                 h, origin = self._disk_handlers.get(name, ("", None))
                 q.put((h, (name, state, detail), origin))
             self._disk_mgr = Disks(on_change=changed)
-            QApplication.instance().aboutToQuit.connect(self._disk_mgr.down_all)
+            QApplication.instance().aboutToQuit.connect(lambda: self._downed or self._disk_mgr.down_all())
         return self._disk_mgr
 
     def cmd_DiskList(self):
@@ -383,14 +383,39 @@ class SystemCommands:
             tray.showMessage(str(title), str(text), QSystemTrayIcon.Information, 6000)
         return ""
 
+    _downed = False                                        # (drives already taken down by Quit)
+
     def cmd_Quit(self):
-        """Quit (the app's own Exit). The tray icon goes first, and the quitting a moment later: a desktop panel
-        that sent "this menu item was picked" waits for the answer, and spins until it gives up if the app has
-        already gone."""
+        """Quit (the app's own Exit). The windows and the tray icon go at once; the drives are taken down side by side
+        (SSH and disks together, never more than a few seconds however unreachable a server is) while the app keeps
+        answering the desktop, so its panel never spins waiting for a reply; then it quits."""
+        import threading
+        import time
         tray = getattr(self, "_tray", None)
         if tray:
             tray.hide()
-        QTimer.singleShot(500, QApplication.instance().quit)
+        for w in QApplication.topLevelWidgets():
+            if w.isWindow() and w.isVisible():
+                w.hide()
+        managers = [m for m in (getattr(self, "_ssh_drives", None), getattr(self, "_disk_mgr", None)) if m is not None]
+
+        def down():
+            jobs = [threading.Thread(target=m.down_all, kwargs={"wait": 5.0}, daemon=True) for m in managers]
+            for j in jobs:
+                j.start()
+            for j in jobs:
+                j.join(6.0)
+        worker = threading.Thread(target=down, daemon=True)
+        worker.start()
+        deadline = time.time() + 7.0
+
+        def finish():
+            if worker.is_alive() and time.time() < deadline:
+                QTimer.singleShot(100, finish)                 # (the event loop keeps running meanwhile)
+                return
+            self._downed = True
+            QApplication.instance().quit()
+        QTimer.singleShot(300, finish)
         return ""
 
     # ── starting with the computer ──

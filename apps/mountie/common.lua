@@ -78,9 +78,8 @@ function Local() return Tab == "Fold" or Tab == "Ram" end      -- the tabs whose
 
 function ShowTab(t)
   Tab = t
-  for _, n in ipairs(TABNAMES) do
-    Vml("SetProperty", "btnTab" .. n, "Background", n == t and "#127A68" or "#E5E7EB")
-    Vml("SetProperty", "btnTab" .. n, "Foreground", n == t and "#FFFFFF" or "#374151")
+  for i, n in ipairs(TABNAMES) do                      -- the strip shows the tab (a script chose it: no SelectionChanged)
+    if n == t then Vml("SetProperty", "tabs", "SelectedIndex", tostring(i - 1)) end
   end
   Show(LIST, t == "Ssh"); Show(DISK, t ~= "Ssh"); Show(FOOT, true)
   Show({ "btnDiskShows" }, Local())

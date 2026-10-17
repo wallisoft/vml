@@ -164,6 +164,9 @@ r0 = t.rects[t.current()]
 check("folder tabs: the chosen one is drawn as an open tab (filled, not just underlined)",
       img.pixelColor(r0.center().x(), r0.top() + 8).name() != img.pixelColor(t.rects[1 - t.current()].center().x(), t.rects[1 - t.current()].top() + 8).name(), True)
 eng.cmd_SetProperty("tabs", "TabStyle", "Underline")
+eng.cmd_SetProperty("pTwo", "SameAs", "pOne"); eng.cmd_SetProperty("tabs", "SelectedIndex", "1"); settle()
+check("SameAs: the second tab shows the first tab's page", (t.current(), eng.find("pOne").host.isVisible(), eng.find("pTwo").host.isVisible()), (1, True, False))
+eng.cmd_SetProperty("pTwo", "SameAs", ""); settle()
 eng.cmd_SetProperty("tabs", "TabPlacement", "Top"); settle()
 check("a new strip in the designer has a 2px border", (des.find(strip).props.get("BorderThickness"), des.find(strip).props.get("BorderBrush")), ("2", "#CBD5E1"))
 pages = sw.pages()
