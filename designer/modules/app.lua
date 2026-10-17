@@ -4,16 +4,21 @@
 
 function DesignerInit(...)
     local json = require("dkjson")
-    local category = ""
+    -- Add: a submenu for each group of controls, as a VB toolbox has them
+    local group, n = "", 0
     for _, t in ipairs(json.decode(Vml("GetControlTypes"))) do
-        if t.category ~= category and category ~= "" then
-            local sep = "AddSep_" .. t.category
-            Vml("CreateControl", "MenuItem", sep, "CtxAdd")
-            Vml("SetProperty", sep, "IsSeparator", "true")
+        if t.group ~= group then
+            group, n = t.group, n + 1
+            if group == "Layout (advanced)" or group == "Your controls" then
+                local sep = "AddSep_" .. n
+                Vml("CreateControl", "MenuItem", sep, "CtxAdd")
+                Vml("SetProperty", sep, "IsSeparator", "true")
+            end
+            Vml("CreateControl", "MenuItem", "AddGroup_" .. n, "CtxAdd")
+            Vml("SetProperty", "AddGroup_" .. n, "Text", group)
         end
-        category = t.category
         local item = "Add_" .. t.name
-        Vml("CreateControl", "MenuItem", item, "CtxAdd")
+        Vml("CreateControl", "MenuItem", item, "AddGroup_" .. n)
         Vml("SetProperty", item, "Text", t.name)
         Vml("SetEvent", item, "OnClick", "AddControl(" .. t.name .. ")")
     end

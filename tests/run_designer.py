@@ -27,9 +27,11 @@ def steps():
     surf = eng.find("Surface")
     view, ov = surf.widget, surf.widget.overlay
     origin = view.form.pos()
-    add_items = [a.text() for a in eng.find("CtxAdd").menu.actions() if not a.isSeparator()]
-    check("Add menu generated from the registry", add_items[:4], ["AutoCompleteBox", "Button", "Calendar", "CheckBox"])
-    check("containers listed too", "StackPanel" in add_items and "Border" in add_items, True)
+    groups = [a.text() for a in eng.find("CtxAdd").menu.actions() if not a.isSeparator()]
+    check("Add menu: the controls in groups, as a toolbox has them", groups[:3], ["Text", "Buttons and choices", "Pickers"])
+    add_items = [a.text() for g in eng.find("CtxAdd").menu.actions() if g.menu() for a in g.menu().actions()]
+    check("every control is in one of them, StackPanel and Border too", "StackPanel" in add_items and "Border" in add_items and "Button" in add_items, True)
+    check("the Text group starts with TextBlock", [a.text() for a in eng.find("CtxAdd").menu.actions()[0].menu().actions()][:2], ["TextBlock", "TextBox"])
     check("grid starts on the form itself", eng.find("Props").widget.target, "Surface")
 
     # right-click at (40, 40) on the form, then Add > Button

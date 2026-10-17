@@ -1440,21 +1440,37 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             n += 1
         return f"{base}{n}"
 
+    # The designer's Add menu, in groups as a VB toolbox has them (anything not named here goes in "More")
+    ADD_GROUPS = [
+        ("Text", ["TextBlock", "TextBox", "AutoCompleteBox", "HyperlinkButton"]),
+        ("Buttons and choices", ["Button", "CheckBox", "RadioButton", "ToggleButton", "ToggleSwitch", "ComboBox"]),
+        ("Pickers", ["DatePicker", "TimePicker", "Calendar", "ColorPicker", "NumberBox", "Slider"]),
+        ("Lists and data", ["ListBox", "DataGrid", "TreeView"]),
+        ("Documents and media", ["MarkdownView", "MarkdownEditor", "Image", "Rectangle", "ProgressBar"]),
+        ("Containers", ["Canvas", "Frame", "Border", "ScrollViewer"]),
+        ("Layout (advanced)", ["StackPanel", "DockPanel", "Grid"]),
+        ("Behind the scenes", ["Timer"]),
+    ]
+
     def cmd_GetControlTypes(self):
-        """Every control type a designer can add: built-ins from the registry, plus VML composites."""
+        """Every control type a designer can add: built-ins from the registry, plus VML composites. Each has its
+        category, and the group the Add menu puts it in (in the order the menu shows them)."""
         out = []
+        group_of = {n: g for g, names in self.ADD_GROUPS for n in names}
         for ct in REGISTRY.values():
             if getattr(ct, "virtual", False) or getattr(ct, "design_only", False) or ct.name in ("Window", "TinyMenu", "Splitter"):
                 continue
-            out.append({"name": ct.name, "category": ct.category, "container": ct.container})
+            out.append({"name": ct.name, "category": ct.category, "container": ct.container,
+                        "group": group_of.get(ct.name, "More")})
         comp_dir = SYSTEM_DIR / "CompositeControls"
         if comp_dir.is_dir():
             for f in sorted(comp_dir.glob("*.vml")):
                 if f.stem.startswith("Dummy") or f.read_text(errors="ignore").lstrip().startswith("<"):
                     continue
-                out.append({"name": f.stem, "category": "Composite", "container": False})
-        order = {"Common": 0, "Containers": 1, "Composite": 2}
-        return json.dumps(sorted(out, key=lambda t: (order.get(t["category"], 9), t["name"])))
+                out.append({"name": f.stem, "category": "Composite", "container": False, "group": "Your controls"})
+        groups = [g for g, _ in self.ADD_GROUPS] + ["More", "Your controls"]
+        place = {n: i for _, names in self.ADD_GROUPS for i, n in enumerate(names)}
+        return json.dumps(sorted(out, key=lambda t: (groups.index(t["group"]), place.get(t["name"], 99), t["name"])))
 
     def cmd_AddDesignControl(self, ctype, x=0, y=0, surface="Surface"):
         """Add a control where the user right-clicked: inside a Frame if the click was in one."""
