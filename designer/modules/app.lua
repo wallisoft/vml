@@ -110,6 +110,9 @@ function BuildToolsMenu()
     Vml("CreateControl", "MenuItem", "ToolsDebugger", "Tools")
     Vml("SetProperty", "ToolsDebugger", "Text", "Debugger (F12)")
     Vml("SetEvent", "ToolsDebugger", "OnClick", "ToolsDebugger")
+    Vml("CreateControl", "MenuItem", "ToolsAttach", "Tools")
+    Vml("SetProperty", "ToolsAttach", "Text", "Attach the debugger to a running app...")
+    Vml("SetEvent", "ToolsAttach", "OnClick", "ToolsAttach")
     Vml("CreateControl", "MenuItem", "ToolsSep0", "Tools")
     Vml("SetProperty", "ToolsSep0", "IsSeparator", "true")
     for i, t in ipairs(TOOLS) do
@@ -164,6 +167,11 @@ end
 
 function ToolsDebugger(...)
     Vml("ShowDebugger")
+end
+
+function ToolsAttach(...)
+    -- any Visualised app running on this computer: Bob, Mountie, one you've started: its calls and variables, live
+    Vml("AttachDebugger")
 end
 
 function ToolsAddMenu(...)

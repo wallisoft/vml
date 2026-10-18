@@ -9,8 +9,14 @@ running) opens it.
                 score = 10, Vml("GetProperty", "txtName", "Text").
 
 The designer's own forms are left out, so what it shows is the app being tested.
+
+Attached: the same window on another running Visualised app (Tools > Attach the debugger to a running app): Bob,
+Mountie, anything started from a .vml. It asks that app's engine over its local API (vml/api.py: 127.0.0.1 and a
+secret only you can read), and the app keeps a short record of its calls (Tap) while a debugger is reading it.
 """
+import json
 import time
+from collections import deque
 from types import SimpleNamespace
 
 from PySide6.QtCore import Qt, QTimer
@@ -30,13 +36,38 @@ def _short(v):
     return s if len(s) <= SHOW else s[:SHOW] + f"… ({len(str(v))} characters)"
 
 
-class Debugger(WindowWidget):
-    """A window like a form's: our own title bar, and the edge round it all."""
+class Tap:
+    """In an app a debugger is attached to: its calls, kept for the debugger to collect. Let go by itself when nothing
+    has asked for a while (the debugger closed, or went with the app it ran in)."""
 
-    def __init__(self, engine):
+    def __init__(self, gone):
+        self.rows, self.seq, self.everything, self.gone = deque(maxlen=MAX_ROWS), 0, False, gone
+        self.touch()
+
+    def touch(self):
+        self.asked = time.time()
+
+    def record(self, form, script, call, result, error=False):
+        if time.time() - self.asked > 30:
+            self.gone()
+            return
+        self.seq += 1
+        t = time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}"
+        self.rows.append([self.seq, t, form, script, _short(call), _short(result), bool(error)])
+
+    def since(self, n):
+        self.touch()
+        return {"seq": self.seq, "rows": [r for r in self.rows if r[0] > n]}
+
+
+class Debugger(WindowWidget):
+    """A window like a form's: our own title bar, and the edge round it all. remote: another running app to attach
+    to ({pid, title, info} from vml/api.py running()), else the forms this engine is running."""
+
+    def __init__(self, engine, remote=None):
         super().__init__(SimpleNamespace(name="Debugger", props={}))
-        self.engine = engine
-        self.setWindowTitle("Visualised debugger")
+        self.engine, self.remote, self.seen = engine, remote, 0
+        self.setWindowTitle("Visualised debugger" + (f": {remote['title']}" if remote else ""))
         self.resize(900, 560)
         self.paused = False
         self.pending = []
@@ -139,11 +170,69 @@ class Debugger(WindowWidget):
         self.var_timer.timeout.connect(lambda: self.isVisible() and self.tabs.currentIndex() == 1 and self.show_vars(keep=True))
         self.var_timer.start()
         QShortcut(QKeySequence("F12"), self, activated=self.hide)
+        if remote:                                       # attached: collect what the other app has recorded, as it goes
+            self.everything.toggled.connect(lambda on: self._ask("DebugAttach", "true" if on else "false"))
+            self.collect = QTimer(self)
+            self.collect.setInterval(300)
+            self.collect.timeout.connect(self.collect_calls)
+            self._ask("DebugAttach", "false")
+            self.collect.start()
         from .theme import theme, tool_sheet
         self.setStyleSheet(tool_sheet())
         self.set_title_bar("Own")
         self.set_edge(theme().edge, 2)
         col.setContentsMargins(8, 8 + self.bar_h(), 8, 8)    # (under the title bar)
+
+    # ---------------------------------------------------------------- attached to another app
+    def _ask(self, cmd, *args):
+        from .api import ask
+        return ask(self.remote["info"], cmd, *args)
+
+    def collect_calls(self):
+        try:
+            got = json.loads(self._ask("DebugCalls", self.seen) or "{}")
+        except Exception:
+            self.collect.stop()
+            self.setWindowTitle(f"Visualised debugger: {self.remote['title']} (it has closed)")
+            return
+        self.seen = got.get("seq", self.seen)
+        for _seq, t, form, script, call, result, error in got.get("rows", []):
+            if not self.paused:
+                self.pending.append((t, form, script, call, result, error))
+
+    def closeEvent(self, e):
+        if self.remote:
+            self.collect.stop()
+            try:
+                self._ask("DebugDetach")
+            except Exception:
+                pass
+        super().closeEvent(e)
+
+    # where the forms and their Lua are: here, or in the app attached to
+    def _states(self):
+        if self.remote:
+            return [tuple(x) for x in json.loads(self._ask("DebugStates") or "[]")]
+        return [(k, self.engine.debug_name(k)) for k in self.engine.luas if k and not self.engine.debug_hidden(k)]
+
+    def _lua(self, code, arg=None):
+        key = self.state.currentData()
+        if key is None:
+            return None
+        if self.remote:
+            got = json.loads(self._ask("DebugLua", key, code, "" if arg is None else arg) or "{}")
+            return got["table"] if "table" in got else got.get("value")
+        rt = self.engine.luas.get(key)
+        if rt is None:
+            return None
+        return rt.execute(code, arg) if arg is not None else rt.execute(code)
+
+    def _shared(self):
+        if self.remote:
+            got = json.loads(self._ask("DebugShared") or "null")
+            return None if got is None else {k: tuple(v) for k, v in got.items()}
+        shared = getattr(getattr(self.engine, "shared", None), "values", None)
+        return None if shared is None else {k: (type(v).__name__, repr(v)) for k, v in shared.items()}
 
     # ---------------------------------------------------------------- calls
     def record(self, form, script, call, result, error=False):
@@ -200,39 +289,39 @@ class Debugger(WindowWidget):
         keep = self.state.currentData()
         self.state.blockSignals(True)
         self.state.clear()
-        for key in self.engine.luas:
-            if key and not self.engine.debug_hidden(key):
-                self.state.addItem(self.engine.debug_name(key), key)
+        try:
+            for key, name in self._states():
+                self.state.addItem(name, key)
+        except Exception as exc:
+            self.answer.setText(f"Couldn't ask the app: {exc}")
         i = self.state.findData(keep)
         self.state.setCurrentIndex(i if i >= 0 else 0)
         self.state.blockSignals(False)
         self.show_vars()
 
-    def _rt(self):
-        key = self.state.currentData()
-        return self.engine.luas.get(key) if key is not None else None
-
     def show_vars(self, keep=False):
-        rt = self._rt()
         opened = {self.vars.topLevelItem(i).text(0) for i in range(self.vars.topLevelItemCount())
                   if self.vars.topLevelItem(i).isExpanded()} if keep else set()
         scroll = self.vars.verticalScrollBar().value()
         self.vars.clear()
-        if rt is None:
+        if self.state.currentData() is None:
             return
         try:
-            names = rt.execute(VARS_LUA, self.functions.isChecked())
+            names = self._lua(VARS_LUA, self.functions.isChecked() if not self.remote else ("true" if self.functions.isChecked() else ""))
         except Exception as exc:
             self.vars.addTopLevelItem(QTreeWidgetItem(["(couldn't read)", "", str(exc)]))
             return
         rows = sorted((names or {}).items(), key=lambda kv: str(kv[0]).lower())
-        shared = getattr(getattr(self.engine, "shared", None), "values", None)
+        try:
+            shared = self._shared()
+        except Exception:
+            shared = None
         rows = [r for r in rows if str(r[0]) != "Project"]
         if shared is not None:                           # the Project table every form shares: its values
-            inner = ", ".join(f"{k}={v!r}" for k, v in list(shared.items())[:6]) + (", …" if len(shared) > 6 else "")
+            inner = ", ".join(f"{k}={v[1]}" for k, v in list(shared.items())[:6]) + (", …" if len(shared) > 6 else "")
             it = QTreeWidgetItem(["Project", "shared", "{" + inner + "}"])
-            for k, v in sorted(shared.items()):
-                it.addChild(QTreeWidgetItem([f"[{k}]", type(v).__name__, _short(repr(v))]))
+            for k, (kind, shown) in sorted(shared.items()):
+                it.addChild(QTreeWidgetItem([f"[{k}]", kind, _short(shown)]))
             self.vars.addTopLevelItem(it)
             if "Project" in opened:
                 it.setExpanded(True)
@@ -251,11 +340,8 @@ class Debugger(WindowWidget):
     def expand(self, item):
         if item.childCount() or item.data(0, Qt.UserRole) is None:
             return
-        rt = self._rt()
-        if rt is None:
-            return
         try:
-            inside = rt.execute(TABLE_LUA, item.data(0, Qt.UserRole))
+            inside = self._lua(TABLE_LUA, item.data(0, Qt.UserRole))
         except Exception as exc:
             item.addChild(QTreeWidgetItem(["", "", str(exc)]))
             return
@@ -266,15 +352,16 @@ class Debugger(WindowWidget):
             item.addChild(c)
 
     def run_line(self):
-        rt, code = self._rt(), self.lua_line.text().strip()
-        if rt is None or not code:
+        code = self.lua_line.text().strip()
+        if self.state.currentData() is None or not code:
             return
         try:
+            said = True
             try:
-                r = rt.execute("return " + code)            # an expression: show its value
+                r = self._lua("return " + code)              # an expression: show its value
             except Exception:
-                r = rt.execute(code)
-            self.answer.setText("= " + ("nil" if r is None else _short(r)))
+                r, said = self._lua(code), False             # a statement (score = 10): it's done
+            self.answer.setText("Done" if (r is None and not said) else "= " + ("nil" if r is None else _short(r)))
             self.answer.setStyleSheet("color: #065F46;")
         except Exception as exc:
             self.answer.setText(str(exc))
@@ -285,6 +372,7 @@ class Debugger(WindowWidget):
 # a form's own globals (not Lua's standard ones), each as "type<TAB>value"
 VARS_LUA = r"""
 local functions = ...
+if functions == "" or functions == "false" then functions = false end
 local std = {}
 for _, n in ipairs({"_G","_VERSION","assert","collectgarbage","coroutine","debug","dofile","error","getmetatable","io","ipairs",
   "load","loadfile","math","next","os","package","pairs","pcall","print","rawequal","rawget","rawlen","rawset","require",

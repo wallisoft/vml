@@ -570,6 +570,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         so each form's globals are its own unless scripts deliberately share an instance."""
         self.luas = {}
         self.debugger, self._debug_labels = None, []
+        self._tap = None                                     # (a debugger in another process, attached: vml/debugger.py Tap)
         self._run_scopes, self._running = set(), 0          # forms the designer is running, and what they opened
         self.lua_paths = [str(LUA_DIR), str(SYSTEM_DIR / "lua"), *extra_paths]
         self.lua = self.lua_state("")                       # the engine's own, for code with no form
@@ -617,7 +618,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             return rt.execute(code, *args)
         except Exception as exc:
             log(f"script error in {label}: {exc}")
-            if self.debugger is not None:
+            if self.debugger is not None or self._tap is not None:
                 self.debug_record("script error", (label,), str(exc), error=True)
             return None
         finally:
@@ -682,7 +683,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             return "" if r is None else r
         except Exception as exc:
             log(f"script error in {name}: {exc}")
-            if self.debugger is not None:
+            if self.debugger is not None or self._tap is not None:
                 self.debug_record("script error", (name,), str(exc), error=True)
             return ""
         finally:
@@ -829,7 +830,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     def vml(self, command, *args):
         """Scripts' Vml(): forgiving. A bad call is logged and gives an empty result."""
-        if self.debugger is None:
+        if self.debugger is None and self._tap is None:
             try:
                 return self.vml_strict(command, *args)
             except Exception as exc:
@@ -850,7 +851,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         running them (the designer opened as a project, say), or the debugger's "Designer's forms too" is ticked."""
         from .projects import is_designer
         scope = str(scope or "")
-        if self.debugger is not None and self.debugger.everything.isChecked():
+        if (self.debugger is not None and self.debugger.everything.isChecked()) or (self._tap is not None and self._tap.everything):
             return not scope
         if scope in self._run_scopes:
             return False
@@ -874,7 +875,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         shown = ", ".join(str(a) if isinstance(a, (int, float)) and not isinstance(a, bool) else json.dumps("" if a is None else str(a), ensure_ascii=False)
                           for a in args)
         label = self._debug_labels[-1] if self._debug_labels else ""
-        self.debugger.record(self.debug_name(scope), label, f"{command}({shown})", result, error)
+        for d in (self.debugger, self._tap):
+            if d is not None:
+                d.record(self.debug_name(scope), label, f"{command}({shown})", result, error)
 
     HELP = "https://github.com/wallisoft/vml/wiki/"
 
@@ -932,6 +935,84 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if node is not None and not node.type.name in ("DesignSurface", "PropertyGrid"):
             return self.cmd_Help("Reference-Controls", getattr(node, "template", None) or node.type.name)
         return self.cmd_Help("Reference")
+
+    # ---- a debugger in another process, attached to this app (vml/debugger.py: Tap, Remote)
+    def cmd_DebugTitle(self):
+        """What this app is, for a debugger's list of running apps."""
+        wins = [n for sc in self.scopes.values() for n in sc.values() if n.type.name == "Window" and n.parent is None
+                and n.widget is not None and n.widget.isVisible()]
+        title = next((str(n.props.get("Title") or n.name) for n in wins), "") or "an app with no window showing"
+        return f"{title}  (pid {os.getpid()})"
+
+    def cmd_DebugAttach(self, everything="false"):
+        """Start keeping a record of Vml() calls for an attached debugger to collect (DebugCalls)."""
+        from .debugger import Tap
+        if self._tap is None:
+            self._tap = Tap(lambda: setattr(self, "_tap", None))
+        self._tap.everything = str(everything).lower() == "true"
+        self._tap.touch()
+        return "true"
+
+    def cmd_DebugDetach(self):
+        self._tap = None
+        return "true"
+
+    def cmd_DebugCalls(self, since="0"):
+        """The calls recorded since a number: JSON {seq, rows}."""
+        if self._tap is None:
+            self.cmd_DebugAttach()
+        return json.dumps(self._tap.since(int(since or 0)))
+
+    def cmd_DebugStates(self):
+        """The forms with Lua running, for the Variables tab: JSON [[key, name]]."""
+        everything = self._tap is not None and self._tap.everything
+        return json.dumps([[k, self.debug_name(k)] for k in self.luas
+                           if k and (not self.debug_hidden(k) or (everything and k))])
+
+    def cmd_DebugLua(self, key, code, arg=""):
+        """Run Lua in one of this app's forms (the Variables tab); a table comes back as {name: "type<TAB>value"}."""
+        rt = self.luas.get(key)
+        if rt is None:
+            raise KeyError("that form isn't running Lua now")
+        r = rt.execute(code, arg) if arg != "" else rt.execute(code)
+        if hasattr(r, "items"):
+            return json.dumps({"table": {str(k): str(v) for k, v in r.items()}})
+        return json.dumps({"value": None if r is None else str(r)})
+
+    def cmd_DebugShared(self):
+        shared = getattr(getattr(self, "shared", None), "values", None)
+        return json.dumps(None if shared is None else {str(k): [type(v).__name__, repr(v)] for k, v in shared.items()})
+
+    def cmd_DebugApps(self):
+        """The other Visualised apps running now: JSON [{pid, title}], for "Attach to a running app"."""
+        from .api import running
+        return json.dumps([{"pid": a["pid"], "title": a["title"]} for a in running(os.getpid())])
+
+    def cmd_AttachDebugger(self, pid=""):
+        """Open a debugger on another running Visualised app (by its pid; none: choose from a list)."""
+        from .api import running
+        from .debugger import Debugger
+        apps = running(os.getpid())
+        if not apps:
+            self.cmd_InfoDialog("No other Visualised app is running just now.\n\nStart one (any .vml), then attach to it.",
+                                "Attach the debugger")
+            return ""
+        pick = next((a for a in apps if str(a["pid"]) == str(pid)), None)
+        if pick is None:
+            from PySide6.QtWidgets import QMenu
+            from PySide6.QtGui import QCursor
+            menu = QMenu()
+            for a in apps:
+                menu.addAction(a["title"]).setData(a["pid"])
+            chosen = menu.exec(QCursor.pos())
+            if chosen is None:
+                return ""
+            pick = next(a for a in apps if a["pid"] == chosen.data())
+        win = Debugger(self, remote=pick)
+        self.__dict__.setdefault("_remotes", []).append(win)
+        win.show()
+        win.raise_()
+        return "true"
 
     def cmd_ShowDebugger(self):
         """Open the debugger: every Vml() call the running forms' scripts make, and their variables."""
@@ -3578,7 +3659,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                     sorted([q for q in p.glob("*.vml") if q.stem.lower() == p.name.lower()]) or sorted(p.glob("*.vml"))
                 if inside:
                     found.append({"name": p.name, "path": str(inside[0])})
-        if not any(t["name"].lower() == "bob" for t in found):  # Bob, the builder, wherever Visualised's source is
+        for t in found:                                      # a form's own title, when it has one ("Bob build tool")
+            try:
+                head = Path(t["path"]).read_text(encoding="utf-8", errors="replace")[:4000]
+                m = re.search(r"^Title=(.+)$", head, re.M) if t["path"].lower().endswith(".vml") else None
+                if m and m.group(1).strip():
+                    t["name"] = m.group(1).strip()
+            except OSError:
+                pass
+        if not any(Path(t["path"]).name == "Bob.vml" for t in found):  # Bob, wherever Visualised's source is
             here = Path(__file__).resolve().parent.parent
             repo = Path(os.path.expanduser(os.environ.get("BOB_REPO") or "~/projects/vml-github"))
             for root in (here, repo):
