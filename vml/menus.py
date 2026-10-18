@@ -45,6 +45,12 @@ def _colours(menu_theme, dark):
     return card, ink, hover, hover_ink, line, muted
 
 
+def _snug(widget):
+    """How roomy to make the items: as drawn for Ubuntu's 11pt font, in step with this desktop's own (Windows' 9pt
+    Segoe UI is smaller, so the same pixels of room would leave its menus spread out)."""
+    return max(0.7, min(1.4, QFontMetrics(widget.font()).height() / 19))
+
+
 def _plain(text):
     """A menu's words without the & that marks its keyboard letter (&& is a real &)."""
     return str(text or "").replace("&&", "\x00").replace("&", "").replace("\x00", "&")
@@ -60,9 +66,11 @@ class VmlMenu(QMenu):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setContentsMargins(SHADOW, SHADOW - 4, SHADOW, SHADOW + 2)
         # the sizes the items are laid out at (Qt places them; paintEvent below draws them)
-        self.setStyleSheet(f"QMenu {{ background: transparent; border: none; padding: 6px {SIDE}px; }}"
-                           f" QMenu::item {{ padding: {(ITEM_H - 18) // 2}px {ARROW_W + 30}px {(ITEM_H - 18) // 2}px {TICK_W}px; }}"
-                           f" QMenu::separator {{ height: 9px; }}")
+        k = _snug(self)
+        pad = max(3, round((ITEM_H - 18) // 2 * k))
+        self.setStyleSheet(f"QMenu {{ background: transparent; border: none; padding: {round(6 * k)}px {SIDE}px; }}"
+                           f" QMenu::item {{ padding: {pad}px {round((ARROW_W + 30) * k)}px {pad}px {TICK_W}px; }}"
+                           f" QMenu::separator {{ height: {max(7, round(9 * k))}px; }}")
 
     def theme_of(self):
         """This menu's MenuTheme, else the one of the menu or bar it hangs from."""
@@ -81,15 +89,9 @@ class VmlMenu(QMenu):
             return sub
         return super().addMenu(*args)
 
-    def showEvent(self, e):
-        super().showEvent(e)
-        if not getattr(self, "_placed", False):          # line the card (not its shadow) up where Qt put the menu
-            self._placed = True
-            self.move(self.pos() - QPoint(SHADOW, SHADOW - 4))
-
-    def hideEvent(self, e):
-        super().hideEvent(e)
-        self._placed = False
+    # (Where Qt puts the menu is left alone: the card hangs a little below and to the right of the item it opens
+    # from, a natural cascade. Moving it back after it shows only works on some desktops (not Wayland), and on
+    # Windows it lifted every sub-menu over the one before and the drop-downs over the bar.)
 
     def paintEvent(self, e):
         t = _theme()
@@ -166,8 +168,9 @@ class VmlMenuBar(QMenuBar):
         super().__init__(*args)
         self.menu_theme = None
         self.setNativeMenuBar(False)
+        k = _snug(self)
         self.setStyleSheet("QMenuBar { background: transparent; border: none; padding: 2px 4px; }"
-                           " QMenuBar::item { padding: 6px 12px; margin: 2px 1px; }")
+                           f" QMenuBar::item {{ padding: {round(6 * k)}px {round(12 * k)}px; margin: 2px 1px; }}")
 
     def addMenu(self, *args):                            # (menus made by addMenu("File") are ours too)
         if args and isinstance(args[0], str):
