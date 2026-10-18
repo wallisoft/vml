@@ -1,6 +1,6 @@
 # Commands reference
 
-Every `Vml()` command a script can call, in Visualised 1.6.1. Generated from the engine itself (`tools/make_reference.py`): the descriptions are the engine's own.
+Every `Vml()` command a script can call, in Visualised 1.6.2. Generated from the engine itself (`tools/make_reference.py`): the descriptions are the engine's own.
 
 A command is called as `Vml("Name", arguments...)` and returns text (`""` when there's nothing to say). Arguments in [brackets] can be left out. A command that goes wrong is logged and returns `""`: press **F12** while the designer runs your app to see every call and what came back.
 
@@ -935,6 +935,12 @@ The Lua a form runs, to set breakpoints in: JSON [{name, code}] (its scripts, th
 ### DebugShared
 
 `Vml("DebugShared")`
+
+### DebugShellLine
+
+`Vml("DebugShellLine", name, line, depth, [locals_], [callers])`
+
+A Bash or PowerShell script stopped at a line (its debug hook asks): shown in the debugger till Continue or a Step; the answer is what it's to do next, "mode|breakpoints" (into|3,7).
 
 ### DebugStates
 

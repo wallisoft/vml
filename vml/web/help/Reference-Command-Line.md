@@ -1,6 +1,6 @@
 # Command line reference
 
-The `vml` command, Visualised 1.6.1.
+The `vml` command, Visualised 1.6.2.
 
 ```
 vml [form.vml | app.vmlproj] [--db path/to/vml.db] [--shot out.png]   (no form: open the VML designer)

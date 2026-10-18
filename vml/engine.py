@@ -757,10 +757,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             r = self.lua_exec(content, args, label=name, origin=origin, key=self.lua_key(script=name))
             return "" if r is None else r
         if interp in ("bash", "sh"):
+            bash = self.bash_exe()
             dbg = self.shell_debug(name)                     # (break mode: a DEBUG trap that stops where it should)
             if dbg:
-                return self.shell(["bash", "-c", BASH_DEBUG + "\n" + content, name, *map(str, args)], name, origin, extra=dbg)
-            return self.shell(["bash", "-c", content, name, *map(str, args)], name, origin)
+                return self.shell([bash, "-c", BASH_DEBUG + "\n" + content, name, *map(str, args)], name, origin, extra=dbg)
+            return self.shell([bash, "-c", content, name, *map(str, args)], name, origin)
         if interp in ("csharp", "c#", "cs"):
             return self.run_csharp(content, args, name, origin)
         if interp in ("python", "python3", "py"):
@@ -868,6 +869,18 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         if csharp.available():
             langs.append("C#")
         return json.dumps(langs)
+
+    @staticmethod
+    def bash_exe():
+        """Bash: on Windows, Git's (Git Bash) before WSL's. WSL's bash is a Linux of its own: it can't see Visualised's
+        settings for the script, nor reach it to answer `vml` calls or stop in the debugger."""
+        if sys.platform.startswith("win"):
+            for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("ProgramFiles(x86)", ""),
+                         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")):
+                exe = os.path.join(base, "Git", "bin", "bash.exe") if base else ""
+                if exe and os.path.isfile(exe):
+                    return exe
+        return "bash"
 
     @staticmethod
     def python_exe():

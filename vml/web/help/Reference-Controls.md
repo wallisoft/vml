@@ -1,6 +1,6 @@
 # Controls reference
 
-Every control in Visualised 1.6.1, with its properties and events. Generated from the engine itself (`tools/make_reference.py`).
+Every control in Visualised 1.6.2, with its properties and events. Generated from the engine itself (`tools/make_reference.py`).
 
 Set a property in the form (`Background=#FFFFFF`) or from a script (`Vml("SetProperty", "btnGo", "Background", "#FFFFFF")`); read it with `GetProperty`. An event's value is the script to run (`OnClick=SaveIt`).
 
