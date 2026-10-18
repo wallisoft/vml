@@ -95,6 +95,14 @@ function BuildToolsMenu()
         Vml("SetProperty", item, "Text", t.name)
         Vml("SetEvent", item, "OnClick", "ToolsAddControl(" .. t.name .. ")")
     end
+    Vml("CreateControl", "MenuItem", "ToolsAddSepMenu", "ToolsAdd")
+    Vml("SetProperty", "ToolsAddSepMenu", "IsSeparator", "true")
+    Vml("CreateControl", "MenuItem", "ToolsAddMenu", "ToolsAdd")
+    Vml("SetProperty", "ToolsAddMenu", "Text", "Menu")
+    Vml("SetEvent", "ToolsAddMenu", "OnClick", "ToolsAddMenu")
+    Vml("CreateControl", "MenuItem", "ToolsMenuEditor", "Tools")
+    Vml("SetProperty", "ToolsMenuEditor", "Text", "Menu Editor...")
+    Vml("SetEvent", "ToolsMenuEditor", "OnClick", "OpenMenuEditor")
     Vml("CreateControl", "MenuItem", "ToolsDebugger", "Tools")
     Vml("SetProperty", "ToolsDebugger", "Text", "Debugger (F12)")
     Vml("SetEvent", "ToolsDebugger", "OnClick", "ToolsDebugger")
@@ -149,4 +157,14 @@ end
 
 function ToolsDebugger(...)
     Vml("ShowDebugger")
+end
+
+function ToolsAddMenu(...)
+    -- a menu bar for the form; it has one already: the Menu Editor, to add to it
+    if Vml("GetDesignMenu", "Surface") == "[]" then
+        Vml("RunScript", "AddMenu")
+        Vml("SetStatusText", "Added a menu: right-click it to add more, or use Tools > Menu Editor")
+    else
+        Vml("RunScript", "OpenMenuEditor")
+    end
 end

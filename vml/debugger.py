@@ -11,11 +11,14 @@ running) opens it.
 The designer's own forms are left out, so what it shows is the app being tested.
 """
 import time
+from types import SimpleNamespace
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTabWidget,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+
+from .registry import WindowWidget
 
 MAX_ROWS = 4000
 SHOW = 140                                                 # characters of an argument or a result shown in the list
@@ -27,9 +30,11 @@ def _short(v):
     return s if len(s) <= SHOW else s[:SHOW] + f"… ({len(str(v))} characters)"
 
 
-class Debugger(QWidget):
+class Debugger(WindowWidget):
+    """A window like a form's: our own title bar, and the edge round it all."""
+
     def __init__(self, engine):
-        super().__init__(None, Qt.Window)
+        super().__init__(SimpleNamespace(name="Debugger", props={}))
         self.engine = engine
         self.setWindowTitle("Visualised debugger")
         self.resize(900, 560)
@@ -134,6 +139,10 @@ class Debugger(QWidget):
         self.var_timer.timeout.connect(lambda: self.isVisible() and self.tabs.currentIndex() == 1 and self.show_vars(keep=True))
         self.var_timer.start()
         QShortcut(QKeySequence("F12"), self, activated=self.hide)
+        from .theme import theme
+        self.set_title_bar("Own")
+        self.set_edge(theme().edge, 2)
+        col.setContentsMargins(8, 8 + self.bar_h(), 8, 8)    # (under the title bar)
 
     # ---------------------------------------------------------------- calls
     def record(self, form, script, call, result, error=False):
