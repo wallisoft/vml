@@ -444,6 +444,9 @@ class _Follow(QObject):
         h = min(self.bar.height() or HEIGHT, self.host.height())
         self.bar.setGeometry(max(0, self.host.width() - w), max(0, (self.host.height() - h) // 2), w, h)
         self.bar.raise_()
+        if getattr(self.host, "reserve", None) != w:          # (a StatusBar's panels keep clear of it)
+            self.host.reserve = w
+            self.host.update()
 
     def eventFilter(self, obj, e):
         if e.type() in (QEvent.Resize, QEvent.Show, QEvent.LayoutRequest):

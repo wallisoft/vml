@@ -326,8 +326,10 @@ class MarkdownBox(QDialog):
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setWindowTitle(str(title or "Help"))
         from .theme import theme
-        self.edge = dialogs.strong(edge) if edge else QColor(theme().title_bg)   # (light, as the desktop's own title bars,
-        self.setObjectName("VmlBox")                                            #  unless a window's colour is given)
+        # a reader is a window to read in: a light bar as the desktop's own title bars, and a quiet edge, as every
+        # form has; the app's colour shows in the accent (its buttons, links and find box), not in a dark band
+        self.edge = QColor(theme().edge)
+        self.setObjectName("VmlBox")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAttribute(Qt.WA_DeleteOnClose, not editable)
         self.setStyleSheet(dialogs.box_sheet(dialogs.accent_for(edge)) +
@@ -342,7 +344,7 @@ class MarkdownBox(QDialog):
         frame = QVBoxLayout(self)
         frame.setContentsMargins(dialogs.EDGE, dialogs.EDGE, dialogs.EDGE, dialogs.EDGE)
         frame.setSpacing(0)
-        self.bar = dialogs._Bar(self, self.windowTitle(), self.edge)
+        self.bar = dialogs._Bar(self, self.windowTitle(), QColor(theme().title_bg))
         frame.addWidget(self.bar)
 
         band = QWidget()                                 # (a shade darker than the page: the tools don't blend into it)

@@ -1,0 +1,22 @@
+# Visualised: what Bob builds, and where (see tools/bob/recipe.py)
+
+@Recipe Visualised
+Version=vml/__init__.py:__version__
+
+@Build Linux
+Machine=here
+Kind=script
+Run=tools/build-local.sh {install}
+Results=~/.cache/vml-build
+
+@Build Windows
+Machine=a8
+Kind=script
+Run=tools/build-windows.sh {host}
+Results=~/.cache/vml-build-windows
+
+@Build GitHub
+Text=GitHub release
+Kind=github
+Tag=v{version}
+Workflow=Release

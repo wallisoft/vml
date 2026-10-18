@@ -1,0 +1,17 @@
+# Bob: what Bob builds, and where (see tools/bob/recipe.py)
+
+@Recipe Bob
+Version=Bob.vml:Version
+Project=Bob.vml
+Icon=bob.png
+Company=Wallisoft
+
+@Build Linux
+Machine=here
+Kind=compiled
+
+@Build QuickExport
+Text=Quick export
+Machine=here
+Kind=export
+Platforms=linux, windows
