@@ -378,6 +378,8 @@ def fix_release(cfg_path, cfg, build, version, tag):
             fail(f"AssetFiles names {extra}, which isn't there")
         files.append(f)
     for f in files:
+        if not os.access(f, os.R_OK):                        # (a file copied back from Windows can come with no read bit)
+            os.chmod(f, f.stat().st_mode | 0o644)
         print(f"    {f.name}  ({f.stat().st_size // 1024:,} KB)", flush=True)
     if not git("ls-remote", "--tags", "origin", f"refs/tags/{tag}", check=False):
         if git("tag", "-l", tag):

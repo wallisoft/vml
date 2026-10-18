@@ -46,5 +46,6 @@ scp -q -r "$STAGE/vml-build" "$HOST:"
 echo "==> Bringing the results back"
 rm -rf "$OUT" && mkdir -p "$OUT"
 scp -q "$HOST:vml-build/out/*" "$OUT/"
+chmod -R u+rw,go+r "$OUT"                       # (files from Windows can arrive without the read bit)
 ls -lh "$OUT" | tail -n +2 | awk '{print "    " $5 "  " $NF}'
 echo "==> Visualised $VERSION for Windows in $(( ($(date +%s) - START) / 60 ))m $(( ($(date +%s) - START) % 60 ))s: $OUT"
