@@ -21,8 +21,9 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTabWidget,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
+                               QListWidgetItem, QPushButton, QSplitter, QTabWidget, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from .registry import WindowWidget
 
@@ -42,7 +43,15 @@ class Tap:
 
     def __init__(self, gone):
         self.rows, self.seq, self.everything, self.gone = deque(maxlen=MAX_ROWS), 0, False, gone
+        self.paused = None
         self.touch()
+
+    def paused_at(self, info):
+        self.paused = info
+        self.touch()                                     # (stopped for as long as it takes: don't let go meanwhile)
+
+    def resumed(self):
+        self.paused = None
 
     def touch(self):
         self.asked = time.time()
@@ -57,7 +66,7 @@ class Tap:
 
     def since(self, n):
         self.touch()
-        return {"seq": self.seq, "rows": [r for r in self.rows if r[0] > n]}
+        return {"seq": self.seq, "rows": [r for r in self.rows if r[0] > n], "paused": self.paused}
 
 
 class Debugger(WindowWidget):
@@ -161,6 +170,66 @@ class Debugger(WindowWidget):
         self.tabs.addTab(vars_, "Variables")
         self.tabs.currentChanged.connect(lambda i: i == 1 and self.fill_states())
 
+        # ---- Stepping: breakpoints, and a script stopped at one
+        step = QWidget()
+        sl = QVBoxLayout(step)
+        sl.setContentsMargins(4, 6, 4, 4)
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Script:"))
+        self.script = QComboBox()
+        self.script.currentIndexChanged.connect(lambda _i: self.show_code())
+        top.addWidget(self.script, 1)
+        reload_ = QPushButton("Refresh")
+        reload_.clicked.connect(self.fill_scripts)
+        top.addWidget(reload_)
+        clear_bp = QPushButton("Clear breakpoints")
+        clear_bp.clicked.connect(self.clear_breaks)
+        top.addWidget(clear_bp)
+        sl.addLayout(top)
+        split = QSplitter(Qt.Horizontal)
+        self.code = QListWidget()
+        self.code.setFont(mono)
+        self.code.itemDoubleClicked.connect(self.toggle_break)
+        self.code.setToolTip("Double-click a line for a breakpoint (red): the script stops there, before running it")
+        split.addWidget(self.code)
+        side = QWidget()
+        sd = QVBoxLayout(side)
+        sd.setContentsMargins(6, 0, 0, 0)
+        self.where = QLabel("Running. Double-click a line for a breakpoint.")
+        self.where.setWordWrap(True)
+        sd.addWidget(self.where)
+        btns = QHBoxLayout()
+        self.step_btns = []
+        for text, mode, key in (("Continue", "", "F5"), ("Step into", "into", "F8"), ("Step over", "over", "Shift+F8"),
+                                ("Step out", "out", "Ctrl+Shift+F8")):
+            b = QPushButton(text)
+            b.setToolTip(key)
+            b.setEnabled(False)
+            b.clicked.connect(lambda _c=False, m=mode: self.resume(m))
+            QShortcut(QKeySequence(key), self, activated=lambda m=mode: self.resume(m))
+            btns.addWidget(b)
+            self.step_btns.append(b)
+        sd.addLayout(btns)
+        sd.addWidget(QLabel("Locals"))
+        self.locals_ = QTreeWidget()
+        self.locals_.setHeaderLabels(["Name", "Type", "Value"])
+        self.locals_.setFont(mono)
+        self.locals_.setRootIsDecorated(False)
+        self.locals_.setColumnWidth(0, 120)
+        self.locals_.setColumnWidth(1, 70)
+        sd.addWidget(self.locals_, 2)
+        sd.addWidget(QLabel("Call stack"))
+        self.stack = QListWidget()
+        self.stack.setFont(mono)
+        self.stack.itemDoubleClicked.connect(self.show_frame)
+        sd.addWidget(self.stack, 1)
+        split.addWidget(side)
+        split.setSizes([520, 360])
+        sl.addWidget(split, 1)
+        self.tabs.addTab(step, "Stepping")
+        self.tabs.currentChanged.connect(lambda i: i == 2 and self.script.count() == 0 and self.fill_scripts())
+        self.scripts, self.bps, self.stopped = {}, {}, None
+
         self.timer = QTimer(self)                        # rows are added in batches: a busy script never stalls
         self.timer.setInterval(120)
         self.timer.timeout.connect(self.flush)
@@ -196,11 +265,18 @@ class Debugger(WindowWidget):
             self.setWindowTitle(f"Visualised debugger: {self.remote['title']} (it has closed)")
             return
         self.seen = got.get("seq", self.seen)
+        p = got.get("paused")
+        if p and p != self.stopped:
+            self.paused_at(p)
+        elif not p and self.stopped:
+            self.resumed()
         for _seq, t, form, script, call, result, error in got.get("rows", []):
             if not self.paused:
                 self.pending.append((t, form, script, call, result, error))
 
     def closeEvent(self, e):
+        if self.stopped:                                 # (closing it mustn't leave the app stuck at a breakpoint)
+            self.resume("")
         if self.remote:
             self.collect.stop()
             try:
@@ -208,6 +284,129 @@ class Debugger(WindowWidget):
             except Exception:
                 pass
         super().closeEvent(e)
+
+    # ---------------------------------------------------------------- stepping
+    def fill_scripts(self):
+        keep = self.script.currentText()
+        self.scripts = {}
+        try:
+            keys = [k for k, _n in self._states()]
+            for k in keys or [""]:
+                got = self._ask("DebugScripts", k) if self.remote else self.engine.cmd_DebugScripts(k)
+                for s in json.loads(got or "[]"):
+                    self.scripts.setdefault(s["name"], s["code"])
+            self.bps = {k: set(v) for k, v in json.loads((self._ask("DebugBreaks") if self.remote else self.engine.cmd_DebugBreaks()) or "{}").items()}
+        except Exception as exc:
+            self.where.setText(f"Couldn't ask the app: {exc}")
+        self.script.blockSignals(True)
+        self.script.clear()
+        for name in sorted(self.scripts, key=lambda n: (("/" in n or n.endswith(".lua")), n.lower())):
+            self.script.addItem(name + ("   ●" if self.bps.get(name) else ""), name)
+        i = self.script.findData(keep.replace("   ●", ""))
+        self.script.setCurrentIndex(max(0, i))
+        self.script.blockSignals(False)
+        self.show_code()
+
+    def show_code(self, line=None):
+        name = self.script.currentData()
+        self.code.clear()
+        if name is None:
+            return
+        marks = self.bps.get(name, set())
+        here = self.stopped["line"] if self.stopped and self.stopped["name"] == name else None
+        for n, text in enumerate(self.scripts.get(name, "").split("\n"), 1):
+            it = QListWidgetItem(f"{'●' if n in marks else ' '} {n:4}  {text}")
+            it.setData(Qt.UserRole, n)
+            if n in marks:
+                it.setForeground(QColor("#B91C1C"))
+            if n == here:
+                it.setBackground(QColor("#FEF08A"))
+            self.code.addItem(it)
+        target = line or here
+        if target and target <= self.code.count():
+            self.code.scrollToItem(self.code.item(target - 1), QListWidget.PositionAtCenter)
+            if target == here:
+                self.code.clearSelection()                   # (the yellow line is where it's stopped)
+            else:
+                self.code.setCurrentRow(target - 1)
+
+    def _send_breaks(self):
+        spec = json.dumps({k: sorted(v) for k, v in self.bps.items() if v})
+        try:
+            self._ask("DebugBreaks", spec) if self.remote else self.engine.cmd_DebugBreaks(spec)
+        except Exception as exc:
+            self.where.setText(f"Couldn't set it: {exc}")
+        name = self.script.currentData()
+        self.script.setItemText(self.script.currentIndex(), name + ("   ●" if self.bps.get(name) else ""))
+
+    def toggle_break(self, item):
+        name, n = self.script.currentData(), item.data(Qt.UserRole)
+        marks = self.bps.setdefault(name, set())
+        marks.symmetric_difference_update({n})
+        self._send_breaks()
+        self.show_code(line=n)
+
+    def clear_breaks(self):
+        self.bps = {}
+        self._send_breaks()
+        self.fill_scripts()
+
+    def paused_at(self, info):
+        """A script has stopped (here, or in the app attached to): show where, and what it has."""
+        self.stopped = info
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.tabs.setCurrentIndex(2)
+        if info["name"] not in self.scripts:
+            self.fill_scripts()
+        i = self.script.findData(info["name"])
+        if i >= 0 and i != self.script.currentIndex():
+            self.script.setCurrentIndex(i)
+        else:
+            self.show_code()
+        self.where.setText(f"<b>Stopped</b> in {info['name']}, line {info['line']}. The app waits: its clicks and "
+                           f"timers are held till you carry on.")
+        self.locals_.clear()
+        for row in info.get("locals", []):
+            name, kind, value = (row + ["", "", ""])[:3]
+            it = QTreeWidgetItem([name, kind, _short(value)])
+            it.setToolTip(2, value[:4000])
+            self.locals_.addTopLevelItem(it)
+        self.stack.clear()
+        for row in info.get("stack", []):
+            name, line, fn = (row + ["", "", ""])[:3]
+            it = QListWidgetItem(f"{name}, line {line}" + (f"  ({fn})" if fn and fn != name else ""))
+            it.setData(Qt.UserRole, (name, int(line or 0)))
+            self.stack.addItem(it)
+        for b in self.step_btns:
+            b.setEnabled(True)
+
+    def resumed(self):
+        self.stopped = None
+        for b in self.step_btns:
+            b.setEnabled(False)
+        self.where.setText("Running. Double-click a line for a breakpoint.")
+        self.locals_.clear()
+        self.stack.clear()
+        self.show_code()
+
+    def resume(self, mode=""):
+        if not self.stopped:
+            return
+        try:
+            self._ask("DebugResume", mode) if self.remote else self.engine.resume(mode)
+        except Exception as exc:
+            self.where.setText(f"Couldn't carry on: {exc}")
+        if self.remote:
+            self.resumed()
+
+    def show_frame(self, item):
+        name, line = item.data(Qt.UserRole)
+        i = self.script.findData(name)
+        if i >= 0:
+            self.script.setCurrentIndex(i)
+            self.show_code(line=line)
 
     # where the forms and their Lua are: here, or in the app attached to
     def _states(self):

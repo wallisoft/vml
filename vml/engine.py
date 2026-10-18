@@ -37,6 +37,7 @@ from .data import DataCommands
 from .projects import ProjectCommands
 from .library import LibraryCommands
 from .systemcommands import SystemCommands
+from .stepping import SteppingCommands
 from . import dialogs, licence as licences
 
 
@@ -118,7 +119,7 @@ QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 """
 
 
-class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
+class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, SteppingCommands):
     log_line = staticmethod(log)
 
     def __init__(self, db_path=None, lua_paths=()):
@@ -539,6 +540,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     def handle(self, handler, node):
         """Script name | Script(arg, ...) | a module's function, the same two ways | VmlCommand arg ... | Lua code."""
+        if self.held(handler):                               # a script is stopped at a breakpoint: events wait
+            return None
         if self.runnable(handler, node):
             return self.run_script(handler, node.name, origin=node)
         m = self.HANDLER_CALL.match(handler)
@@ -571,6 +574,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         self.luas = {}
         self.debugger, self._debug_labels = None, []
         self._tap = None                                     # (a debugger in another process, attached: vml/debugger.py Tap)
+        self._stepping_init()                                # breakpoints and stepping (vml/stepping.py)
         self._run_scopes, self._running = set(), 0          # forms the designer is running, and what they opened
         self.lua_paths = [str(LUA_DIR), str(SYSTEM_DIR / "lua"), *extra_paths]
         self.lua = self.lua_state("")                       # the engine's own, for code with no form
@@ -586,6 +590,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 rt.execute("local d = ...; package.path = d .. '/?.lua;' .. package.path", d)
             self.luas[key] = rt
             self._load_modules(rt, key)                      # a project's modules: there for every one of its forms
+            if self.stepping_active():
+                self._hook_state(rt)                         # (breakpoints set: this form's Lua stops at them too)
         return rt
 
     def _lua_paths_add(self, *dirs):
@@ -615,7 +621,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         saved = (g.arg, g.args)
         try:
             g.arg = g.args = rt.table_from(list(args))
-            return rt.execute(code, *args)
+            return rt.execute(code, *args, name="=" + str(label))       # (named: breakpoints and errors say which script)
         except Exception as exc:
             log(f"script error in {label}: {exc}")
             if self.debugger is not None or self._tap is not None:

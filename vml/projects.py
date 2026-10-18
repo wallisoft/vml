@@ -225,7 +225,7 @@ class ProjectCommands:
             path = project.absolute(rel)
             try:
                 code = path.read_text(encoding="utf-8-sig", errors="replace")
-                rt.execute(code)
+                rt.execute(code, name="=" + str(rel))       # (named: breakpoints and errors say which module)
             except Exception as exc:
                 self.log_line(f"module {rel}: {exc}")
 
