@@ -3567,7 +3567,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         try:
             entries = sorted(root.iterdir(), key=lambda p: p.name.lower())
         except OSError:
-            return "[]"
+            entries = []                                     # (no tools folder yet: Bob may still be there)
         for p in entries:
             if p.name.startswith("."):
                 continue
@@ -3578,6 +3578,14 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                     sorted([q for q in p.glob("*.vml") if q.stem.lower() == p.name.lower()]) or sorted(p.glob("*.vml"))
                 if inside:
                     found.append({"name": p.name, "path": str(inside[0])})
+        if not any(t["name"].lower() == "bob" for t in found):  # Bob, the builder, wherever Visualised's source is
+            here = Path(__file__).resolve().parent.parent
+            repo = Path(os.path.expanduser(os.environ.get("BOB_REPO") or "~/projects/vml-github"))
+            for root in (here, repo):
+                bob = root / "apps" / "bob" / "Bob.vml"
+                if bob.is_file() and (root / "tools" / "bob" / "run.py").is_file():
+                    found.insert(0, {"name": "Bob, the builder", "path": str(bob), "builtin": True})
+                    break
         return json.dumps(found)
 
     def cmd_ToolsFolder(self):
