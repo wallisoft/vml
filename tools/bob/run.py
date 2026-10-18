@@ -291,6 +291,12 @@ def github(cfg_path, cfg, build):
         git("tag", tag)
         git("push", "origin", tag)
     else:
+        last = gh_json("run", "list", *repo, "--branch", tag, "--limit", "1", "--json", "status,conclusion,url,createdAt",
+                       *(["--workflow", workflow] if workflow else [])) or []
+        if last and last[0].get("status") == "completed" and last[0].get("conclusion") == "success":
+            step(f"{tag} was released already ({last[0].get('createdAt', '')[:16].replace('T', ' ')} UTC): nothing new to do. "
+                 f"Raise the version for the next release: {last[0].get('url')}")
+            return
         step(f"{tag} is on GitHub already: following its run")
     step("Waiting for GitHub to start the run")
     run = None
@@ -536,6 +542,7 @@ def main():
                         "host": m.get("host") or "",
                         "os": m.get("os") or "", "kind": b.get("kind", "compiled"),
                         "uses_install": "{install}" in b.get("run", ""),
+                        "tag": (b.get("tag") or "v{version}").format(version=version_of(cfg_path, cfg)) if b.get("kind") == "github" else "",
                         "out": os.path.expanduser(b["results"]) if b.get("results") else str(out_dir(cfg, b))})
         print(json.dumps({"name": cfg.get("name"), "version": version_of(cfg_path, cfg), "builds": out,
                           "machines_file": str(MACHINES)}))

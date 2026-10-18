@@ -24,7 +24,7 @@
 
 @Window Bob
 Title=Bob
-Version=2.5
+Version=2.6
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
 About=Bob builds your Visualised projects, here and on any machine you can reach over SSH. https://bob.vml.onl
@@ -448,8 +448,13 @@ for i, b in ipairs(builds) do
         {"Content", b.kind == "github" and "Release" or "Build"} })
     Vml("SetEvent", "btn" .. i, "OnClick", "BuildOne(" .. i .. ")")
     make("TabPage", "pg" .. i, "logs", { {"Header", b.name .. " log"} })
-    make("ListBox", "log" .. i, "pg" .. i, { {"Canvas.Left", "8"}, {"Canvas.Top", "8"}, {"Width", "722"}, {"Height", "224"},
+    make("ListBox", "log" .. i, "pg" .. i, { {"Canvas.Left", "8"}, {"Canvas.Top", "8"}, {"Width", "642"}, {"Height", "224"},
         {"FontFamily", "monospace"}, {"FontSize", "11"}, {"Anchor", "Top,Bottom,Left,Right"} })
+    for k, act in ipairs({ {"Copy", "CopyLog"}, {"Save…", "SaveLog"}, {"Open", "OpenLog"} }) do     -- the log, to paste or keep
+        make("Button", "lb" .. act[2] .. i, "pg" .. i, { {"Canvas.Left", "658"}, {"Canvas.Top", tostring(8 + (k - 1) * 38)},
+            {"Width", "72"}, {"Height", "30"}, {"Content", act[1]}, {"Anchor", "Top,Right"} })
+        Vml("SetEvent", "lb" .. act[2] .. i, "OnClick", act[2] .. "(" .. i .. ")")
+    end
     Vml("SetSetting", "bob_bname_" .. i, b.name)
     Vml("SetSetting", "bob_kind_" .. i, b.kind)
     Vml("SetSetting", "bob_out_" .. i, b.out)
@@ -545,8 +550,17 @@ Interpreter=lua
 local i = tonumber((...)) or 1
 if Vml("GetSetting", "bob_kind_" .. i) == "github" then          -- a release: say what it'll do, and ask
     local info = require("dkjson").decode(Vml("Shell", Vml("RunScript", "Bob", '--config "' .. Vml("GetSetting", "bob_config") .. '" --list') .. " 2>/dev/null") or "") or {}
-    local yes = Vml("ConfirmDialog", "Release " .. Vml("GetSetting", "bob_name") .. " " .. (info.version or "") .. " on GitHub?\n\n" ..
-        "Bob pushes what's committed (if GitHub hasn't got it), tags it, and follows the run it starts.", "Release")
+    local b = (info.builds or {})[i] or {}
+    local tag = b.tag or ""
+    local out = tag ~= "" and Vml("Shell", 'cd "' .. Vml("RunScript", "Repo") .. '" && git ls-remote --tags origin "refs/tags/' .. tag .. '" 2>/dev/null') or ""
+    local yes
+    if out ~= nil and out:find(tag, 1, true) then                -- that version's out already: a look at its run, not a release
+        yes = Vml("ConfirmDialog", tag .. " is on GitHub already, so this would be no new release: Bob just shows how its run went.\n\n" ..
+            "For a new release, raise the version first. Look at " .. tag .. "'s run?", "Released already")
+    else
+        yes = Vml("ConfirmDialog", "Release " .. Vml("GetSetting", "bob_name") .. " " .. (info.version or "") .. " on GitHub, as " .. tag .. "?\n\n" ..
+            "Bob pushes what's committed (if GitHub hasn't got it), tags it, and follows the run it starts.", "Release")
+    end
     if yes ~= true and yes ~= "true" and yes ~= "True" then return end
 end
 Vml("SetProperty", "logs", "SelectedIndex", tostring(i))      -- (GitHub is tab 0)
@@ -606,7 +620,11 @@ Vml("SetSetting", "bob_said_" .. i, good and "green" or code == "stopped" and "s
 if Vml("ControlExists", "light" .. i) ~= "true" then Vml("RunScript", "Busy") return end
 Vml("SetProperty", "light" .. i, "Foreground", good and "#16A34A" or "#DC2626")
 Vml("SetProperty", "time" .. i, "Text", took)
-if good then
+local before = good and Vml("Shell", 'grep -m1 "released already" "' .. Vml("GetSetting", "bob_log_" .. i) .. '" 2>/dev/null') or ""
+if good and before ~= "" then
+    Vml("SetProperty", "stage" .. i, "Text", "Released already")
+    Vml("SetProperty", "detail" .. i, "Text", "raise the version for a new one")
+elseif good then
     Vml("SetProperty", "stage" .. i, "Text", "Green: built in " .. took)
     Vml("SetProperty", "detail" .. i, "Text", (Vml("GetSetting", "bob_out_" .. i):gsub("^" .. (os.getenv("HOME") or "~"), "~")))
 else
@@ -626,6 +644,38 @@ end
 if not any then Vml("SetProperty", "StatusBar", "Text", Vml("GetSetting", "bob_name") .. ": " .. table.concat(said, ", ") .. " at " .. os.date("%H:%M")) end
 -- a desktop notification, so a build finishing gets noticed with Bob behind other windows
 Vml("Shell", 'notify-send -a Bob "Bob" "' .. name .. (good and (" built in " .. took) or " build failed") .. '" >/dev/null 2>&1 &')
+LUA
+
+@Script CopyLog
+Interpreter=lua
+<<LUA
+-- A build's whole log on the clipboard, to paste anywhere
+local i = tostring((...))
+local text = Vml("Shell", 'cat "' .. Vml("GetSetting", "bob_log_" .. i) .. '" 2>/dev/null') or ""
+if text == "" then Vml("SetProperty", "StatusBar", "Text", "No log yet: build it first") return end
+Vml("ClipboardSet", text)
+local _, n = text:gsub("\n", "")
+Vml("SetProperty", "StatusBar", "Text", Vml("GetSetting", "bob_bname_" .. i) .. " log copied: " .. (n + 1) .. " lines")
+LUA
+
+@Script SaveLog
+Interpreter=lua
+<<LUA
+-- Keep a build's log: asks where
+local i = tostring((...))
+local text = Vml("Shell", 'cat "' .. Vml("GetSetting", "bob_log_" .. i) .. '" 2>/dev/null') or ""
+if text == "" then Vml("SetProperty", "StatusBar", "Text", "No log yet: build it first") return end
+local name = (Vml("GetSetting", "bob_name") .. "-" .. Vml("GetSetting", "bob_bname_" .. i)):gsub("[^%w%-]", "") .. "-" .. os.date("%Y%m%d-%H%M") .. ".log"
+local where = Vml("SaveFile", name, text) or ""
+if where ~= "" then Vml("SetProperty", "StatusBar", "Text", "Log saved: " .. (where:gsub("^" .. (os.getenv("HOME") or "~"), "~"))) end
+LUA
+
+@Script OpenLog
+Interpreter=lua
+<<LUA
+-- A build's log in the text editor
+local i = tostring((...))
+Vml("Shell", 'f="' .. Vml("GetSetting", "bob_log_" .. i) .. '"; [ -s "$f" ] && (xdg-open "$f" >/dev/null 2>&1 &)')
 LUA
 
 @Script Done1
