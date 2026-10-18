@@ -121,7 +121,7 @@ for _, e in ipairs(json.decode(Vml("GetControlEvents", ctrl))) do
     names[#names + 1] = e.name
 end
 Vml("SetProperty", "cboEvent", "Items", table.concat(names, ","))
-Vml("SetProperty", "cboLang", "Items", table.concat(json.decode(Vml("GetLanguages")), ","))   -- C# only if set up
+Vml("SetProperty", "cboLang", "Items", table.concat(json.decode(Vml("GetLanguages")), ","))   -- all five: one not ready says what it needs
 local wanted, chosen = Vml("GetSetting", "editor_event"), names[1]
 for _, n in ipairs(names) do if n == wanted then chosen = n end end
 Vml("SetProperty", "cboEvent", "SelectedItem", chosen)
@@ -142,7 +142,9 @@ local s = json.decode(Vml("GetDesignScript", ctrl, event))
 local langs = json.decode(Vml("GetLanguages"))
 local chosen = langs[1]
 for _, l in ipairs(langs) do if l:sub(1, #s.language) == s.language then chosen = l end end
+Vml("SetSetting", "editor_lang_quiet", "1")              -- (choosing it here isn't asking to set it up)
 Vml("SetProperty", "cboLang", "SelectedItem", chosen)
+Vml("SetSetting", "editor_lang_quiet", "")
 local code = s.code
 if code == "" then code = Vml("RunScript", "EditorStarter", chosen, ctrl, event) end
 Vml("SetProperty", "txtCode", "Text", code)
@@ -177,6 +179,11 @@ LUA
 @Script EditorLangChanged
 Interpreter=lua
 <<LUA
+-- a language that isn't there yet, chosen: offer to set it up (it says so in the list when it's ready)
+local chosen = Vml("GetProperty", "cboLang", "SelectedItem") or ""
+if chosen:find("(needs", 1, true) and Vml("GetSetting", "editor_lang_quiet") ~= "1" then
+    Vml("SetUpLanguage", chosen)
+end
 -- swap the starter comment if nothing has been written yet
 local code = Vml("GetProperty", "txtCode", "Text")
 if code == Vml("GetSetting", "editor_original") then

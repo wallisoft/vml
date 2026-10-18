@@ -174,6 +174,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         if not os.environ.get("QT_STYLE_OVERRIDE") and "-style" not in sys.argv and not getattr(self.app, "_vml_styled", False):
             self.app.setStyle("Fusion")
             self.app._vml_styled = True
+        if sys.platform.startswith("win") and not getattr(self.app, "_vml_font", False):
+            self.app._vml_font = True
+            self._windows_font()
         if SCROLLBARS not in (self.app.styleSheet() or ""):
             self.app.setStyleSheet((self.app.styleSheet() or "") + SCROLLBARS)
         if db_path is None:
@@ -860,6 +863,135 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
                 log(f"InstallDotnet: {exc}")
         return ""
 
+    # what each script language needs, where it isn't there yet: a winget package on Windows, a package on Linux
+    LANG_SETUP = {
+        "C#": ("Microsoft.DotNet.SDK.8", "the free .NET 8 SDK, from Microsoft (about 250 MB)",
+               {"apt": "dotnet-sdk-8.0", "dnf": "dotnet-sdk-8.0", "pacman": "dotnet-sdk", "zypper": "dotnet-sdk-8.0"},
+               "https://dotnet.microsoft.com/download/dotnet/8.0"),
+        "Bash": ("Git.Git", "Git for Windows, which brings Git Bash", {"apt": "bash", "dnf": "bash", "pacman": "bash"},
+                 "https://git-scm.com/download/win"),
+        "Python": ("Python.Python.3.12", "Python 3.12, from python.org",
+                   {"apt": "python3", "dnf": "python3", "pacman": "python", "zypper": "python3"},
+                   "https://www.python.org/downloads/"),
+        "PowerShell": ("Microsoft.PowerShell", "PowerShell 7, from Microsoft", {"snap": "powershell --classic"},
+                       "https://aka.ms/pwsh"),
+    }
+
+    @staticmethod
+    def _linux_installer():
+        """This Linux's package manager: apt, dnf, pacman or zypper (or snap, or None)."""
+        for tool in ("apt", "dnf", "pacman", "zypper"):
+            if shutil.which(tool):
+                return tool
+        return "snap" if shutil.which("snap") else None
+
+    def cmd_SetUpLanguage(self, label=""):
+        """Get a script language going that isn't there yet (the script editor asks when one is chosen that says
+        "needs ..."). C# with the SDK there: builds its host. On Windows: installs what it needs with winget, then
+        tells the script editor it's ready. On Linux: shows the command, on the clipboard (it needs sudo). A copy from
+        the Microsoft Store never installs other software itself: it opens the download page."""
+        from . import csharp
+        lang = (str(label).split() or ["Lua"])[0]
+        if lang == "C#" and csharp.status().get("sdk_ok"):
+            return self._lang_ready(lang) if self.cmd_CSharpSetup() == "" else ""
+        if lang not in self.LANG_SETUP:
+            return ""
+        package, what, linux, url = self.LANG_SETUP[lang]
+        store = "windowsapps" in sys.executable.lower()
+        if sys.platform.startswith("win") and shutil.which("winget") and not store:
+            if not self._yes(self.cmd_ConfirmDialog(f"{lang} scripts need {what}.\n\nInstall it now? Windows may ask "
+                                                    "you to allow it; it takes a minute or two.", f"Set up {lang}")):
+                return ""
+            return self._winget(lang, package)
+        tool = self._linux_installer() if sys.platform.startswith("linux") else None
+        if tool and tool in linux or (tool and lang == "PowerShell" and shutil.which("snap")):
+            pkg = linux.get(tool) or linux["snap"]
+            cmd = {"apt": "sudo apt install -y ", "dnf": "sudo dnf install -y ", "pacman": "sudo pacman -S --noconfirm ",
+                   "zypper": "sudo zypper install -y ", "snap": "sudo snap install "}[tool if tool in linux else "snap"] + pkg
+            self.cmd_ClipboardSet(cmd)
+            self.cmd_ErrorDialog(f"{lang} scripts need {what}. In a terminal:\n\n    {cmd}\n\n(It's on the clipboard, "
+                                 f"ready to paste.) Then choose {lang} again" + (" and it finishes setting up." if lang == "C#" else "."),
+                                 f"Set up {lang}")
+            return "shown"
+        if self._yes(self.cmd_ConfirmDialog(f"{lang} scripts need {what}.\n\nOpen its download page?", f"Set up {lang}")):
+            self.cmd_OpenUrl(url)
+        return "shown"
+
+    @staticmethod
+    def _yes(answer):
+        return answer is True or str(answer).lower() in ("true", "1", "yes")
+
+    def _winget(self, lang, package):
+        """Install with winget, out of sight, keeping the windows drawing; then finish (C#: build its host)."""
+        import tempfile
+        from .csharp import _hidden
+        out = tempfile.TemporaryFile()                       # (not a pipe: winget's progress could fill one and stall it)
+        try:
+            proc = subprocess.Popen(["winget", "install", "--id", package, "-e", "--silent", "--disable-interactivity",
+                                     "--accept-source-agreements", "--accept-package-agreements"],
+                                    stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **_hidden())
+        except OSError as exc:
+            self.cmd_ErrorDialog(f"Couldn't start winget: {exc}", f"Set up {lang}")
+            return ""
+        self._lang_hint(f"Installing {lang}... (Windows may ask you to allow it)")
+        self.cmd_SetStatusText(f"Installing what {lang} scripts need...")
+
+        def check():
+            if proc.poll() is None:
+                QTimer.singleShot(500, check)
+                return
+            out.seek(0)
+            said = "\n".join(l.strip() for l in out.read().decode("utf-8", "replace").replace("\r", "\n").split("\n")
+                             if l.strip() and not set(l.strip()) <= set("-\\|/ █▒"))
+            out.close()
+            log(f"winget {package}: exit {proc.returncode}\n{said[-2000:]}")
+            if proc.returncode not in (0, -1978335189, 0x8A15002B):      # (0x8A15002B: there already, nothing newer)
+                self._lang_hint(f"{lang} didn't install (winget said: {said.splitlines()[-1] if said else proc.returncode})")
+                self.cmd_SetStatusText(f"{lang} couldn't be installed")
+                return
+            if lang == "C#":
+                self._lang_hint("Setting up C# (about a minute, the first time)...")
+                if self.cmd_CSharpSetup() != "":
+                    self._lang_hint("The .NET SDK is installed, but C# couldn't be set up: see the log")
+                    return
+            self._lang_ready(lang)
+        QTimer.singleShot(500, check)
+        return "started"
+
+    def _lang_hint(self, text):
+        try:
+            self.cmd_SetProperty("lblHint", "Text", text)
+        except Exception:
+            pass
+        self.app.processEvents()
+
+    def _lang_ready(self, lang):
+        """A language is ready: the script editor's list says so, with it chosen."""
+        self.cmd_SetStatusText(f"{lang} scripts are ready")
+        try:
+            langs = json.loads(self.cmd_GetLanguages())
+            self.cmd_SetProperty("cboLang", "Items", ",".join(langs))
+            self.cmd_SetProperty("cboLang", "SelectedItem", next((l for l in langs if l.split()[0] == lang), langs[0]))
+            self._lang_hint(f"{lang} is ready: write away, and Run (F5) or set breakpoints as with Lua")
+        except Exception:
+            pass
+        return "ready"
+
+    def _windows_font(self):
+        """Windows' 9pt Segoe UI draws thin in Qt beside Ubuntu's: a touch heavier (Windows 11's own Segoe UI Variable,
+        at medium weight; Windows 10's Segoe UI, hinted fully). VML_FONT_WEIGHT (100-900) sets it, 400 as it was."""
+        from PySide6.QtGui import QFont, QFontDatabase
+        try:
+            weight = int(os.environ.get("VML_FONT_WEIGHT") or 500)
+            f = QFont(self.app.font())
+            if weight != 400 and "Segoe UI Variable Text" in QFontDatabase.families():
+                f.setFamily("Segoe UI Variable Text")
+            f.setWeight(QFont.Weight(max(100, min(900, weight))))
+            f.setHintingPreference(QFont.PreferFullHinting)
+            self.app.setFont(f)
+        except Exception as exc:
+            log(f"font: {exc}")
+
     def cmd_GetLanguages(self):
         """The script languages, for the script editor: all five, each saying what it still needs on this computer
         when it isn't ready (a script can be written either way; it runs once its language is there)."""
@@ -867,10 +999,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         bash = self.bash_exe()
         has_bash = os.path.isfile(bash) if os.path.isabs(bash) else bool(shutil.which("bash")) and not sys.platform.startswith("win")
         langs = ["Lua",
-                 "Python" if self.python_exe() else "Python (needs Python: python.org)",
-                 "C#" if csharp.available() else "C# (needs setting up: Settings > C# Scripting)",
-                 "Bash" if has_bash else "Bash (needs Git Bash: winget install Git.Git)",
-                 "PowerShell" if (shutil.which("pwsh") or shutil.which("powershell")) else "PowerShell (needs PowerShell 7: aka.ms/pwsh)"]
+                 "Python" if self.python_exe() else "Python (needs installing)",
+                 "C#" if csharp.available() else "C# (needs setting up)",
+                 "Bash" if has_bash else "Bash (needs Git Bash)",
+                 "PowerShell" if (shutil.which("pwsh") or shutil.which("powershell") or os.path.isfile(r"C:\Program Files\PowerShell\7\pwsh.exe")) else "PowerShell (needs PowerShell 7)"]
         if self.SHELL == "powershell":                       # (the computer's own shell first, after Lua)
             langs.insert(1, langs.pop(4))
         return json.dumps(langs)
@@ -891,6 +1023,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
     def python_exe():
         """The user's own Python (with their pip packages); the engine's, when running from source."""
         found = shutil.which("python3") or shutil.which("python")
+        if found and "windowsapps" in found.lower() and os.path.getsize(found) == 0 and not shutil.which("py"):
+            found = None                                     # (Windows' stand-in that only opens the Store)
+        if not found and sys.platform.startswith("win"):     # (installed since Visualised started: not on its PATH yet)
+            import glob
+            got = sorted(glob.glob(os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", "Python3*", "python.exe")))
+            found = got[-1] if got else None
         if found:
             return found
         return sys.executable if "python" in Path(sys.executable).name.lower() else None

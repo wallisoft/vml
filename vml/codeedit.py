@@ -17,7 +17,7 @@ On the web it's a plain text area.
 """
 import re
 
-from PySide6.QtCore import QRect, QRegularExpression, QSize, Qt, Signal
+from PySide6.QtCore import QRect, QRegularExpression, QSize, Qt
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QKeySequence, QPainter, QShortcut, QSyntaxHighlighter,
                            QTextCharFormat, QTextCursor, QTextFormat)
 from PySide6.QtWidgets import QInputDialog, QPlainTextEdit, QTextEdit, QWidget
@@ -119,11 +119,13 @@ class Gutter(QWidget):
 
 
 class CodeEditorWidget(QPlainTextEdit):
-    breaks_changed = Signal()
+    # (a breakpoint clicked in: told by a plain Python list of callbacks, not a Qt Signal of our own. Compiled for
+    # Windows, connecting to one sometimes crashed Visualised as the script editor opened: 1.6.3, A8.)
 
     def __init__(self, node):
         super().__init__()
         self.node = node
+        self.on_breaks = []
         self.breaks, self.current = set(), 0
         self.setFont(code_font(num(node.props.get("FontSize"), 0)))
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
@@ -199,7 +201,8 @@ class CodeEditorWidget(QPlainTextEdit):
         self.breaks.symmetric_difference_update({line})
         self.node.props["Breakpoints"] = self.breaks_text()
         self.gutter.update()
-        self.breaks_changed.emit()
+        for told in list(self.on_breaks):
+            told()
 
     def breaks_text(self):
         return ", ".join(str(n) for n in sorted(self.breaks))
@@ -335,7 +338,8 @@ def _events_text(node, fire):
 
 
 def _events_breaks(node, fire):
-    node.widget.breaks_changed.connect(lambda: fire({"breakpoints": node.widget.breaks_text()}))
+    w = node.widget
+    w.on_breaks.append(lambda: fire({"breakpoints": w.breaks_text()}))
 
 
 PLAIN = [p for p in COMMON if p.name not in ("Background", "Foreground", "CornerRadius")]
