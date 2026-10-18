@@ -2,7 +2,7 @@
 
 **[Home](Home.md)** · **[Getting started](Getting-Started.md)** · **[Machines and SSH](Machines-and-SSH.md)** · **[GitHub](GitHub.md)**
 
-A recipe says what Bob builds for a project, and where. It's VML, read like a form: `recipe.vml` beside a project, or `NAME.recipe.vml` beside an app that shares its folder with others. **New project** writes one for you; **Edit this recipe…** opens it. Paths in it are relative to the recipe's own folder.
+A recipe says what Bob builds for a project, and where. It's VML, read like a form: `recipe.vml` beside a project, or `NAME.recipe.vml` beside an app that shares its folder with others. **New project** writes one for you (for a Visualised project, or any project folder); **Recipe and build files…** opens it, with the scripts it uses. Paths in it are relative to the recipe's own folder.
 
 ## The recipe
 
@@ -71,11 +71,55 @@ Workflow=Mountie release
 |---|---|
 | `Text` | the card's name, when it has spaces |
 | `Machine` | a machine from machines.vml (`here` is this computer) |
-| `Kind` | `compiled`, `export`, `script` or `github` (see [Home](Home.md)) |
+| `Kind` | `compiled`, `export`, `command`, `script` or `github` (see [Home](Home.md)) |
 | `Platforms` | (export) which: `linux, windows` |
-| `Run` | (script) the command, run in the repo: `{host}` the machine's SSH name, `{version}`, `{install}` (empty, or `--no-install` when Bob's *Install it* tick is off) |
-| `Results` | (script) where its results go, for the **Builds** button |
+| `Run` | (command) what builds it, run in the project's folder on the build's machine; `Run.Windows` / `Run.Linux` for one OS only. (script) a command run here, in the repo: `{host}` the machine's SSH name, `{version}`, `{install}` (empty, or `--no-install` when Bob's *Install it* tick is off) |
+| `Results` | (command) what it made, from the project's folder: files or folders, commas between, wildcards fine (`dist`, `target/release/app`); `Results.Windows` too. (script) where its results go, for the **Builds** button |
 | `Tag`, `Workflow` | (github) the tag to make, `{version}` in it, and the Actions workflow it sets off |
+
+## Any framework
+
+Bob isn't only for Visualised. A `command` build runs any build tool: Bob sends the project (what git tracks, and anything new it isn't told to ignore) to the machine, runs the command in its folder, and brings back what `Results` names.
+
+```
+@Recipe Shop
+Version=package.json:version
+
+@Build Linux
+Machine=here
+Kind=command
+Run=npm ci && npm run build
+Results=dist
+
+@Build Windows
+Machine=a8
+Kind=command
+Run=npm ci && npm run build
+Results=dist
+```
+
+**Project ▾ > New project > From a folder…** looks at a folder and writes a recipe like that for you:
+
+| It finds | It builds with | And brings back |
+|---|---|---|
+| `package.json` | `npm ci && npm run build` | `dist` |
+| `Cargo.toml` | `cargo build --release` | the program from `target/release` |
+| `go.mod` | `go build -o out/ ./...` | `out` |
+| a `.csproj` or `.sln` | `dotnet publish -c Release -o out` | `out` |
+| `pubspec.yaml` | `flutter build linux` / `flutter build windows` | the bundle |
+| `pyproject.toml` or `setup.py` | `python -m build` | `dist` |
+| a `Makefile` | `make` | `build` |
+| a `.vmlproj` | Visualised's own builds | |
+
+The version comes from where that framework keeps it (`package.json:version`, `Cargo.toml:version`...). It's a starting point: change `Run` and `Results` to suit. The machine needs the build tool itself (Node, Rust, the .NET SDK...): Bob brings the project, not the tools.
+
+On Windows the command runs in PowerShell; `&&` works there too (Bob runs each part and stops at the first that fails).
+
+## The recipe editor
+
+**Project ▾ > Recipe and build files…** opens the recipe beside everything its builds use: the scripts `Run` names, and the files those scripts name in turn (for Visualised: `build-local.sh`, `build-windows.sh`, `build-windows.ps1`, `build-requirements.txt`, the installer...), and the project's own build file (`package.json`, `Makefile`...). Change any of them, then **Save**, or **Save, then Build all** to see it work at once. Saving the recipe, Bob reads it again straight away.
+
+**Clear its build environment…** starts a machine afresh: Bob's Python environment and build folders there are deleted, and the next build makes them again (taking longer, the once). For when an upgrade (a new Python, a new Nuitka) leaves a machine in a muddle. Your project isn't touched.
 
 ## As JSON
 

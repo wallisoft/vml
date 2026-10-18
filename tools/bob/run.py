@@ -93,6 +93,11 @@ def version_of(cfg_path, cfg):
         text = (cfg_path.parent / rel).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+    if rel.endswith(".json"):                                # package.json:version
+        try:
+            return str(json.loads(text).get(key, ""))
+        except (ValueError, AttributeError):
+            return ""
     m = re.search(rf"^\s*{re.escape(key)}\s*[=:]\s*[\"']?([^\"'\r\n]+)", text, re.M)
     return m.group(1).strip() if m else ""
 
@@ -128,19 +133,27 @@ def sh(argv, **kw):
     return subprocess.call(argv, **kw)
 
 
-def pack_source():
-    """The repo as it is (uncommitted changes too, not what .gitignore leaves out), zipped."""
+def project_root(cfg_path):
+    """Where a project's commands run: the git repo its recipe is in, else the recipe's own folder."""
+    d = Path(cfg_path).resolve().parent
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=d, capture_output=True, text=True)
+    return Path(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else d
+
+
+def pack_source(root=None):
+    """The project as it is (uncommitted changes too, not what .gitignore leaves out), zipped."""
+    root = Path(root or REPO)
     try:
-        names = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=REPO,
+        names = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root,
                                capture_output=True, check=True).stdout.decode().split("\0")
     except (OSError, subprocess.CalledProcessError):
-        names = [str(p.relative_to(REPO)) for p in REPO.rglob("*") if p.is_file() and ".git" not in p.parts]
-    names = [n for n in names if n and (REPO / n).is_file()]
+        names = [str(p.relative_to(root)) for p in walk(root)]
+    names = [n for n in names if n and (root / n).is_file()]
     fd, path = tempfile.mkstemp(prefix="bob-src-", suffix=".zip")
     os.close(fd)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for n in names:
-            z.write(REPO / n, n)
+            z.write(root / n, n)
     print(f"    {len(names)} files", flush=True)
     return path
 
@@ -429,12 +442,90 @@ def run_build(cfg_path, cfg, build, install):
         return run_build_now(cfg_path, cfg, build, install, name, m, kind)
 
 
+def run_command(cfg_path, cfg, build, name, m):
+    """Kind=command: any framework's build. The command runs in the project's folder (here, or on the machine
+    after the project's sent there), and what Results names comes back to Bob's results folder."""
+    root = project_root(cfg_path)
+    os_ = (m.get("os") or "linux").lower()
+    version = version_of(cfg_path, cfg)
+    cmd = (build.get(f"run_{os_}") or build.get("run") or "").replace("{version}", version)
+    if not cmd:
+        fail(f"the {build['name']} build has nothing to run: give it Run= (or Run.{os_.capitalize()}=) in the recipe")
+    results = [r.strip() for r in (build.get(f"results_{os_}") or build.get("results") or "").split(",") if r.strip()]
+    out = out_dir(cfg, build)
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True, exist_ok=True)
+    if is_here(m):
+        step(f"{cfg.get('name')} {build['name']}: {cmd}")
+        code = sh(["bash", "-c", cmd], cwd=root)
+        if code != 0:
+            fail(f"the command ended with {code} (its output is above)")
+        for r in results:
+            for p in sorted(root.glob(r)):
+                (shutil.copytree(p, out / p.name, dirs_exist_ok=True) if p.is_dir() else shutil.copy2(p, out / p.name))
+    else:
+        host = m["host"]
+        work = "bob-build/" + re.sub(r"[^A-Za-z0-9_-]+", "-", (cfg.get("name") or "project")).lower()
+        step(f"{cfg.get('name')} {build['name']}: on {name} ({host}, {os_})")
+        if subprocess.call(SSH + [host, "echo ok"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+            fail(f"can't reach {host} over SSH: is it on, and awake?")
+        step("Sending the project")
+        src = pack_source(root)
+        try:
+            mk = powershell(f"New-Item -ItemType Directory -Force '{work}' | Out-Null") if os_ == "windows" else f"mkdir -p {work}"
+            if sh(SSH + [host, mk]) != 0 or sh(["scp", "-q", src, f"{host}:{work}/src.zip"]) != 0:
+                fail(f"sending the project to {host}")
+        finally:
+            os.unlink(src)
+        step(f"Building on {name}: {cmd}")
+        if os_ == "windows":                                 # (Windows PowerShell has no &&: each part, stopping at a failure)
+            parts = "\n".join(f"{p.strip()}\nif ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}"
+                               for p in cmd.split("&&") if p.strip())
+            fetch = "\n".join(f"Copy-Item -Path '{r}' -Destination ..\\out -Recurse -Force -ErrorAction SilentlyContinue"
+                               for r in results)
+            script = f'''
+$ErrorActionPreference = "Continue"
+$root = Join-Path $HOME "{work.replace('/', chr(92))}"
+Set-Location $root
+if (Test-Path src) {{ Remove-Item -Recurse -Force src }}
+if (Test-Path out) {{ Remove-Item -Recurse -Force out }}
+New-Item -ItemType Directory src, out | Out-Null
+tar -xf src.zip -C src
+if ($LASTEXITCODE -ne 0) {{ Write-Host "FAILED: unpacking the project"; exit 1 }}
+Set-Location src
+{parts}
+{fetch}
+exit 0
+'''
+            code = sh(SSH + [host, powershell(script)])
+        else:
+            fetch = " ".join(f"cp -r {r} ../out/ 2>/dev/null;" for r in results)
+            code = sh(SSH + [host, f"cd {work} && rm -rf src out && mkdir -p src out && python3 -m zipfile -e src.zip src && "
+                                   f"cd src && ( {cmd} ) && {{ {fetch} true; }}"])
+        if code != 0:
+            fail(f"the build on {name} (its output is above)")
+        if results:
+            step("Bringing the results back")
+            if sh(["scp", "-q", "-r", f"{host}:{work}/out/*", str(out)]) != 0:
+                fail(f"nothing came back from {host}: is Results= right? (it's looked for in the project's folder)")
+    made = sorted(out.iterdir())
+    for p in made:
+        size = sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.is_dir() else p.stat().st_size
+        print(f"    {size / 1e6:6.1f} MB  {p.name}{'/' if p.is_dir() else ''}", flush=True)
+    if not results:
+        print("    (no Results= in the recipe: nothing to bring back)", flush=True)
+    s = int(time.time() - STARTED)
+    step(f"Done in {s // 60}m {s % 60:02d}s: {out}")
+
+
 def run_build_now(cfg_path, cfg, build, install, name, m, kind):
+    if kind == "command":
+        return run_command(cfg_path, cfg, build, name, m)
     if kind == "script":
         cmd = build["run"].format(host=m.get("host") or "", install="" if install else "--no-install",
                                   version=version_of(cfg_path, cfg))
         step(f"{cfg.get('name')} {build['name']}: {cmd}")
-        code = sh(["bash", "-c", cmd], cwd=REPO)
+        code = sh(["bash", "-c", cmd], cwd=project_root(cfg_path))
         if code != 0:
             sys.exit(code)
         return
@@ -539,10 +630,137 @@ def candidates():
     return out
 
 
+# Any framework: what a folder holds says what it is, and how it's usually built. (name, file that shows it, Run,
+# Run.Windows, Results, Results.Windows, where its version is.) A recipe made from one is a start: edit it to suit.
+FRAMEWORKS = [
+    ("Node", "package.json", "npm ci && npm run build", "", "dist", "", "package.json:version"),
+    ("Rust", "Cargo.toml", "cargo build --release", "", "target/release/{name}", "target/release/{name}.exe", "Cargo.toml:version"),
+    ("Go", "go.mod", "go build -o out/ ./...", "", "out", "", ""),
+    (".NET", "*.csproj", "dotnet publish -c Release -o out", "", "out", "", ""),
+    (".NET", "*.sln", "dotnet publish -c Release -o out", "", "out", "", ""),
+    ("Flutter", "pubspec.yaml", "flutter build linux --release", "flutter build windows --release",
+     "build/linux/x64/release/bundle", "build/windows/x64/runner/Release", "pubspec.yaml:version"),
+    ("Python", "pyproject.toml", "python3 -m pip install -q build && python3 -m build", "py -m pip install -q build && py -m build",
+     "dist", "", "pyproject.toml:version"),
+    ("Python", "setup.py", "python3 -m pip install -q build && python3 -m build", "py -m pip install -q build && py -m build",
+     "dist", "", ""),
+    ("Make", "Makefile", "make", "", "build", "", ""),
+]
+
+
+def detect(folder):
+    """What kind of project a folder is: (framework, its Visualised project or app, or None) or (None, None)."""
+    folder = Path(folder)
+    vml = next(iter(sorted(folder.glob("*.vmlproj"))), None)
+    if vml:
+        return "Visualised", vml
+    for fw in FRAMEWORKS:
+        if next(iter(folder.glob(fw[1])), None):
+            return fw[0], fw
+    return None, None
+
+
+def new_folder_recipe(folder):
+    """A recipe for any project folder: Visualised's own kind, else a framework's usual build (Kind=command), here
+    and on the first Windows machine. recipe.vml in the folder; its path is the answer."""
+    folder = Path(folder).resolve()
+    target = folder / "recipe.vml"
+    if target.exists():
+        return str(target)
+    kind, fw = detect(folder)
+    if kind == "Visualised":
+        return new_recipe(fw)
+    name = folder.name
+    windows = next((k for k, v in machines().items() if (v.get("os") or "").lower() == "windows"), None)
+    if fw is None:                                       # (nothing recognised: a command to fill in)
+        fw = ("", "", "echo 'Say how to build it: Run= in recipe.vml'", "", "", "", "")
+    if fw[0] == "Rust":
+        m = re.search(r'^name\s*=\s*"([^"]+)"', (folder / "Cargo.toml").read_text(errors="replace"), re.M)
+        name = m.group(1) if m else name
+    fill = lambda s: s.replace("{name}", name)
+    builds = [{"name": "Linux", "machine": "here", "kind": "command", "run": fw[2], "results": fill(fw[4])}]
+    if windows:
+        b = {"name": "Windows", "machine": windows, "kind": "command", "run": fw[2], "results": fill(fw[4])}
+        if fw[3]:
+            b["run_windows"] = fw[3]
+        if fw[5]:
+            b["results_windows"] = fill(fw[5])
+        builds.append(b)
+    cfg = {"name": folder.name, "version": fw[6] or "1.0", "builds": builds}
+    text = vmlrecipe.recipe_to_vml(cfg, title=f"{folder.name}: what Bob builds, and where" +
+                                   (f" ({fw[0]}: the usual build; change Run= and Results= to suit)" if fw[0] else ""))
+    target.write_text(text, encoding="utf-8")
+    return str(target)
+
+
+def recipe_files(cfg_path):
+    """The files a recipe's builds use, for Bob's recipe editor: the recipe, then the scripts and packaging it names
+    (and the files those scripts name in turn, one level down)."""
+    cfg_path = Path(cfg_path).resolve()
+    cfg = vmlrecipe.load(cfg_path)
+    root, here = project_root(cfg_path), cfg_path.parent
+    found = [cfg_path]
+
+    def add(text):
+        for tok in re.findall(r"[\w./\\-]+\.(?:sh|ps1|py|iss|xml|json|toml|yml|yaml|txt|cmd|bat|vml|lua|mk)\b|Makefile", text or ""):
+            for base in (here, root):
+                p = (base / tok).resolve()
+                if p.is_file() and p not in found and p.stat().st_size < 400_000:
+                    found.append(p)
+                    break
+
+    names = [str(v) for k, v in cfg.items() if k in ("launcher", "installer")]
+    names += [str(v) for k, v in (cfg.get("msix") or {}).items() if k == "manifest"]
+    for b in cfg.get("builds") or []:
+        names += [str(v) for k, v in b.items() if k.startswith("run")]
+        names += [", ".join(b.get("asset_files") or [])]
+    for v in (cfg.get("extras") or {}).values():
+        names += list(v)
+    add(" ".join(names))
+    for fw in FRAMEWORKS:                                # the project's own build files: package.json, Makefile...
+        for p in sorted(root.glob(fw[1]))[:3]:
+            if p.is_file() and p not in found:
+                found.append(p)
+    for p in list(found[1:]):                            # (what those scripts use: build-windows.sh > .ps1, say)
+        if p.suffix not in (".sh", ".ps1", ".cmd", ".bat", ".yml", ".yaml") and p.name != "Makefile":
+            continue
+        try:
+            before = len(found)
+            add(p.read_text(encoding="utf-8", errors="replace"))
+            found[before:] = [q for q in found[before:] if q.suffix not in (".vml", ".lua", ".py") or q.parent == p.parent]
+        except OSError:
+            pass
+    return [{"path": str(p), "name": str(p.relative_to(root)) if p.is_relative_to(root) else p.name} for p in found]
+
+
+def reset_machine(name):
+    """Start a machine's build environment afresh: Bob's venv and build folders there go (made again next build)."""
+    ms = machines()
+    m = ms.get(name) if name != "here" else {"os": "linux"}
+    if m is None:
+        fail(f"no machine called {name}")
+    if is_here(m):
+        for d in (Path.home() / ".cache" / "bob" / "venv", Path.home() / "bob-build"):
+            shutil.rmtree(d, ignore_errors=True)
+        step("This computer's build environment is cleared: the next build makes it afresh")
+        return
+    if (m.get("os") or "").lower() == "windows":
+        ps = ('foreach ($d in "$env:LOCALAPPDATA\\bob\\venv", "$HOME\\bob-build", "$HOME\\vml-build") '
+              '{ if (Test-Path $d) { Remove-Item -Recurse -Force $d } }; Write-Host cleared')
+        code = sh(SSH + [m["host"], powershell(ps)])
+    else:
+        code = sh(SSH + [m["host"], "rm -rf ~/.cache/bob/venv ~/bob-build ~/vml-build && echo cleared"])
+    if code != 0:
+        fail(f"couldn't reach {name} to clear it")
+    step(f"{name}'s build environment is cleared: the next build there makes it afresh")
+
+
 def new_recipe(proj):
     """A recipe for a project or an app, with sensible builds: compiled here, compiled on the first Windows machine,
     and a quick export. Beside a project it's recipe.vml; beside a single app, NAME.recipe.vml. Its path is the answer."""
     proj = proj.resolve()
+    if proj.is_dir():                                    # a folder: any framework
+        return new_folder_recipe(proj)
     if not proj.is_file():
         fail(f"no such file: {proj}")
     folder, name = proj.parent, proj.stem
@@ -590,7 +808,9 @@ def main():
     ap.add_argument("--projects", action="store_true", help="every recipe.vml in the repo, as JSON")
     ap.add_argument("--machines", action="store_true", help="the machines, as JSON")
     ap.add_argument("--candidates", action="store_true", help="projects and apps in the repo without a recipe yet, as JSON")
-    ap.add_argument("--new", metavar="PROJECT", help="make a recipe for a project (.vmlproj) or an app (.vml): its path")
+    ap.add_argument("--new", metavar="PROJECT", help="make a recipe for a project (.vmlproj), an app (.vml) or any project folder: its path")
+    ap.add_argument("--files", metavar="RECIPE", help="the files a recipe's builds use, as JSON (for Bob's recipe editor)")
+    ap.add_argument("--reset", metavar="MACHINE", help="clear a machine's build environment (venv, build folders)")
     ap.add_argument("--json", metavar="RECIPE", help="a recipe as JSON (for anything that wants JSON)")
     ap.add_argument("--to-vml", metavar="RECIPE_JSON", help="a JSON recipe (bob.json) as VML, written beside it")
     ap.add_argument("--stop", action="store_true")
@@ -604,6 +824,12 @@ def main():
         return
     if a.candidates:
         print(json.dumps(candidates()))
+        return
+    if a.files:
+        print(json.dumps(recipe_files(a.files)))
+        return
+    if a.reset:
+        reset_machine(a.reset)
         return
     if a.new:
         print(new_recipe(Path(a.new)))
@@ -631,7 +857,7 @@ def main():
                         "uses_install": "{install}" in b.get("run", ""),
                         "tag": (b.get("tag") or "v{version}").format(version=version_of(cfg_path, cfg)) if b.get("kind") == "github" else "",
                         "fix": b.get("kind") == "github" and incremental(b, version_of(cfg_path, cfg)),
-                        "out": os.path.expanduser(b["results"]) if b.get("results") else str(out_dir(cfg, b))})
+                        "out": os.path.expanduser(b["results"]) if b.get("results") and b.get("kind") == "script" else str(out_dir(cfg, b))})
         print(json.dumps({"name": cfg.get("name"), "version": version_of(cfg_path, cfg), "builds": out,
                           "machines_file": str(MACHINES)}))
         return

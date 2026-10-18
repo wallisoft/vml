@@ -1,0 +1,252 @@
+# ============================================================================
+# Bob's recipe editor: the recipe, and the scripts and packaging its builds
+# use (found by run.py --files), each one to read and change. Save, or save
+# and build everything again; and a machine's build environment can be
+# cleared, for when an upgrade leaves it in a muddle.
+# ============================================================================
+
+@Window RecipeEditor
+Title=Recipe and build files
+Width=960
+Height=640
+MinWidth=720
+MinHeight=420
+BorderBrush=#1F2937
+BorderThickness=2
+OnOpened=ReOpened
+
+@Canvas re
+Parent=RecipeEditor
+Background=#F3F4F6
+
+@Canvas reHead
+Parent=re
+Canvas.Left=0
+Canvas.Top=0
+Width=960
+Height=52
+Background=#1F2937
+Anchor=Top,Left,Right
+
+@TextBlock reTitle
+Parent=reHead
+Canvas.Left=16
+Canvas.Top=8
+Width=600
+Height=22
+FontSize=15
+FontWeight=Bold
+Foreground=#FFFFFF
+Text=Recipe and build files
+
+@TextBlock reSub
+Parent=reHead
+Canvas.Left=16
+Canvas.Top=29
+Width=900
+Height=18
+FontSize=11
+Foreground=#F59E0B
+Text=the recipe says what's built where; the scripts say how
+
+@ListBox reFiles
+Parent=re
+Canvas.Left=12
+Canvas.Top=64
+Width=236
+Height=500
+Anchor=Top,Bottom,Left
+SelectionChanged=RePick
+
+@CodeEditor reCode
+Parent=re
+Canvas.Left=258
+Canvas.Top=64
+Width=690
+Height=500
+Language=Shell
+Anchor=Top,Bottom,Left,Right
+TextChanged=ReChanged
+
+@TextBlock reWhere
+Parent=re
+Canvas.Left=12
+Canvas.Top=574
+Width=520
+Height=20
+FontSize=11
+Foreground=#6B7280
+Anchor=Bottom,Left
+Text=
+
+@Button reSave
+Parent=re
+Canvas.Left=548
+Canvas.Top=570
+Width=90
+Height=30
+Content=Save
+Anchor=Bottom,Right
+OnClick=ReSave
+
+@Button reSaveBuild
+Parent=re
+Canvas.Left=646
+Canvas.Top=570
+Width=170
+Height=30
+Content=Save, then Build all
+Background=#F59E0B
+Foreground=#FFFFFF
+Anchor=Bottom,Right
+OnClick=ReSaveBuild
+
+@Button reClose
+Parent=re
+Canvas.Left=824
+Canvas.Top=570
+Width=124
+Height=30
+Content=Close
+Anchor=Bottom,Right
+OnClick=ReClose
+
+@ComboBox reMachine
+Parent=re
+Canvas.Left=12
+Canvas.Top=600
+Width=150
+Height=28
+Anchor=Bottom,Left
+
+@Button reReset
+Parent=re
+Canvas.Left=170
+Canvas.Top=600
+Width=240
+Height=28
+Content=Clear its build environment…
+Anchor=Bottom,Left
+OnClick=ReReset
+
+@TextBox reOut
+Parent=re
+Canvas.Left=0
+Canvas.Top=0
+Width=10
+Height=10
+IsVisible=false
+AcceptsReturn=true
+
+@Script ReOpened
+Interpreter=lua
+<<LUA
+local json = require("dkjson")
+local cfg = Vml("GetSetting", "bob_config")
+Vml("SetProperty", "reTitle", "Text", Vml("GetSetting", "bob_name") .. ": recipe and build files")
+local files = json.decode(Vml("Shell", Vml("RunScript", "Bob", '--files "' .. cfg .. '"') .. " 2>/dev/null") or "") or {}
+Vml("SetSetting", "re_files", json.encode(files))
+local names = {}
+for _, f in ipairs(files) do names[#names + 1] = f.name end
+Vml("SetProperty", "reFiles", "Items", table.concat(names, ","))
+-- the machines this project builds on, to clear one if need be
+local ms, seen = {}, {}
+for i = 1, tonumber(Vml("GetSetting", "bob_n")) or 0 do
+    local m = Vml("GetSetting", "bob_machine_" .. i)
+    if m ~= "" and m ~= "GitHub" and not seen[m] and Vml("GetSetting", "bob_kind_" .. i) ~= "github" then
+        seen[m] = true
+        ms[#ms + 1] = m
+    end
+end
+Vml("SetProperty", "reMachine", "Items", table.concat(ms, ","))
+if #ms > 0 then Vml("SetProperty", "reMachine", "SelectedIndex", "0") end
+Vml("SetSetting", "re_shown", "")
+if #files > 0 then
+    Vml("SetProperty", "reFiles", "SelectedIndex", "0")
+    Vml("RunScript", "RePick")                             -- (row 0 may be chosen already: no change to hear)
+end
+LUA
+
+@Script RePick
+Interpreter=lua
+<<LUA
+-- show a file (asking first about unsaved changes to the one showing)
+local json = require("dkjson")
+local files = json.decode(Vml("GetSetting", "re_files")) or {}
+local i = tonumber(Vml("GetProperty", "reFiles", "SelectedIndex")) or -1
+local f = files[i + 1]
+if not f or f.path == Vml("GetSetting", "re_shown") then return end
+if Vml("GetSetting", "re_dirty") == "1" then
+    local yes = Vml("ConfirmDialog", "Save your changes to " .. Vml("GetSetting", "re_shown_name") .. " first?", "Recipe and build files")
+    if yes == true or yes == "true" or yes == "True" then Vml("RunScript", "ReSave") end
+end
+local ext = f.path:match("%.(%w+)$") or ""
+local lang = ({py = "Python", cs = "CSharp", lua = "Lua"})[ext:lower()] or "Shell"
+Vml("SetProperty", "reCode", "Language", lang)
+Vml("SetProperty", "reCode", "Text", Vml("FileRead", f.path))
+Vml("SetSetting", "re_shown", f.path)
+Vml("SetSetting", "re_shown_name", f.name)
+Vml("SetSetting", "re_dirty", "")
+Vml("SetProperty", "reWhere", "Text", (f.path:gsub("^" .. (os.getenv("HOME") or "~"), "~")))
+LUA
+
+@Script ReChanged
+Interpreter=lua
+<<LUA
+if Vml("GetSetting", "re_shown") ~= "" then Vml("SetSetting", "re_dirty", "1") end
+LUA
+
+@Script ReSave
+Interpreter=lua
+<<LUA
+local path = Vml("GetSetting", "re_shown")
+if path == "" then return "" end
+if Vml("FileWrite", path, Vml("GetProperty", "reCode", "Text")) == "true" then
+    Vml("SetSetting", "re_dirty", "")
+    Vml("SetProperty", "reWhere", "Text", "Saved " .. Vml("GetSetting", "re_shown_name") .. " at " .. os.date("%H:%M:%S"))
+    if path == Vml("GetSetting", "bob_config") then Vml("RunScript", "Opened") end      -- (the recipe: Bob reads it afresh)
+    return "true"
+end
+Vml("SetProperty", "reWhere", "Text", "Couldn't save " .. path)
+return ""
+LUA
+
+@Script ReSaveBuild
+Interpreter=lua
+<<LUA
+if Vml("GetSetting", "re_dirty") == "1" and Vml("RunScript", "ReSave") ~= "true" then return end
+Vml("RunScript", "BuildAll")
+Vml("CloseSelf")
+LUA
+
+@Script ReClose
+Interpreter=lua
+<<LUA
+if Vml("GetSetting", "re_dirty") == "1" then
+    local yes = Vml("ConfirmDialog", "Save your changes to " .. Vml("GetSetting", "re_shown_name") .. " first?", "Recipe and build files")
+    if yes == true or yes == "true" or yes == "True" then Vml("RunScript", "ReSave") end
+end
+Vml("SetSetting", "re_dirty", "")
+Vml("CloseSelf")
+LUA
+
+@Script ReReset
+Interpreter=lua
+<<LUA
+-- clear a machine's build environment: Bob's venv and build folders go, made afresh by the next build
+local m = Vml("GetProperty", "reMachine", "SelectedItem")
+if not m or m == "" then return end
+local yes = Vml("ConfirmDialog", "Clear " .. m .. "'s build environment?\n\nBob's Python environment and build folders there are " ..
+    "deleted, and made afresh by the next build (which takes longer, the once). Your project isn't touched.", "Start afresh")
+if not (yes == true or yes == "true" or yes == "True") then return end
+Vml("SetProperty", "reWhere", "Text", "Clearing " .. m .. "…")
+Vml("SetProperty", "reOut", "Text", "")
+Vml("RunProcess", Vml("RunScript", "Bob", '--reset "' .. m .. '"') .. " 2>&1", "reOut", "ReReset2")
+LUA
+
+@Script ReReset2
+Interpreter=lua
+<<LUA
+local said = (Vml("GetProperty", "reOut", "Text") or ""):gsub("%s+$", "")
+Vml("SetProperty", "reWhere", "Text", (said:match("([^\n]*)$") or said):gsub("^==> ", ""))
+LUA

@@ -24,7 +24,7 @@
 
 @Window Bob
 Title=Bob build tool
-Version=3.0
+Version=3.1
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
 About=Bob builds your Visualised projects, here and on any machine you can reach over SSH. https://bob.vml.onl
@@ -475,11 +475,13 @@ for i, p in ipairs(json.decode(Vml("GetSetting", "bob_projects")) or {}) do
 end
 item("-")
 local new = item("New project")
+item("From a folder… (any framework: npm, cargo, dotnet, go, flutter, Python, make)", "NewFromFolder", new)
+item("-", nil, new)
 local cands = json.decode(Vml("Shell", Vml("RunScript", "Bob", "--candidates") .. " 2>/dev/null") or "") or {}
 Vml("SetSetting", "bob_cands", json.encode(cands))
 for i, c in ipairs(cands) do item(c.name .. "   (" .. c.where .. ")", "NewProject(" .. i .. ")", new) end
-if #cands == 0 then item("Every project and app has a recipe", nil, new, false) end
-item("Edit this recipe…", "EditRecipe")
+if #cands == 0 then item("Every Visualised project here has a recipe", nil, new, false) end
+item("Recipe and build files…", "EditRecipe")
 item("-")
 item("Machines…", "Machines")
 item("Set up…", "SetUp")
@@ -522,10 +524,31 @@ LUA
 @Script EditRecipe
 Interpreter=lua
 <<LUA
-local f = Vml("GetSetting", "bob_config")
-if f == "" then return end
-Vml("RunScript", "EditText", f)
-Vml("SetProperty", "StatusBar", "Text", "Editing " .. (f:gsub("^" .. (os.getenv("HOME") or "~"), "~")) .. ": save it, then pick the project again (Project ▾)")
+-- the recipe, and the scripts and packaging its builds use: read, change, save, build again (RecipeEditor.vml)
+if Vml("GetSetting", "bob_config") == "" then return end
+Vml("FormOpen", "RecipeEditor.vml")
+LUA
+
+@Script NewFromFolder
+Interpreter=lua
+<<LUA
+-- any project folder: what it is (package.json, Cargo.toml, a .csproj, go.mod, pubspec.yaml, pyproject.toml, a
+-- Makefile, a Visualised project) says how it's usually built; Bob writes a recipe for that, to change as you like
+local folder = Vml("FolderDialog", "Which project? Choose its folder")
+if not folder or folder == "" then return end
+local made = (Vml("Shell", Vml("RunScript", "Bob", '--new "' .. folder .. '"') .. " 2>&1") or ""):gsub("%s+$", "")
+if not made:find("%.vml$") then
+    Vml("SetProperty", "StatusBar", "Text", "Couldn't make a recipe: " .. made)
+    return
+end
+Vml("SetPreference", "bob_project", made)
+local json = require("dkjson")
+local recent = json.decode(Vml("GetPreference", "bob_recent", "[]")) or {}
+table.insert(recent, 1, made)
+Vml("SetPreference", "bob_recent", json.encode(recent))
+Vml("RunScript", "StartUp")
+Vml("SetProperty", "StatusBar", "Text", "Made " .. (made:gsub("^" .. (os.getenv("HOME") or "~"), "~")) ..
+    ": Project ▾ > Recipe and build files… to check how it builds")
 LUA
 
 @Script ShowProject

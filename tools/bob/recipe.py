@@ -45,6 +45,14 @@ Bob's recipes and machines, written in VML: what to build and where, read the sa
     AssetsRepo=wallisoft/vml-releases    (where the release goes, if not the project's own repo)
     AssetFiles=packaging/install.sh      (more files to go up with them)
 
+    Any framework (npm, cargo, dotnet, go, flutter, Python, make...): a command, run in the project's folder, here
+    or on another machine (the project is sent there first), and what it made brought back:
+    @Build Windows
+    Machine=a8
+    Kind=command
+    Run=npm ci && npm run build          (Run.Windows / Run.Linux for one OS only)
+    Results=dist                         (files or folders, from the project's folder; Results.Windows too)
+
     @Build Windows                       a script of the project's own, run here: {host} {install} {version}
     Machine=a8
     Kind=script
@@ -144,6 +152,9 @@ def recipe_from_vml(text):
         for k in ("Run", "Results", "Platform", "Tag", "Workflow", "Repo"):
             if q.get(k):
                 build[k.lower()] = q[k]
+            for o in OSES:                                   # Run.Windows, Results.Linux: for one OS only
+                if q.get(f"{k}.{o.capitalize()}"):
+                    build[f"{k.lower()}_{o}"] = q[f"{k}.{o.capitalize()}"]
         if q.get("AssetsRepo"):
             build["assets_repo"] = q["AssetsRepo"]
         for k, key in (("Platforms", "platforms"), ("Assets", "assets"), ("AssetFiles", "asset_files")):
@@ -190,6 +201,9 @@ def recipe_to_vml(cfg, title=None):
         for k in ("run", "results", "platform", "tag", "workflow", "repo"):
             if b.get(k):
                 out.append(f"{k.capitalize()}={b[k]}")
+            for o in OSES:
+                if b.get(f"{k}_{o}"):
+                    out.append(f"{k.capitalize()}.{o.capitalize()}={b[f'{k}_{o}']}")
         if b.get("platforms"):
             out.append("Platforms=" + ", ".join(b["platforms"]))
         if b.get("assets"):
