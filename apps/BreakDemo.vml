@@ -1,0 +1,96 @@
+# ============================================================================
+# Break mode demo: breakpoints and stepping, VB-style.
+#
+#   1. Open this in the designer and press F5 (or: vml BreakDemo.vml, then F12)
+#   2. F12 for the debugger > Stepping, pick the script AddUp, and
+#      double-click line 4 (count = count + Square(i)): a red dot
+#      (or in the designer: double-click the button, click the margin)
+#   3. Press "Add them up": it stops on that line, the debugger in front
+#   4. F8 steps into Square, Shift+F8 steps over, Ctrl+Shift+F8 back out,
+#      F5 carries on. Locals shows i and count as they change.
+#   5. While it's stopped: Variables > the Lua line, type  count = 100
+#      then F5, and see the total come out differently.
+# ============================================================================
+
+@Window BreakDemo
+Title=Break mode demo
+Width=420
+Height=260
+OnOpened=Start
+
+@Canvas c
+Parent=BreakDemo
+Background=#F8FAFC
+
+@TextBlock lblHow
+Parent=c
+Canvas.Left=20
+Canvas.Top=16
+Width=380
+Height=60
+TextWrapping=Wrap
+Foreground=#475569
+Text=F12 > Stepping > AddUp > double-click line 4 for a breakpoint, then press the button. F8 steps in, Shift+F8 over, F5 carries on.
+
+@Button btnAdd
+Parent=c
+Canvas.Left=20
+Canvas.Top=90
+Width=180
+Height=36
+Content=Add them up
+OnClick=AddUp
+
+@TextBlock lblTotal
+Parent=c
+Canvas.Left=20
+Canvas.Top=146
+Width=380
+Height=30
+FontSize=18
+FontWeight=Bold
+Text=Total: (press the button)
+
+@TextBlock lblRuns
+Parent=c
+Canvas.Left=20
+Canvas.Top=186
+Width=380
+Height=24
+Foreground=#64748B
+Text=
+
+@Script Start
+Interpreter=lua
+<<LUA
+runs = 0
+history = {}
+
+-- a function the other scripts use: F8 on a line that calls it steps in here
+function Square(n)
+    local result = n * n
+    return result
+end
+LUA
+
+@Script AddUp
+Interpreter=lua
+<<LUA
+-- the squares of 1 to 4, added up (1 + 4 + 9 + 16 = 30)
+local count = 0
+for i = 1, 4 do
+    count = count + Square(i)
+end
+runs = runs + 1
+history[#history + 1] = count
+Vml("SetProperty", "lblTotal", "Text", "Total: " .. count)
+Vml("RunScript", "ShowRuns")
+LUA
+
+@Script ShowRuns
+Interpreter=lua
+<<LUA
+local said = {}
+for n, total in ipairs(history) do said[#said + 1] = tostring(total) end
+Vml("SetProperty", "lblRuns", "Text", runs .. " run(s) so far: " .. table.concat(said, ", "))
+LUA
