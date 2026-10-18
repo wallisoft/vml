@@ -2485,9 +2485,11 @@ function fitScreen() {
   document.body.classList.toggle("phone", narrow);
   document.body.classList.toggle("framed", roomy);
   if (roomy) {
-    SCALE = 1;
-    const high = Math.min(dh, window.innerHeight - 32);
-    w.style.cssText = `inset:auto;left:${Math.round((window.innerWidth - dw) / 2)}px;top:${Math.max(16, Math.round((window.innerHeight - high) / 2))}px;width:${dw}px;height:${high}px`;
+    // a browser window shorter than the form: the whole form a little smaller, never its foot cut off
+    const room = window.innerHeight - 32;
+    SCALE = dh > room ? room / dh : 1;
+    w.style.cssText = `inset:auto;left:${Math.round((window.innerWidth - dw * SCALE) / 2)}px;top:${Math.max(16, Math.round((window.innerHeight - dh * SCALE) / 2))}px;width:${dw}px;height:${dh}px` +
+      (SCALE < 1 ? `;transform-origin:0 0;transform:scale(${SCALE})` : "");
     document.querySelectorAll(".pbar").forEach(drawBar);
     return;
   }
@@ -2496,8 +2498,11 @@ function fitScreen() {
     return;
   }
   SCALE = window.innerWidth / dw;
-  const tall = Math.max(window.innerHeight / SCALE, VML.fit === "Width" ? dh : 0);
-  w.style.inset = "auto"; w.style.left = "0"; w.style.top = "0";
+  let tall = Math.max(window.innerHeight / SCALE, VML.fit === "Width" ? dh : 0), left = 0;
+  if (tall < dh) {                                   // a screen shorter than the form at that width: fit its height instead, centred
+    SCALE = window.innerHeight / dh; tall = dh; left = Math.round((window.innerWidth - dw * SCALE) / 2);
+  }
+  w.style.inset = "auto"; w.style.left = left + "px"; w.style.top = "0";
   w.style.width = dw + "px"; w.style.height = tall + "px";
   w.style.transformOrigin = "0 0"; w.style.transform = `scale(${SCALE})`;
   document.querySelectorAll(".pbar").forEach(drawBar);
