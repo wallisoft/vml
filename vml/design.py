@@ -60,6 +60,16 @@ class Overlay(QWidget):
                "BottomLeft": (r.left(), r.bottom()), "Left": (r.left(), cy)}
         return {k: QRect(x - HANDLE // 2, y - HANDLE // 2, HANDLE, HANDLE) for k, (x, y) in pts.items()}
 
+    def group_box(self):
+        """Round a group (several selected): the blue box that holds them, following them as they move."""
+        g = self.view.group()
+        if len(g) < 2:
+            return None
+        box = QRect()
+        for n in g:
+            box = box.united(self.rect_of(n))
+        return box.adjusted(-6, -6, 6, 6)
+
     def form_grip(self):
         f = self.view.form.geometry()
         return QRect(f.right() - 4, f.bottom() - 4, 10, 10)
@@ -97,6 +107,19 @@ class Overlay(QWidget):
                 p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
                 p.setBrush(Qt.NoBrush)
                 p.drawRect(g.adjusted(0, 0, -1, -1))
+        box = self.group_box()
+        if box is not None and self.mode != "band":       # the group's box: there until a click on the form clears it
+            p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+            p.setBrush(QColor(37, 99, 235, 22))
+            p.drawRoundedRect(box, 4, 4)
+        for other in v.group()[1:]:                      # the rest of a group: outlined, no handles
+            p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+            p.setBrush(QColor(37, 99, 235, 18))
+            p.drawRect(self.rect_of(other).adjusted(-1, -1, 0, 0))
+        if self.mode == "band" and getattr(self, "band", None) is not None:   # the selection box being drawn
+            p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+            p.setBrush(QColor(37, 99, 235, 28))
+            p.drawRect(self.band)
         sel = v.selected_node()
         if sel is not None:
             r = self.rect_of(sel)
@@ -118,7 +141,7 @@ class Overlay(QWidget):
                     p.drawLine(cx, r.bottom(), cx, f.bottom())
             p.setPen(QPen(QColor("#2563eb"), 1))
             p.setBrush(QColor("white"))
-            for h in self.handles(r).values():
+            for h in (self.handles(r).values() if not v.extra else ()):    # (a group moves; one control resizes)
                 p.drawRect(h)
         self.paint_title_bar(p)
         self.paint_edge(p)
@@ -224,7 +247,7 @@ class Overlay(QWidget):
                              if anchor_set(n.props.get("Anchor")) != {"Top", "Left"}]
             return
         sel = v.selected_node()
-        if e.button() == Qt.LeftButton and sel is not None:
+        if e.button() == Qt.LeftButton and sel is not None and not v.extra:
             for name, r in self.handles(self.rect_of(sel)).items():
                 if r.adjusted(-2, -2, 2, 2).contains(pos):
                     self.mode, self.handle, self.orig = "resize", name, QRect(sel.host.geometry())
@@ -260,6 +283,33 @@ class Overlay(QWidget):
                 v.select(page.name, user=True)
                 self.update()
                 return
+        adding = bool(e.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier))
+        box = self.group_box()
+        in_group = box is not None and ((node is not None and node.name in [n.name for n in v.group()])
+                                        or (node is None and box.contains(pos)))
+        if e.button() == Qt.RightButton and in_group:          # right-click on the group: the menu, group kept
+            fpos = pos - v.form.pos()
+            v.engine.store.set_setting("click_x", fpos.x())
+            v.engine.store.set_setting("click_y", fpos.y())
+            v.emit("OnContextMenu", {"click_x": fpos.x(), "click_y": fpos.y()})
+            return
+        if e.button() == Qt.LeftButton and not adding and node is None and in_group:   # inside its box: move it
+            held = v.selected_node()
+            self.mode, self.orig = "move", QRect(held.host.geometry())
+            self.origs = {n.name: QRect(n.host.geometry()) for n in v.group()}
+            return
+        if e.button() == Qt.LeftButton and adding and node is not None:      # Ctrl or Shift: in or out of the group
+            v.toggle(node.name)
+            self.mode = None
+            return
+        if e.button() == Qt.LeftButton and node is not None and node.name in [n.name for n in v.group()]:
+            names = [n.name for n in v.group()]                                 # (dragging a group: keep it,
+            names.remove(node.name)                                             #  the one held shown first)
+            v.select_group([node.name] + names)
+            self.mode = "move"
+            self.origs = {n.name: QRect(n.host.geometry()) for n in v.group()}
+            self.orig = QRect(node.host.geometry())
+            return
         v.select(node.name if node else "", user=True)
         fpos = pos - v.form.pos()
         v.engine.store.set_setting("click_x", fpos.x())
@@ -268,6 +318,9 @@ class Overlay(QWidget):
             v.emit("OnContextMenu", {"click_x": fpos.x(), "click_y": fpos.y()})
         elif node is not None:
             self.mode, self.orig = "move", QRect(node.host.geometry())
+            self.origs = {node.name: QRect(self.orig)}
+        elif v.form.geometry().contains(pos):                  # the form itself: draw a box round what to select
+            self.mode, self.band = "band", QRect(pos, pos)
 
     def mouseMoveEvent(self, e):
         pos, v = e.position().toPoint(), self.view
@@ -290,10 +343,17 @@ class Overlay(QWidget):
                     node.host.setGeometry(x, y, w, h)
                 else:
                     node.host.move(x, y)
+        elif self.mode == "band":
+            self.band = QRect(self.start, pos).normalized()
         elif self.mode == "move":
             node = v.selected_node()
             if node is not None:
-                node.host.move(max(0, snap(self.orig.x() + d.x())), max(0, snap(self.orig.y() + d.y())))
+                x, y = max(0, snap(self.orig.x() + d.x())), max(0, snap(self.orig.y() + d.y()))
+                dx, dy = x - self.orig.x(), y - self.orig.y()       # (the group moves by what the one dragged moved)
+                for n in v.group():
+                    o = getattr(self, "origs", {}).get(n.name, self.orig if n is node else None)
+                    if o is not None:
+                        n.host.move(max(0, o.x() + dx), max(0, o.y() + dy))
         elif self.mode == "resize":
             node = v.selected_node()
             if node is not None:
@@ -318,6 +378,19 @@ class Overlay(QWidget):
         v, mode = self.view, self.mode
         self.mode = None
         node = v.selected_node()
+        if mode == "band":
+            band, self.band = self.band, None
+            inside = [n for n in v.node.children if n.host.isVisible() and band.contains(self.rect_of(n))]
+            if not inside:                                     # (only part-way over some: those)
+                inside = [n for n in v.node.children if n.host.isVisible() and band.intersects(self.rect_of(n))] \
+                    if band.width() > 4 or band.height() > 4 else []
+            v.select_group([n.name for n in inside])
+            self.update()
+            return
+        if mode == "move" and v.extra:                         # a group: each one where it was dropped, one change
+            v.commit_group({n.name: n.host.geometry() for n in v.group()},
+                           {k: o for k, o in getattr(self, "origs", {}).items()})
+            return
         if mode == "form":
             v.commit_form()
         elif mode in ("move", "resize") and node is not None:
@@ -335,6 +408,10 @@ class Overlay(QWidget):
     def mouseDoubleClickEvent(self, e):
         node = self.hit(e.position().toPoint())
         self.mode = None
+        if e.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier):     # (Ctrl+clicking quickly: still in and out)
+            if node is not None:
+                self.view.toggle(node.name)
+            return
         self.view.select(node.name if node else "", user=True)   # whatever was double-clicked; nothing = the form
         self.view.emit("OnDoubleClick", {"selected_control": node.name if node else ""})
 
@@ -343,7 +420,16 @@ class Overlay(QWidget):
         node = v.selected_node()
         step = v.grid if e.modifiers() & Qt.ShiftModifier else 1
         moves = {Qt.Key_Left: (-step, 0), Qt.Key_Right: (step, 0), Qt.Key_Up: (0, -step), Qt.Key_Down: (0, step)}
-        if node is not None and e.key() in moves:
+        if node is not None and e.key() in moves and v.extra:
+            dx, dy = moves[e.key()]
+            geos = {}
+            for n in v.group():
+                g = n.host.geometry()
+                g.moveTo(max(0, g.x() + dx), max(0, g.y() + dy))
+                geos[n.name] = g
+            v.commit_group(geos)
+            self.geometry_moved()
+        elif node is not None and e.key() in moves:
             dx, dy = moves[e.key()]
             g = node.host.geometry()
             g.moveTo(max(0, g.x() + dx), max(0, g.y() + dy))
@@ -360,6 +446,7 @@ class SurfaceView(QScrollArea):
         super().__init__()
         self.node, self.engine = node, node.engine
         self.handlers, self.selected, self.grid, self.show_grid, self.snap_on = {}, "", 8, True, True
+        self.extra = []                          # more selected with it (a box drawn round them, or Ctrl+click)
         self.setWidgetResizable(False)
         self.setFrameShape(QFrame.NoFrame)
         self.page = QWidget()
@@ -415,8 +502,41 @@ class SurfaceView(QScrollArea):
                 continue
             found = container = nxt
 
-    def select(self, name, user=False):
+    def group(self):
+        """Everything selected: the one the properties show first, then the rest of the group."""
+        names = [self.selected] + [n for n in self.extra if n != self.selected] if self.selected else []
+        found = {n.name: n for n in self.walk()}
+        return [found[n] for n in names if n in found]
+
+    def select_group(self, names):
+        names = [n for n in names if n]
+        self.extra = names[1:]
+        self.select(names[0] if names else "", user=True, keep_group=True)
+        self.overlay.update()
+
+    def toggle(self, name):
+        names = [n.name for n in self.group()]
+        if name in names:
+            names.remove(name)
+        else:
+            names.append(name)
+        self.select_group(names)
+
+    def commit_group(self, geos, origs=None):
+        """Several moved together: their new places, as one change (one step for Undo)."""
+        e = self.engine
+        for name, g in geos.items():
+            if origs is not None and origs.get(name) == g:
+                continue
+            e.cmd_SetProperty(name, "Canvas.Left", str(g.x()))
+            e.cmd_SetProperty(name, "Canvas.Top", str(g.y()))
+        self.overlay.update()
+        self.emit("OnChanged", {"selected_control": self.selected})
+
+    def select(self, name, user=False, keep_group=False):
         name = name or ""
+        if not keep_group:
+            self.extra = []
         changed = name != self.selected
         self.selected = name
         self.bring_forward(self.selected_node())
@@ -733,6 +853,7 @@ def surface_remove(parent, child):
     child.host.setParent(None)
     if view.selected == child.name:
         view.selected = ""
+    view.extra = [n for n in view.extra if n != child.name]
     view.overlay.update()
 
 
@@ -792,7 +913,10 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
           Prop("ShowGrid", "bool", "Behaviour", default="true", apply=set_show_grid),
           Prop("SnapToGrid", "bool", "Behaviour", default="true", apply=set_snap),
           Prop("Selected", "text", "Behaviour", apply=lambda n, v: n.widget.select(str(v or "")),
-               read=lambda n: n.widget.selected)])
+               read=lambda n: n.widget.selected),
+          # everything selected, comma-separated (a box drawn round several, or Ctrl+click): set it to choose a group
+          Prop("SelectedAll", "text", "Behaviour", apply=lambda n, v: n.widget.select_group([s.strip() for s in str(v or "").split(",")]),
+               read=lambda n: ",".join(k.name for k in n.widget.group()))])
 REGISTRY["DesignSurface"].design_only = True
 
 

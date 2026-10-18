@@ -1049,6 +1049,8 @@ class WindowWidget(QWidget):
 
     def changeEvent(self, e):
         super().changeEvent(e)
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow() and getattr(self, "on_activated", None):
+            self.on_activated()
         if e.type() == QEvent.WindowStateChange and self.bar_mode != "System":
             self.place_frame()                         # square corners and a thin edge when it fills the screen
             self.round_natively()
@@ -1080,6 +1082,8 @@ class WindowWidget(QWidget):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.place_frame()
+        if getattr(self, "on_resized", None) and self.isVisible():
+            self.on_resized()
 
 
 def make_window(node):
@@ -1272,7 +1276,8 @@ def window_icon(node, value):
 
 register(ControlType("Window", make_window, container=True, add_child=single_add, place_child=single_place,
                      remove_child=layout_remove, category="Containers",
-                     events={"OnOpened": None, "OnClosing": None, **KEY_EVENTS}),   # OnOpened/OnClosing fired by the engine
+                     events={"OnOpened": None, "OnClosing": None, "OnResized": None, "OnActivated": None,
+                             **KEY_EVENTS}),   # OnOpened, OnClosing, OnResized, OnActivated: fired by the engine
          COMMON, [Prop("Title", "text", "Common", apply=lambda n, v: n.widget.setWindowTitle(str(v or ""))),
                   Prop("Version", "text", "Common",                              # the app's own version; a phone shows it beside the app,
                        apply=lambda n, v: n.widget.bar.show_title() if getattr(n.widget, "bar", None) else None),   # and its own title bar beside the title

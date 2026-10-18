@@ -344,6 +344,14 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if is_designer(node.scope) and not getattr(w, "_f1", None):
             from PySide6.QtGui import QKeySequence, QShortcut
             w._f1 = QShortcut(QKeySequence("F1"), w, activated=self.help_here)          # help on what's selected
+        if node.props.get("OnResized") and hasattr(w, "set_title_bar"):     # (VB's Form_Resize: once it settles)
+            settle = QTimer(w)
+            settle.setSingleShot(True)
+            settle.setInterval(120)
+            settle.timeout.connect(lambda: self.fire(node, "OnResized", {"width": w.width(), "height": w.height() - w.bar_h()}))
+            w.on_resized = settle.start
+        if node.props.get("OnActivated") and hasattr(w, "set_title_bar"):   # (VB's Form_Activate: brought to the front)
+            w.on_activated = lambda: self.fire(node, "OnActivated", {})
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
@@ -1572,11 +1580,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if not getattr(self, "_undo_file", None):
             fd, self._undo_file = tempfile.mkstemp(prefix="vml-undo-", suffix=".vml")
             os.close(fd)
-        self._quiet = True
+        self._hush = True                                  # (no "saved" in the log for this)
         try:
             self.cmd_ExportVml(surface, self._undo_file)
         finally:
-            self._quiet = False
+            self._hush = False
         return Path(self._undo_file).read_text(encoding="utf-8")
 
     def _history(self, surface):
@@ -1634,15 +1642,16 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     def _restore(self, surface, text):
         surf = self._surface(surface)
         selected = str(self.cmd_GetProperty(surf.name, "Selected") or "")
+        group = [n for n in str(self.cmd_GetProperty(surf.name, "SelectedAll") or "").split(",") if n]
         Path(self._undo_file).write_text(text, encoding="utf-8")
-        self._restoring, self._quiet = True, True
+        self._restoring, self._hush = True, True
         try:
             self.cmd_ImportVml(self._undo_file, surface)
-            keep = selected if selected and self.find(selected) is not None else ""
-            surf.widget.select(keep)
-            surf.widget.emit("OnChanged", {"selected_control": keep})
+            keep = [n for n in (group or [selected]) if n and self.find(n) is not None]   # (a group stays a group)
+            surf.widget.select_group(keep)
+            surf.widget.emit("OnChanged", {"selected_control": keep[0] if keep else ""})
         finally:
-            self._restoring, self._quiet = False, False
+            self._restoring, self._hush = False, False
         return "true"
 
     # ---- cut, copy and paste: a control (and whatever's inside it), its properties and its scripts. On the
@@ -1658,12 +1667,23 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             spec["children"] = [self._control_spec(k) for k in node.children]
         return spec
 
-    def cmd_CopyControl(self, name):
-        """Copy a control (and what's inside it) for Paste."""
-        node = self.find(name)
-        if node is None or name.startswith("menu:") or name == "menubar":
+    def cmd_CopyControl(self, names):
+        """Copy controls (and what's inside them) for Paste: one name, or several comma-separated (a group).
+        One that's inside another being copied goes with it, not twice."""
+        nodes = [self.find(n.strip()) for n in str(names or "").split(",")
+                 if n.strip() and not n.strip().startswith("menu:") and n.strip() != "menubar"]
+        nodes = [n for n in nodes if n is not None]
+        def inside(n, others):
+            p = n.parent
+            while p is not None:
+                if p in others:
+                    return True
+                p = p.parent
+            return False
+        nodes = [n for n in nodes if not inside(n, nodes)]
+        if not nodes:
             return ""
-        self._clip, self._pastes = self._control_spec(node), 0
+        self._clip, self._pastes = [self._control_spec(n) for n in nodes], 0
         self.cmd_ClipboardSet(self.CLIP_MARK + json.dumps(self._clip))
         return "true"
 
@@ -1672,6 +1692,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if text.startswith(self.CLIP_MARK):
             try:
                 spec = json.loads(text[len(self.CLIP_MARK):])
+                spec = spec if isinstance(spec, list) else [spec]
                 if spec != getattr(self, "_clip", None):
                     self._clip, self._pastes = spec, 0
             except ValueError:
@@ -1696,23 +1717,27 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         return name
 
     def cmd_PasteControl(self, x="", y="", surface="Surface"):
-        """Paste what was copied: where the form was right-clicked (x, y), or a step down and right of the original."""
-        spec = self._clip_spec()
-        if not spec:
+        """Paste what was copied: where the form was right-clicked (x, y), or a step down and right of the original.
+        A group keeps its shape. What's pasted is selected (all of it), and its names are the answer, comma-separated."""
+        specs = self._clip_spec()
+        if not specs:
             return ""
         surf = self._surface(surface)
-        spec = json.loads(json.dumps(spec))
-        if x not in ("", None) and y not in ("", None):
-            spec["props"]["Canvas.Left"], spec["props"]["Canvas.Top"] = str(surf.widget.snap(float(x))), str(surf.widget.snap(float(y)))
+        specs = json.loads(json.dumps(specs))
+        pos = lambda s, k: int(float(s["props"].get(k, 0) or 0))
+        if x not in ("", None) and y not in ("", None):             # the group's top-left goes where it was clicked
+            left, top = min(pos(s, "Canvas.Left") for s in specs), min(pos(s, "Canvas.Top") for s in specs)
+            dx, dy = surf.widget.snap(float(x)) - left, surf.widget.snap(float(y)) - top
         else:
             self._pastes = getattr(self, "_pastes", 0) + 1
-            for k in ("Canvas.Left", "Canvas.Top"):
-                spec["props"][k] = str(int(float(spec["props"].get(k, 0) or 0)) + 16 * self._pastes)
-        name = self._make_from_spec(spec, surf.name)
-        if name:
-            surf.widget.select(name, user=True)
-            surf.widget.emit("OnChanged", {"selected_control": name})
-        return name
+            dx = dy = 16 * self._pastes
+        for s in specs:
+            s["props"]["Canvas.Left"], s["props"]["Canvas.Top"] = str(pos(s, "Canvas.Left") + dx), str(pos(s, "Canvas.Top") + dy)
+        names = [n for n in (self._make_from_spec(s, surf.name) for s in specs) if n]
+        if names:
+            surf.widget.select_group(names)
+            surf.widget.emit("OnChanged", {"selected_control": names[0]})
+        return ",".join(names)
 
     def cmd_DuplicateControl(self, name):
         node = self._node(name)
@@ -1849,7 +1874,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.menu_scripts = {}
         surf.design_scripts, surf.form_scripts = {}, {}
         surf.export_names, surf.carried = {}, []
-        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
+        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp", "OnResized", "OnActivated"):
             surf.props.pop(ev, None)
         for prop in ("FormBorder", "FormBorderThickness", "FormTitleBar", "FormTitleBackground", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight",
                      *(p for _, p in self.APP_KEYS)):
@@ -1895,7 +1920,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
                           ("BorderBrush", "FormBorder"), ("BorderThickness", "FormBorderThickness"), ("TitleBar", "FormTitleBar"), ("TitleBackground", "FormTitleBackground"),
                           *self.APP_KEYS,
-                          ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp")):
+                          ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp"),
+                          ("OnResized", "OnResized"), ("OnActivated", "OnActivated")):
             v = str(surf.props.get(prop, "") or "")
             if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false") \
                     and not (key == "TitleBar" and v == "Own"):
@@ -1960,7 +1986,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             if carry:
                 out.insert(out.index("", out.index(f"@Window {form}")), f"LinkPass={carry}")
         Path(os.path.expanduser(path)).write_text("\n".join(out) + "\n", encoding="utf-8")
-        if not getattr(self, "_quiet", False):
+        if not getattr(self, "_hush", False):
             log(f"saved {len(everything)} controls to {path}")
         return True
 
@@ -1980,7 +2006,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         rows, props, scripts = self.store.parse_form(os.path.expanduser(path))
         while PARSER_LOG:
             line = PARSER_LOG.pop(0)
-            if not getattr(self, "_quiet", False):        # (an undo or redo opens the design quietly)
+            if not getattr(self, "_hush", False):        # (an undo or redo opens the design quietly)
                 log(line)
         window = next((r for r in rows if r[2] == "Window"), None)
         canvas = next((r for r in rows if window and r[1] == window[0] and r[2] == "Canvas"), None)
@@ -2094,7 +2120,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 if v in scripts:
                     used.add(v)
         surf.design_scripts = {}
-        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
+        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp", "OnResized", "OnActivated"):
             handler = wp.get(ev)
             if handler and handler in scripts:
                 surf.design_scripts[ev] = scripts[handler]
@@ -2104,7 +2130,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.form_scripts = {n: v for n, v in scripts.items() if n not in used}
         if hasattr(surf.widget, "arrange_layers"):
             surf.widget.arrange_layers(fresh=True)
-        if not getattr(self, "_quiet", False):
+        if not getattr(self, "_hush", False):
             log(f"opened {path}: {count} controls")
         if notes:
             said = [f"Converted from a panel layout: {notes['controls']} controls placed, {notes['frames']} panels kept as "
@@ -2369,7 +2395,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         node = self._node(name)
         scripts = getattr(node, "design_scripts", {})
         if node.type.name == "DesignSurface":                # the form itself: the window's events
-            events = ["OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"]
+            events = ["OnOpened", "OnClosing", "OnResized", "OnActivated", "OnKeyDown", "OnKeyUp"]
             return json.dumps([{"name": e, "has_script": e in scripts} for e in events])
         events = sorted(e for e, hook in node.type.events.items() if hook is not None)
         if "OnClick" in events:                       # the one people want first, as in VB

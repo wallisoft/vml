@@ -104,6 +104,9 @@ function BuildToolsMenu()
     Vml("CreateControl", "MenuItem", "ToolsMenuEditor", "Tools")
     Vml("SetProperty", "ToolsMenuEditor", "Text", "Menu Editor...")
     Vml("SetEvent", "ToolsMenuEditor", "OnClick", "OpenMenuEditor")
+    Vml("CreateControl", "MenuItem", "ToolsScriptEditor", "Tools")
+    Vml("SetProperty", "ToolsScriptEditor", "Text", "Script Editor...")
+    Vml("SetEvent", "ToolsScriptEditor", "OnClick", "ToolsScriptEditor")
     Vml("CreateControl", "MenuItem", "ToolsDebugger", "Tools")
     Vml("SetProperty", "ToolsDebugger", "Text", "Debugger (F12)")
     Vml("SetEvent", "ToolsDebugger", "OnClick", "ToolsDebugger")
@@ -168,4 +171,12 @@ function ToolsAddMenu(...)
     else
         Vml("RunScript", "OpenMenuEditor")
     end
+end
+
+function ToolsScriptEditor(...)
+    -- the form's own scripts: OnOpened first (VB's Form_Load), then OnClosing, OnResized, OnActivated, the keys
+    Vml("SetSetting", "editor_control", "Surface")
+    Vml("SetSetting", "editor_event", "OnOpened")
+    Vml("FormOpenModal", "script-editor.vml")
+    Vml("RunScript", "SelectionChanged")
 end
