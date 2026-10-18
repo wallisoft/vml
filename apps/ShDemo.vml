@@ -1,0 +1,63 @@
+@Window ShDemo
+Title=Bash and PowerShell break mode
+Width=360
+Height=180
+
+@Canvas c
+Parent=ShDemo
+
+@Button btnBash
+Parent=c
+Canvas.Left=20
+Canvas.Top=20
+Width=140
+Height=32
+Content=Bash: add up
+OnClick=BashCalc
+
+@Button btnPs
+Parent=c
+Canvas.Left=180
+Canvas.Top=20
+Width=160
+Height=32
+Content=PowerShell: add up
+OnClick=PsCalc
+
+@TextBlock lbl
+Parent=c
+Canvas.Left=20
+Canvas.Top=80
+Width=320
+Height=24
+Text=
+
+@Script BashCalc
+Interpreter=bash
+<<SH
+add_square() {
+    local n=$1
+    total=$(( total + n * n ))
+}
+total=0
+for i in 1 2 3; do
+    add_square $i
+done
+vml SetProperty lbl Text "Bash total $total"
+echo $total
+SH
+
+@Script PsCalc
+Interpreter=powershell
+<<PS
+function Square($n) {
+    $r = $n * $n
+    return $r
+}
+$total = 0
+foreach ($i in 1..3) {
+    $total += Square $i
+}
+vml SetProperty lbl Text "PowerShell total $total"
+$total
+PS

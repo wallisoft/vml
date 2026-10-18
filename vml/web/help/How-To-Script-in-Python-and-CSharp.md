@@ -44,12 +44,25 @@ CS
 
 `State` is a dictionary the form's C# scripts share; `return` gives the script's answer.
 
-## Step 3: Debug them
+## Step 3: Bash and PowerShell
 
-Breakpoints and stepping work in Python and C# as in Lua ([How To Debug Your Scripts](How-To-Debug-Your-Scripts)): click the Script Editor's margin, run the form, and it stops there with its locals. Step into goes into your functions; Step over runs them.
+`Interpreter=bash` and `Interpreter=powershell` run a script as a program of its own, as a terminal would. They call back with the `vml` command: `vml SetProperty lblTotal Text "Total $total"`, and what they print is their answer.
+
+~~~
+@Script Tidy
+Interpreter=bash
+<<SH
+count=$(ls ~/Downloads | wc -l)
+vml SetProperty lblCount Text "$count files"
+SH
+~~~
+
+## Step 4: Debug them
+
+Breakpoints and stepping work in Python, C#, Bash and PowerShell as in Lua ([How To Debug Your Scripts](How-To-Debug-Your-Scripts)): click the Script Editor's margin, run the form, and it stops there with its locals. Step into goes into your functions; Step over runs them.
 
 ## Conclusion
 
-Lua for apps that go everywhere; Python for its packages; C# for .NET. All three share the form, the `Vml()` commands and the debugger.
+Lua for apps that go everywhere; Python for its packages; C# for .NET; Bash and PowerShell for the computer itself. All five share the form, the `Vml()` commands and the debugger. Try `apps/PyDemo.vml`, `apps/CsDemo.vml` and `apps/ShDemo.vml`.
 
 Next: [How To Style Controls with CSS](How-To-Style-Controls-with-CSS).

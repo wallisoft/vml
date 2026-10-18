@@ -70,7 +70,7 @@ __vml_hook = hook
 """
 
 
-STEPPABLE = ("lua", "csharp", "c#", "cs", "python", "python3", "py")
+STEPPABLE = ("lua", "csharp", "c#", "cs", "python", "python3", "py", "bash", "sh", "powershell", "pwsh")
 
 
 class SteppingCommands:

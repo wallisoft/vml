@@ -69,6 +69,49 @@ args = sys.argv[2:]
 """     # every Python script starts with this; argv[1] is the script name
 FROZEN = "__compiled__" in globals()      # running as a compiled (Nuitka) binary
 
+# Break mode in a Bash script: a DEBUG trap before each command, on one line before the script (so its lines keep
+# their numbers, less one). It decides here whether to stop; only a stop asks Visualised (vml DebugShellLine), and
+# waits for the answer: Continue, or a step. Its locals are the variables the script has made.
+BASH_DEBUG = ('__vml_n="$VML_DBG_NAME"; __vml_bp=" $VML_DBG_BREAKS "; __vml_m="$VML_DBG_MODE"; __vml_d=0; '
+              '__vml_v0=" $(compgen -v | tr \'\\n\' \' \') "; '
+              '__vml_t() { local __vml_l=$(( $1 - 1 )) __vml_dd=${#FUNCNAME[@]} __vml_s= __vml_x __vml_loc= __vml_a; '
+              'case "$__vml_m" in into) __vml_s=1;; over) (( __vml_dd <= __vml_d )) && __vml_s=1;; '
+              'out) (( __vml_dd < __vml_d )) && __vml_s=1;; esac; '
+              '[[ -z $__vml_s && "$__vml_bp" == *" $__vml_l "* ]] && __vml_s=1; [[ -z $__vml_s ]] && return 0; '
+              'for __vml_x in $(compgen -v); do [[ "$__vml_v0" == *" $__vml_x "* || $__vml_x == __vml* || $__vml_x == FUNCNAME || $__vml_x == BASH_* ]] && continue; '
+              '__vml_loc+="$__vml_x"$\'\\t\'string$\'\\t\'"${!__vml_x}"$\'\\n\'; done; '
+              '__vml_a=$(VML_TIMEOUT=0 vml DebugShellLine "$__vml_n" "$__vml_l" "$__vml_dd" "$__vml_loc" "${FUNCNAME[*]:1}"); '
+              '__vml_m=${__vml_a%%|*}; __vml_bp=" ${__vml_a#*|} "; __vml_bp=${__vml_bp//,/ }; __vml_d=$__vml_dd; }; '
+              'set -T; trap \'__vml_t $LINENO\' DEBUG')
+
+# Break mode in a PowerShell script: PowerShell's own breakpoints, one on every line, each asking whether to stop.
+# (Its state is global: a breakpoint's action runs in the script's scope, where $script: would be the script's own.)
+PS_DEBUG = r"""$global:__vml_n = $env:VML_DBG_NAME
+$global:__vml_bp = @($env:VML_DBG_BREAKS -split ' ' | Where-Object { $_ } | ForEach-Object { [int]$_ })
+$global:__vml_m = $env:VML_DBG_MODE
+$global:__vml_d = 0
+$global:__vml_v0 = @((Get-Variable).Name) + @('_', 'args', 'input', 'PSCmdlet', 'MyInvocation', 'PSBoundParameters', 'this', 'foreach', 'switch', 'PSItem')
+function __vml_t([int]$l) {
+    $dd = (Get-PSCallStack).Count
+    $s = $false
+    switch ($global:__vml_m) { 'into' { $s = $true } 'over' { $s = $dd -le $global:__vml_d } 'out' { $s = $dd -lt $global:__vml_d } }
+    if (-not $s -and ($global:__vml_bp -contains $l)) { $s = $true }
+    if (-not $s) { return }
+    $loc = @(Get-Variable -Scope 2 -ErrorAction SilentlyContinue | Where-Object { $global:__vml_v0 -notcontains $_.Name -and $_.Name -notlike '__vml*' -and $_.Value -isnot [System.Collections.IEnumerator] } |
+        ForEach-Object { "$($_.Name)`t$(if ($null -eq $_.Value) { 'null' } else { $_.Value.GetType().Name })`t$($_.Value)" }) -join "`n"
+    $fn = @(Get-PSCallStack | Select-Object -Skip 2 | ForEach-Object { $_.FunctionName } | Where-Object { $_ -and $_ -notlike '<*' }) -join ' '
+    $env:VML_TIMEOUT = '0'
+    $a = [string](vml DebugShellLine $global:__vml_n $l $dd $loc $fn)
+    $env:VML_TIMEOUT = ''
+    $parts = $a -split '\|', 2
+    $global:__vml_m = $parts[0]
+    $global:__vml_bp = @(($parts[1] -split ',') | Where-Object { $_ } | ForEach-Object { [int]$_ })
+    $global:__vml_d = $dd
+}
+$null = Set-PSBreakpoint -Script '@SCRIPT@' -Line (1..@LINES@) -Action { __vml_t $_.Line }
+& '@SCRIPT@' @args
+"""
+
 PLACEHOLDER = ControlType("Placeholder", make_box, container=True, add_child=box_add, place_child=box_place,
                           remove_child=layout_remove)
 SYSTEM_DIR = Path.home() / ".vml" / "system"
@@ -714,6 +757,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             r = self.lua_exec(content, args, label=name, origin=origin, key=self.lua_key(script=name))
             return "" if r is None else r
         if interp in ("bash", "sh"):
+            dbg = self.shell_debug(name)                     # (break mode: a DEBUG trap that stops where it should)
+            if dbg:
+                return self.shell(["bash", "-c", BASH_DEBUG + "\n" + content, name, *map(str, args)], name, origin, extra=dbg)
             return self.shell(["bash", "-c", content, name, *map(str, args)], name, origin)
         if interp in ("csharp", "c#", "cs"):
             return self.run_csharp(content, args, name, origin)
@@ -728,6 +774,18 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             if not exe:
                 log(f"{name}: PowerShell isn't installed on this machine")
                 return ""
+            dbg = self.shell_debug(name)
+            if dbg:                                          # (break mode: PowerShell's own breakpoints, on every line)
+                folder = Path(tempfile.mkdtemp(prefix="vml-ps-"))
+                script, wrapper = folder / f"{re.sub(r'[^A-Za-z0-9_]', '_', name)}.ps1", folder / "run.ps1"
+                script.write_text(content, encoding="utf-8-sig")
+                wrapper.write_text(PS_DEBUG.replace("@SCRIPT@", str(script).replace("'", "''"))
+                                   .replace("@LINES@", str(max(1, content.count("\n") + 1))), encoding="utf-8-sig")
+                try:
+                    return self.shell([exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(wrapper), *map(str, args)],
+                                      name, origin, extra=dbg)
+                finally:
+                    shutil.rmtree(folder, ignore_errors=True)
             return self.shell([exe, "-NoProfile", "-Command", content, *map(str, args)], name, origin)
         log(f"{name}: '{interp}' scripts aren't supported by this engine (Lua, Bash and PowerShell are)")
         return ""
@@ -819,25 +877,50 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             return found
         return sys.executable if "python" in Path(sys.executable).name.lower() else None
 
-    def shell(self, argv, label="shell", origin=None, timeout=120):
+    def shell_debug(self, name):
+        """The environment a Bash or PowerShell script is debugged with, or None (no breakpoints in it, no step)."""
+        breaks = sorted(self.breaks.get(name, ()))
+        into = self.step is not None and self.step[0] == "into"
+        if not breaks and not into:
+            return None
+        return {"VML_DBG_NAME": name, "VML_DBG_BREAKS": " ".join(map(str, breaks)), "VML_DBG_MODE": "into" if into else ""}
+
+    def cmd_DebugShellLine(self, name, line, depth, locals_="", callers=""):
+        """A Bash or PowerShell script stopped at a line (its debug hook asks): shown in the debugger till Continue or
+        a Step; the answer is what it's to do next, "mode|breakpoints" (into|3,7)."""
+        stack = [f"{name}\t{line}\t"] + [f"{name}\t\t{fn}" for fn in str(callers).split() if fn]
+        self._stepping_pause(name, int(line), int(depth), str(locals_), "\n".join(stack))
+        self._shell_stepping = self.step is not None
+        return f"{self.step[0] if self.step else ''}|{','.join(str(n) for n in sorted(self.breaks.get(name, ())))}"
+
+    def shell(self, argv, label="shell", origin=None, timeout=120, extra=None):
         """Run a program, answering its `vml ...` calls while it runs (as the form that started it)."""
         self._script_stack.append(origin)
         try:
             with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
                 try:
-                    proc = subprocess.Popen(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=self.env)
+                    proc = subprocess.Popen(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
+                                            env=dict(self.env, **extra) if extra else self.env)
                 except Exception as exc:
                     log(f"{label}: {exc}")
                     return ""
                 started = time.time()
                 while proc.poll() is None:
+                    asked = time.time()
                     self.api.poll()
+                    if time.time() - asked > 1:              # (stopped in the debugger meanwhile: that time doesn't count)
+                        started += time.time() - asked
                     if time.time() - started > timeout:
                         proc.kill()
                         log(f"{label}: stopped after {timeout}s")
                         break
                     time.sleep(0.003)
                 self.api.poll()
+                if extra and getattr(self, "_shell_stepping", False):   # (stepped to its end: stop at the next Lua line)
+                    self._shell_stepping = False
+                    if self.step is not None:
+                        self.step = ("into", 0)
+                        self._hook_all()
                 out.seek(0)
                 err.seek(0)
                 stdout = out.read().decode(errors="replace")
