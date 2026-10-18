@@ -19,7 +19,7 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 from PySide6.QtCore import QEvent, QObject, QTimer, QUrl, Qt
-from PySide6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
                                QSizeGrip, QSplitter, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
@@ -325,14 +325,18 @@ class MarkdownBox(QDialog):
         super().__init__(parent if parent is not None else QApplication.activeWindow())
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setWindowTitle(str(title or "Help"))
-        self.edge = dialogs.strong(edge or dialogs.NEUTRAL)
-        self.setObjectName("VmlBox")
+        from .theme import theme
+        self.edge = dialogs.strong(edge) if edge else QColor(theme().title_bg)   # (light, as the desktop's own title bars,
+        self.setObjectName("VmlBox")                                            #  unless a window's colour is given)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAttribute(Qt.WA_DeleteOnClose, not editable)
-        self.setStyleSheet(dialogs.box_sheet(self.edge) +
+        self.setStyleSheet(dialogs.box_sheet(dialogs.accent_for(edge)) +
                            " QToolButton#nav { border: none; border-radius: 6px; padding: 3px 8px; color: #374151; font-size: 14px; }"
                            " QToolButton#nav:hover { background: #F3F4F6; } QToolButton#nav:disabled { color: #D1D5DB; }"
-                           " QLineEdit#find { padding: 3px 8px; }")
+                           " QLineEdit#find { padding: 3px 8px; }"
+                           f" QDialog#VmlBox {{ background: {theme().surface}; }}"   # (a window, not a card: solid)
+                           f" QWidget#MdBand {{ background: {'#242424' if theme().dark else '#ECEFF3'};"
+                           f" border-top: 1px solid {theme().line}; border-bottom: 1px solid {theme().line}; }}")
         self.editable, self.save_to, self.saved = bool(editable), str(save_to or ""), None
         self.fixed_title = str(title or "")
         frame = QVBoxLayout(self)
@@ -341,7 +345,10 @@ class MarkdownBox(QDialog):
         self.bar = dialogs._Bar(self, self.windowTitle(), self.edge)
         frame.addWidget(self.bar)
 
-        tools = QHBoxLayout()
+        band = QWidget()                                 # (a shade darker than the page: the tools don't blend into it)
+        band.setObjectName("MdBand")
+        band.setAttribute(Qt.WA_StyledBackground, True)
+        tools = QHBoxLayout(band)
         tools.setContentsMargins(10, 6, 10, 6)
         tools.setSpacing(4)
 
@@ -366,7 +373,7 @@ class MarkdownBox(QDialog):
         self.find.returnPressed.connect(self.find_next)
         tools.addWidget(self.find)
         self.b_web = tool("↗", "Open in the browser", self.open_outside)
-        frame.addLayout(tools)
+        frame.addWidget(band)
 
         self.browser = QTextBrowser()
         style_browser(self.browser)
@@ -376,8 +383,11 @@ class MarkdownBox(QDialog):
         frame.addWidget(self.browser, 1)
         frame.addWidget(self.writer, 1)
 
-        foot = QHBoxLayout()
-        foot.setContentsMargins(16, 8, 4, 2)
+        foot_band = QWidget()
+        foot_band.setObjectName("MdBand")
+        foot_band.setAttribute(Qt.WA_StyledBackground, True)
+        foot = QHBoxLayout(foot_band)
+        foot.setContentsMargins(16, 6, 4, 2)
         self.status = QLabel("")
         self.status.setStyleSheet("color: #6B7280; font-size: 12px;")
         foot.addWidget(self.status, 1)
@@ -391,7 +401,7 @@ class MarkdownBox(QDialog):
             foot.addWidget(save)
             foot.addSpacing(8)
         foot.addWidget(QSizeGrip(self), 0, Qt.AlignBottom | Qt.AlignRight)
-        frame.addLayout(foot)
+        frame.addWidget(foot_band)
 
         QShortcut(QKeySequence.Find, self, activated=lambda: (self.find.setFocus(), self.find.selectAll()))
         QShortcut(QKeySequence("Alt+Left"), self, activated=self.reader.back)

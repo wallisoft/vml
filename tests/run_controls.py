@@ -86,10 +86,11 @@ def steps():
 
     # ---- the window's edge
     win = w("Controls")
-    check("a plain form has no edge of its own", win.edge_name(), "")
+    from vml.theme import theme
+    check("a plain form has an edge all the same: 2px, a quiet grey", (win.edge_name(), win.edge.width_px), (theme().edge.lower(), 2))
     eng.cmd_SetProperty("Controls", "BorderBrush", "#1E3A8A"); settle()
     img = win.grab().toImage()
-    check("BorderBrush draws a one-pixel edge round the window", (win.edge_name(), img.pixelColor(0, 100).name(), img.pixelColor(img.width() - 1, 100).name(), img.pixelColor(100, img.height() - 1).name(), img.pixelColor(3, 100).name()),
+    check("BorderBrush draws its edge round the window (2px unless it says)", (win.edge_name(), img.pixelColor(0, 100).name(), img.pixelColor(img.width() - 1, 100).name(), img.pixelColor(100, img.height() - 1).name(), img.pixelColor(3, 100).name()),
           ("#1e3a8a", "#1e3a8a", "#1e3a8a", "#1e3a8a", "#ffffff"))
     check("...without moving or shrinking what is inside", (w("ControlsCanvas").width(), w("ControlsCanvas").x()), (win.width(), 0))
     eng.cmd_SetProperty("Controls", "BorderThickness", "0"); settle()

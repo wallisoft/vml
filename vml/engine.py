@@ -318,9 +318,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if modal or truthy(node.props.get("Modal", "false")):
             w.setWindowModality(Qt.ApplicationModal)
         theme = self.themes.get(node.scope) or {}
-        if hasattr(w, "set_edge") and not node.props.get("BorderBrush") and node.props.get("BorderThickness") in (None, "") \
-                and theme.get("Background"):
-            w.set_edge(theme["Background"], 1)               # an edge the colour of its menu bar
+        if hasattr(w, "set_title_bar") and not node.props.get("TitleBar"):
+            w.set_title_bar("Own")                             # our own title bar unless the form asks for the desktop's
+        if hasattr(w, "set_edge") and not node.props.get("BorderBrush") and node.props.get("BorderThickness") in (None, ""):
+            from .theme import theme as desktop                # every form has an edge, 2px, unless it says otherwise:
+            w.set_edge(theme.get("Background") or desktop().edge, 2)     # its menu bar's colour, else a quiet grey
         if hasattr(w, "closeEvent") and isinstance(w, QWidget):
             w.closing = lambda by_user=False: self._closing(node, by_user)
         try:
@@ -1530,6 +1532,33 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.widget.emit("OnChanged", {"selected_control": name})
         return name
 
+    # ---- Tools > Add a control: controls stacked down the form's left, for those who never right-click
+    STACK_GAP, STACK_COL = 8, 180
+
+    def cmd_AddStackedControl(self, ctype, surface="Surface"):
+        """Put a control on the form, stacked down the left: top first, each under the last one added (a new column
+        when the form's full), started again when the last one added has gone. Then drag it where it belongs."""
+        surf = self._surface(surface)
+        x, y, last = getattr(self, "_stack", (16, 16, ""))
+        if not last or self.find(last) is None:
+            x, y = 16, 16
+        name = self.cmd_AddDesignControl(ctype, x, y, surface)
+        if not name:
+            return ""
+        if ctype not in ("Toolbar", "StatusBar"):          # (those go along the top and foot, not in the stack)
+            node = self.find(name)
+            try:
+                h = int(float(node.props.get("Height") or 0))
+            except ValueError:
+                h = 0
+            h = h or (node.widget.height() if node.widget is not None else 30)
+            y += h + self.STACK_GAP
+            if y + 24 > surf.widget.form.height():
+                x, y = x + self.STACK_COL, 16
+            self._stack = (x, y, name)
+        self.cmd_SetStatusText(f"Added {name}")
+        return name
+
     def cmd_DuplicateControl(self, name):
         node = self._node(name)
         surf = node.parent
@@ -1712,7 +1741,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                           ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp")):
             v = str(surf.props.get(prop, "") or "")
             if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false") \
-                    and not (key == "TitleBar" and v == "System"):
+                    and not (key == "TitleBar" and v == "Own"):
                 end = out.index("", out.index(f"@Window {form}"))   # the end of the window's own lines
                 out.insert(end, f"{key}={v}")
         first = ["Canvas.Left", "Canvas.Top", "Width", "Height"]
@@ -1870,7 +1899,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             if wp.get(key):
                 self.cmd_SetProperty(surf.name, prop, wp[key])
         if not wp.get("TitleBar"):
-            self.cmd_SetProperty(surf.name, "FormTitleBar", "System")     # (a form from before keeps the desktop's own)
+            self.cmd_SetProperty(surf.name, "FormTitleBar", "Own")        # (our own title bar is the default now)
         count, placed = 0, {canvas[0]: surf.name}
         for cid, parent_id, ctype, name in rows:               # parents always come before their children
             if parent_id not in placed:
@@ -3254,6 +3283,54 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         """Take a photo with the phone's camera and put it in an Image, then run handler. A computer asks for a
         picture file instead."""
         return self.cmd_PickPhoto(image, handler)
+
+    # --- Tools: the apps in the tools folder (~/.vml/tools), on the designer's Tools menu
+    def tools_folder(self):
+        return Path(os.path.expanduser("~")) / ".vml" / "tools"
+
+    def cmd_ToolsList(self):
+        """The tools, as JSON [{name, path}]: each .vml or .vmlproj in the tools folder, and each folder in it that
+        holds a .vmlproj or a .vml (a link to an app's folder will do: ln -s ~/projects/x/apps/bob ~/.vml/tools/Bob)."""
+        import json
+        found, root = [], self.tools_folder()
+        try:
+            entries = sorted(root.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            return "[]"
+        for p in entries:
+            if p.name.startswith("."):
+                continue
+            if p.is_file() and p.suffix.lower() in (".vml", ".vmlproj"):
+                found.append({"name": p.stem, "path": str(p)})
+            elif p.is_dir():
+                inside = sorted(p.glob("*.vmlproj")) or sorted(p.glob(f"{p.name}.vml"), key=str) or \
+                    sorted([q for q in p.glob("*.vml") if q.stem.lower() == p.name.lower()]) or sorted(p.glob("*.vml"))
+                if inside:
+                    found.append({"name": p.name, "path": str(inside[0])})
+        return json.dumps(found)
+
+    def cmd_ToolsFolder(self):
+        """The tools folder (made if it isn't there yet)."""
+        root = self.tools_folder()
+        root.mkdir(parents=True, exist_ok=True)
+        return str(root)
+
+    def cmd_RunApp(self, path):
+        """Start a form or project as an app of its own, in its own process: it carries on if this one closes."""
+        p = Path(os.path.expanduser(str(path)))
+        if not p.exists():
+            return ""
+        argv = [sys.executable, str(p)] if FROZEN else [sys.executable, "-m", "vml", str(p)]
+        env = dict(os.environ)
+        if not FROZEN:                                       # (from the source: it needs to find the vml package)
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent) + os.pathsep + env.get("PYTHONPATH", "")
+        try:
+            subprocess.Popen(argv, cwd=str(p.parent), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+            return "true"
+        except OSError as exc:
+            log(f"RunApp: {exc}")
+            return ""
 
     def cmd_FileOpenDialog(self, title="Open", ext="", start=""):
         kinds = [e.strip().lstrip(".") for e in str(ext).split(",") if e.strip()]       # "vml", or "vb,cs" for several

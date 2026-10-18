@@ -26,6 +26,7 @@ function DesignerInit(...)
     Vml("SetSetting", "dirty", "false")
     Vml("SetProperty", "Props", "Target", "Surface")
     Vml("RunScript", "BuildImportMenu")
+    BuildToolsMenu()
     BuildRecentMenu()
     Vml("RunScript", "ApplySettings")
     Vml("RunScript", "ApplyLicence")
@@ -67,4 +68,85 @@ function CheckUpdates(...)
         Vml("SetStatusText", "Visualised " .. u.current .. " is the latest")
         Vml("InfoDialog", "You have the latest Visualised (" .. u.current .. ").", "Updates")
     end
+end
+
+
+-- Tools: Add a control (stacked down the left) and the debugger; then every app in the tools folder (~/.vml/tools), each started as an app of its own; then the Markdown viewer
+-- and a way to the folder. Put a form, a project, or a link to an app's folder in there and it's on the menu.
+TOOLS = {}
+function BuildToolsMenu()
+    TOOLS = require("dkjson").decode(Vml("ToolsList")) or {}
+    -- Add a control: the same groups as the right-click Add menu; each one goes under the last
+    Vml("CreateControl", "MenuItem", "ToolsAdd", "Tools")
+    Vml("SetProperty", "ToolsAdd", "Text", "Add a control")
+    local group, n = "", 0
+    for _, t in ipairs(require("dkjson").decode(Vml("GetControlTypes"))) do
+        if t.group ~= group then
+            group, n = t.group, n + 1
+            if group == "Layout (advanced)" or group == "Your controls" then
+                Vml("CreateControl", "MenuItem", "ToolsAddSep_" .. n, "ToolsAdd")
+                Vml("SetProperty", "ToolsAddSep_" .. n, "IsSeparator", "true")
+            end
+            Vml("CreateControl", "MenuItem", "ToolsGroup_" .. n, "ToolsAdd")
+            Vml("SetProperty", "ToolsGroup_" .. n, "Text", group)
+        end
+        local item = "ToolsAdd_" .. t.name
+        Vml("CreateControl", "MenuItem", item, "ToolsGroup_" .. n)
+        Vml("SetProperty", item, "Text", t.name)
+        Vml("SetEvent", item, "OnClick", "ToolsAddControl(" .. t.name .. ")")
+    end
+    Vml("CreateControl", "MenuItem", "ToolsDebugger", "Tools")
+    Vml("SetProperty", "ToolsDebugger", "Text", "Debugger (F12)")
+    Vml("SetEvent", "ToolsDebugger", "OnClick", "ToolsDebugger")
+    Vml("CreateControl", "MenuItem", "ToolsSep0", "Tools")
+    Vml("SetProperty", "ToolsSep0", "IsSeparator", "true")
+    for i, t in ipairs(TOOLS) do
+        local item = "Tool_" .. i
+        Vml("CreateControl", "MenuItem", item, "Tools")
+        Vml("SetProperty", item, "Text", t.name)
+        Vml("SetProperty", item, "ToolTip", t.path)
+        Vml("SetEvent", item, "OnClick", "OpenTool(" .. i .. ")")
+    end
+    if #TOOLS == 0 then
+        Vml("CreateControl", "MenuItem", "ToolsNone", "Tools")
+        Vml("SetProperty", "ToolsNone", "Text", "No tools yet: put an app in the tools folder")
+        Vml("SetProperty", "ToolsNone", "IsEnabled", "false")
+    end
+    Vml("CreateControl", "MenuItem", "ToolsSep", "Tools")
+    Vml("SetProperty", "ToolsSep", "IsSeparator", "true")
+    Vml("CreateControl", "MenuItem", "ToolsMarkdown", "Tools")
+    Vml("SetProperty", "ToolsMarkdown", "Text", "Markdown viewer...")
+    Vml("SetEvent", "ToolsMarkdown", "OnClick", "ToolsMarkdown")
+    Vml("CreateControl", "MenuItem", "ToolsFolder", "Tools")
+    Vml("SetProperty", "ToolsFolder", "Text", "Open the tools folder")
+    Vml("SetEvent", "ToolsFolder", "OnClick", "ToolsFolder")
+end
+
+function OpenTool(...)
+    local t = TOOLS[tonumber((...)) or 0]
+    if not t then return end
+    if Vml("RunApp", t.path) == "true" then
+        Vml("SetStatusText", "Started " .. t.name)
+    else
+        Vml("InfoDialog", "Couldn't start " .. t.name .. ":\n" .. t.path, "Tools")
+    end
+end
+
+function ToolsMarkdown(...)
+    local path = Vml("FileOpenDialog", "Open a Markdown file", "md")
+    if path and path ~= "" then Vml("ShowMarkdown", path) end
+end
+
+function ToolsFolder(...)
+    Vml("OpenFolder", Vml("ToolsFolder"))
+    Vml("SetStatusText", "Tools are read when Visualised starts: restart it to see new ones on the menu")
+end
+
+function ToolsAddControl(...)
+    local name = Vml("AddStackedControl", (...))
+    if name ~= "" then Vml("SetStatusText", "Added " .. name .. ": drag it where it belongs (or right-click the form to add one there)") end
+end
+
+function ToolsDebugger(...)
+    Vml("ShowDebugger")
 end

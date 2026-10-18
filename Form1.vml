@@ -1,0 +1,120 @@
+#!/usr/bin/env vml
+# Form1: designed in the VML designer
+
+@Window Form1
+Title=Form1
+Width=640
+Height=503
+
+@DockPanel Form1Root
+Parent=Form1
+
+@TinyMenu Form1Menu
+Parent=Form1Root
+DockPanel.Dock=Top
+
+@Canvas Form1Canvas
+Parent=Form1Root
+Background=#ffffff
+
+@StatusBar StatusBar1
+Parent=Form1Canvas
+Canvas.Left=0
+Canvas.Top=454
+Width=640
+Height=26
+Anchor=Bottom,Left,Right
+Background=#F3F4F6
+Panels=Ready|{date}|{time}
+
+@TabStrip TabStrip1
+Parent=Form1Canvas
+Canvas.Left=48
+Canvas.Top=32
+Width=536
+Height=276
+BorderBrush=#CBD5E1
+BorderThickness=2
+CornerRadius=6
+SelectedIndex=0
+
+@TabPage TabPage1
+Parent=TabStrip1
+Header=Tab 1
+
+@TabPage TabPage2
+Parent=TabStrip1
+Header=Tab 2
+
+@MenuItem mnuFile
+Parent=MenuBar
+Text=&File
+
+@MenuItem mnuNew
+Parent=mnuFile
+Text=&New
+Shortcut=Ctrl+N
+
+@MenuItem mnuOpen
+Parent=mnuFile
+Text=&Open...
+Shortcut=Ctrl+O
+
+@MenuItem mnuSave
+Parent=mnuFile
+Text=&Save
+Shortcut=Ctrl+S
+
+@MenuItem mnuSaveAs
+Parent=mnuFile
+Text=Save &As...
+Shortcut=Ctrl+Shift+S
+
+@MenuItem mnuFileSep
+Parent=mnuFile
+IsSeparator=true
+
+@MenuItem mnuExit
+Parent=mnuFile
+Text=E&xit
+OnClick=mnuExit_Click
+
+@MenuItem mnuEdit
+Parent=MenuBar
+Text=&Edit
+
+@MenuItem mnuCut
+Parent=mnuEdit
+Text=Cu&t
+Shortcut=Ctrl+X
+
+@MenuItem mnuCopy
+Parent=mnuEdit
+Text=&Copy
+Shortcut=Ctrl+C
+
+@MenuItem mnuPaste
+Parent=mnuEdit
+Text=&Paste
+Shortcut=Ctrl+V
+
+@MenuItem mnuHelp
+Parent=MenuBar
+Text=&Help
+
+@MenuItem mnuAbout
+Parent=mnuHelp
+Text=&About...
+OnClick=mnuAbout_Click
+
+@Script mnuExit_Click
+Interpreter=lua
+<<END_MNUEXIT_CLICK
+Vml("CloseSelf")
+END_MNUEXIT_CLICK
+
+@Script mnuAbout_Click
+Interpreter=lua
+<<END_MNUABOUT_CLICK
+Vml("InfoDialog", "Form1\n\nVersion 1.0\nMade with VML", "About Form1")
+END_MNUABOUT_CLICK

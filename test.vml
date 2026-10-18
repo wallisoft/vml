@@ -1,0 +1,153 @@
+# Form1: designed in the VML designer
+
+@Window Form1
+Title=Form1
+Width=640
+Height=503
+
+@DockPanel Form1Root
+Parent=Form1
+
+@TinyMenu Form1Menu
+Parent=Form1Root
+DockPanel.Dock=Top
+
+@Canvas Form1Canvas
+Parent=Form1Root
+Background=#ffffff
+
+@TabStrip TabStrip1
+Parent=Form1Canvas
+Canvas.Left=48
+Canvas.Top=40
+Width=528
+Height=400
+BorderBrush=#CBD5E1
+BorderThickness=2
+CornerRadius=6
+SelectedIndex=4
+
+@TabPage TabPage3
+Parent=TabStrip1
+Header=Tab 1
+
+@TabPage TabPage4
+Parent=TabStrip1
+Header=Tab 2
+
+@TabPage TabPage5
+Parent=TabStrip1
+Header=Tab 3
+
+@TabPage TabPage6
+Parent=TabStrip1
+Header=Tab 4
+
+@TabPage TabPage7
+Parent=TabStrip1
+Header=Tab 5
+
+@TabPage TabPage1
+Parent=Form1Canvas
+Canvas.Left=234
+Canvas.Top=180
+Header=mytab1
+
+@TabPage TabPage2
+Parent=Form1Canvas
+Canvas.Left=234
+Canvas.Top=180
+Header=Tab 2
+
+@TabPage TabPage4
+Parent=Form1Canvas
+Canvas.Left=22
+Canvas.Top=0
+Header=Tab 2
+
+@Button Button1
+Parent=TabPage4
+Canvas.Left=144
+Canvas.Top=96
+Width=100
+Height=30
+Content=Button1
+
+@TabPage TabPage7
+Parent=Form1Canvas
+Canvas.Left=22
+Canvas.Top=0
+Header=Tab 5
+
+@MenuItem mnuFile
+Parent=MenuBar
+Text=&File
+
+@MenuItem mnuNew
+Parent=mnuFile
+Text=&New
+Shortcut=Ctrl+N
+
+@MenuItem mnuOpen
+Parent=mnuFile
+Text=&Open...
+Shortcut=Ctrl+O
+
+@MenuItem mnuSave
+Parent=mnuFile
+Text=&Save
+Shortcut=Ctrl+S
+
+@MenuItem mnuSaveAs
+Parent=mnuFile
+Text=Save &As...
+Shortcut=Ctrl+Shift+S
+
+@MenuItem mnuFileSep
+Parent=mnuFile
+IsSeparator=true
+
+@MenuItem mnuExit
+Parent=mnuFile
+Text=E&xit
+OnClick=mnuExit_Click
+
+@MenuItem mnuEdit
+Parent=MenuBar
+Text=&Edit
+
+@MenuItem mnuCut
+Parent=mnuEdit
+Text=Cu&t
+Shortcut=Ctrl+X
+
+@MenuItem mnuCopy
+Parent=mnuEdit
+Text=&Copy
+Shortcut=Ctrl+C
+
+@MenuItem mnuPaste
+Parent=mnuEdit
+Text=&Paste
+Shortcut=Ctrl+V
+
+@MenuItem mnuHelp
+Parent=MenuBar
+Text=&Help
+
+@MenuItem mnuAbout
+Parent=mnuHelp
+Text=&About...
+OnClick=mnuAbout_Click
+
+@Script mnuExit_Click
+Interpreter=lua
+<<END_MNUEXIT_CLICK
+Vml("CloseSelf")
+END_MNUEXIT_CLICK
+
+@Script mnuAbout_Click
+Interpreter=lua
+<<END_MNUABOUT_CLICK
+Vml("InfoDialog", "Form1\n\nVersion 1.0\nMade with VML", "About Form1")
+END_MNUABOUT_CLICK

@@ -20,7 +20,9 @@
 
 @Window Mountie
 Title=Mountie
-Version=1.2.2
+Version=1.2.3
+TitleBar=Own
+BorderBrush=#127A68
 Width=480
 Height=700
 Icon=mountie.png

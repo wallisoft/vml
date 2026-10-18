@@ -39,6 +39,7 @@ class Theme:
     title_ink: str
     title_align: str     # "left" or "center"
     corners: tuple       # (top, bottom) radius of a window
+    edge: str            # a form's edge when it doesn't choose one: a quiet mid grey
     popup_radius: int    # a menu's corners
 
     def corner(self):
@@ -113,7 +114,8 @@ def _work_out():
     if title_on_accent:
         title = accent
     corners = {"win11": (8, 8), "win10": (0, 0), "mac": (10, 10), "gnome": (12, 0)}.get(host, (8, 8))
-    return Theme(dark=dark, host=host, accent=accent, accent_ink=_ink_on(accent), surface=surface, band=band,
+    return Theme(dark=dark, host=host, edge="#6B6B6B" if dark else "#9CA3AF", accent=accent, accent_ink=_ink_on(accent),
+                 surface=surface, band=band,
                  line=line, ink=ink, muted=muted, title_bg=title, title_ink=_ink_on(title),
                  title_align="left" if host.startswith("win") else "center", corners=corners,
                  popup_radius={"win11": 8, "win10": 0, "mac": 6}.get(host, 10))

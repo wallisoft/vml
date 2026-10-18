@@ -9,7 +9,7 @@ here, so a property added once shows up everywhere.
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QColor as _QColor, QKeySequence, QPainter as _QPainter, QPen as _QPen, QPixmap as _QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout,
                                QLineEdit, QListWidget, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
@@ -742,13 +742,14 @@ def _ink_on(c):
 
 
 class _CapButton(QWidget):
-    """Minimise, maximise/restore or close, drawn as thin lines in the bar's own ink."""
+    """Minimise, maximise/restore or close, in the bar's own ink, as the desktop draws its own (paint_caption)."""
     W = 46
 
     def __init__(self, bar, kind):
         super().__init__(bar)
         self.bar, self.kind, self.hover = bar, kind, False
-        self.setFixedSize(self.W, TITLE_BAR_H)
+        from .theme import theme
+        self.setFixedSize(34 if theme().host in ("gnome", "linux") else self.W, TITLE_BAR_H)
         self.setCursor(Qt.ArrowCursor)
         self.setToolTip({"min": "Minimise", "max": "Maximise", "close": "Close"}[kind])
 
@@ -775,29 +776,49 @@ class _CapButton(QWidget):
 
     def paintEvent(self, e):
         g = _QPainter(self)
-        g.setRenderHint(_QPainter.Antialiasing, False)
-        ink = self.bar.ink
-        if self.hover:
-            g.fillRect(self.rect(), _QColor("#E81123") if self.kind == "close" else
-                       _QColor(ink.red(), ink.green(), ink.blue(), 36))
-            if self.kind == "close":
-                ink = _QColor("#FFFFFF")
-        g.setPen(_QPen(ink, 1))
-        cx, cy = self.width() // 2, self.height() // 2
-        if self.kind == "min":
-            g.drawLine(cx - 5, cy, cx + 5, cy)
-        elif self.kind == "max":
-            if self.window().isMaximized():            # restore: two windows, one behind the other
-                g.drawRect(cx - 5, cy - 3, 8, 8)
-                g.drawLine(cx - 3, cy - 5, cx + 5, cy - 5)
-                g.drawLine(cx + 5, cy - 5, cx + 5, cy + 3)
-            else:
-                g.drawRect(cx - 5, cy - 5, 10, 10)
-        else:
-            g.setRenderHint(_QPainter.Antialiasing, True)
-            g.drawLine(cx - 5, cy - 5, cx + 5, cy + 5)
-            g.drawLine(cx + 5, cy - 5, cx - 5, cy + 5)
+        paint_caption(g, self.rect(), self.kind, self.bar.ink, self.hover, self.window().isMaximized())
         g.end()
+
+
+def paint_caption(g, rect, kind, ink, hover=False, maximised=False):
+    """Minimise, maximise/restore or close, drawn the way this desktop draws its own: GNOME's in grey circles,
+    Windows' as plain marks with a red close on hover. (The designer's pretend title bar draws with this too.)"""
+    from .theme import theme
+    from PySide6.QtCore import QRectF
+    gnome = theme().host in ("gnome", "linux")
+    g.save()
+    g.setRenderHint(_QPainter.Antialiasing, True)
+    cx, cy = rect.center().x() + 0.5, rect.center().y() + 0.5
+    if gnome:
+        disc = _QColor(ink)
+        disc.setAlpha(46 if hover else 24)
+        g.setPen(Qt.NoPen)
+        g.setBrush(disc)
+        g.drawEllipse(QRectF(cx - 12, cy - 12, 24, 24))
+        size = 4
+    else:
+        if hover:
+            g.fillRect(rect, _QColor("#E81123") if kind == "close" else _QColor(ink.red(), ink.green(), ink.blue(), 36))
+            if kind == "close":
+                ink = _QColor("#FFFFFF")
+        size = 5
+    pen = _QPen(ink, 1.2 if gnome else 1)
+    pen.setCapStyle(Qt.RoundCap)
+    g.setPen(pen)
+    g.setBrush(Qt.NoBrush)
+    s = size
+    if kind == "min":
+        g.drawLine(QPointF(cx - s, cy + (2 if gnome else 0)), QPointF(cx + s, cy + (2 if gnome else 0)))
+    elif kind == "max":
+        if maximised:
+            g.drawRect(QRectF(cx - s, cy - s + 2, 2 * s - 2, 2 * s - 2))
+            g.drawPolyline([QPointF(cx - s + 2, cy - s), QPointF(cx + s, cy - s), QPointF(cx + s, cy + s - 2)])
+        else:
+            g.drawRect(QRectF(cx - s, cy - s, 2 * s, 2 * s))
+    else:
+        g.drawLine(QPointF(cx - s, cy - s), QPointF(cx + s, cy + s))
+        g.drawLine(QPointF(cx + s, cy - s), QPointF(cx - s, cy + s))
+    g.restore()
 
 
 class _TitleBar(QWidget):
@@ -1071,7 +1092,7 @@ def make_window(node):
 
 def window_edge(node, _value=None):
     p = node.props
-    width = thickness(p["BorderThickness"])[0] if p.get("BorderThickness") not in (None, "") else 1
+    width = thickness(p["BorderThickness"])[0] if p.get("BorderThickness") not in (None, "") else 2   # (2 unless it says)
     node.widget.set_edge(p.get("BorderBrush") or "", width)
 
 
@@ -1269,10 +1290,10 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                   Prop("WebFit", "choice", "Behaviour", options=("Window", "Fill")),  # as a web page with room to spare: a window in the middle at its own size, or fill the page  # as a web page on a phone: scale to the screen's width, or leave alone
                   Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window
                   Prop("BorderThickness", "thickness", "Appearance", apply=window_edge),
-                  # the title bar: the desktop's own (System), one drawn in the edge's colour so the edge goes round
-                  # it too (Own), or none (None: a splash, or a form that draws its own)
-                  Prop("TitleBar", "choice", "Appearance", options=("System", "Own", "None"), default="System",
-                       apply=lambda n, v: n.widget.set_title_bar(str(v or "System"))),
+                  # the title bar: ours (Own, the default: in the desktop's colours, with the edge round it too), the
+                  # desktop's own (System), or none (None: a splash, or a form that draws its own)
+                  Prop("TitleBar", "choice", "Appearance", options=("System", "Own", "None"), default="Own",
+                       apply=lambda n, v: n.widget.set_title_bar(str(v or "Own"))),
                   Prop("TitleBackground", "colour", "Appearance", apply=lambda n, v: n.widget.colour_bar()),   # (the edge's colour if not set)
                   Prop("TitleForeground", "colour", "Appearance", apply=lambda n, v: n.widget.colour_bar()),   # (black or white, whichever reads)
                   Prop("Resizable", "bool", "Behaviour", default="true"),        # applied by the engine when shown

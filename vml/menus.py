@@ -183,8 +183,13 @@ class VmlMenuBar(QMenuBar):
         m = self.menu_theme or {}
         g = QPainter(self)
         g.setRenderHint(QPainter.Antialiasing)
-        bg = QColor(m["Background"]) if m.get("Background") else self.palette().window().color()
-        g.fillRect(self.rect(), bg)
+        from .theme import theme
+        t = theme()
+        bg = QColor(m["Background"]) if m.get("Background") else QColor(t.surface)   # no theme: the desktop's surface,
+        g.fillRect(self.rect(), bg)                                                  # with a line under it
+        if not m.get("Background"):
+            g.setPen(QColor(t.line))
+            g.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
         ink = QColor(m.get("Foreground") or ("#111827" if bg.lightnessF() > 0.55 else "#F3F4F6"))
         if m.get("HoverBackground"):
             hover, hover_ink = QColor(m["HoverBackground"]), QColor(m.get("HoverForeground") or ink)

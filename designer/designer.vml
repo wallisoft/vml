@@ -387,6 +387,10 @@ Parent=Project
 Text=Rename Project...
 OnClick=ProjectRename
 
+@MenuItem Tools
+Parent=MenuBar
+Text=Tools
+
 @MenuItem Settings
 Parent=MenuBar
 Text=Settings

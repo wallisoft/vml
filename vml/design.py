@@ -29,7 +29,7 @@ PLACEMENT_ORDER = {"Canvas.Left": 0, "Canvas.Top": 1, "Anchor": 2}
 HIDDEN_IN_GRID = {"X", "Y", "Name", "IsHitTestVisible", "Focusable"}
 HANDLE = 7
 PAGE_MARGIN = 28
-TITLE_H = 30                 # the pretend window title bar above the form
+TITLE_H = 34                 # the pretend window title bar above the form (as tall as our own)
 
 
 def inert(widget):
@@ -120,48 +120,82 @@ class Overlay(QWidget):
             p.setBrush(QColor("white"))
             for h in self.handles(r).values():
                 p.drawRect(h)
+        self.paint_title_bar(p)
+        self.paint_edge(p)
         p.setPen(QPen(QColor("#9ca3af"), 1))
         p.setBrush(QColor("#9ca3af"))
         p.drawRect(self.form_grip())
-        self.paint_title_bar(p)
         p.end()
 
+    def paint_edge(self, p):
+        """The form's edge, over its outermost pixels as it is when it runs (so a status bar along the foot sits
+        inside it), and round the title bar too."""
+        colour_, width = getattr(self.view, "form_edge", (None, 0))
+        if colour_ is None or width <= 0:
+            return
+        v, f = self.view, self.view.form.geometry()
+        bar = str(v.node.props.get("FormTitleBar") or "Own") != "None"
+        top = f.top() - v.menu_h() - TITLE_H if bar else f.top() - v.menu_h()
+        r = QRect(f.left(), top, f.width(), f.bottom() - top + 1)
+        p.save()
+        p.setPen(Qt.NoPen)
+        p.setBrush(colour_)
+        for band in (QRect(r.left(), r.top(), r.width(), width), QRect(r.left(), r.bottom() - width + 1, r.width(), width),
+                     QRect(r.left(), r.top(), width, r.height()), QRect(r.right() - width + 1, r.top(), width, r.height())):
+            p.drawRect(band)
+        p.restore()
+
     def paint_title_bar(self, p):
-        """A window title bar above the form, so it looks like the window it will become."""
+        """A window title bar above the form, drawn as this desktop draws one (or as the form's own, TitleBar=Own),
+        so the form looks like the window it will become."""
+        from .registry import paint_caption
+        from .theme import theme
+        t = theme()
         v, f = self.view, self.view.form.geometry()
         bar = QRect(f.left(), f.top() - v.menu_h() - TITLE_H, f.width(), TITLE_H)
-        mode = str(v.node.props.get("FormTitleBar") or "System")
+        mode = str(v.node.props.get("FormTitleBar") or "Own")
         if mode == "None":                               # no title bar: just where it would be, faintly
             p.setPen(QPen(QColor("#9ca3af"), 1, Qt.DashLine))
             p.setBrush(Qt.NoBrush)
             p.drawRect(bar.adjusted(0, 0, -1, 0))
             p.drawText(bar.adjusted(12, 0, 0, 0), Qt.AlignVCenter | Qt.AlignLeft, "(no title bar)")
             return
-        from .registry import host_title_bar
-        own = QColor(str(v.node.props.get("FormTitleBackground") or host_title_bar()[0])) \
-            if mode == "Own" else None
-        ink = (QColor("#111827") if 0.299 * own.red() + 0.587 * own.green() + 0.114 * own.blue() > 150 else QColor("#FFFFFF")) \
-            if own is not None else QColor("#111827")
-        p.setPen(QPen(own if own is not None else QColor("#9ca3af"), 1))
-        p.setBrush(own if own is not None else QColor("#f3f4f6"))
-        p.drawRect(bar.adjusted(0, 0, -1, 0))
+        bg = QColor(str(v.node.props.get("FormTitleBackground") or t.title_bg)) if mode == "Own" else QColor(t.title_bg)
+        ink = QColor("#111827") if 0.299 * bg.red() + 0.587 * bg.green() + 0.114 * bg.blue() > 150 else QColor("#FFFFFF")
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        top = 0 if mode == "Own" else max(t.corners)     # (rounded at the top, as the desktop rounds its windows)
+        r = float(max(t.corners[0], 0))
+        from PySide6.QtGui import QPainterPath
+        from PySide6.QtCore import QRectF
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(bar).adjusted(0, 0, 0, r), r, r)
+        p.setClipRect(bar)
+        p.drawPath(path)
+        p.setClipping(False)
         title = str(v.node.props.get("FormTitle") or v.node.props.get("FormName") or "Form1")
+        font = p.font()
+        font.setBold(True)
+        p.setFont(font)
         p.setPen(ink)
-        p.drawText(bar.adjusted(12, 0, -120, 0), Qt.AlignVCenter | Qt.AlignLeft, title)
+        if t.title_align == "center":
+            p.drawText(bar.adjusted(100, 0, -100, 0), Qt.AlignCenter, title)
+        else:
+            p.drawText(bar.adjusted(12, 0, -150, 0), Qt.AlignVCenter | Qt.AlignLeft, title)
+        font.setBold(False)
+        p.setFont(font)
+        p.restore()
         resizable = str(v.node.props.get("FormResizable", "true")).lower() != "false"
-        x = bar.right() - 36
-        for glyph in ("close", "max", "min"):
-            r = QRect(x, bar.top() + 7, 16, 16)
-            p.setPen(QPen(QColor("#9ca3af") if glyph == "max" and not resizable else (ink if own is not None else QColor("#374151")), 1.4))
-            if glyph == "close":
-                p.drawLine(r.left() + 3, r.top() + 3, r.right() - 3, r.bottom() - 3)
-                p.drawLine(r.right() - 3, r.top() + 3, r.left() + 3, r.bottom() - 3)
-            elif glyph == "max":
-                p.setBrush(Qt.NoBrush)
-                p.drawRect(r.adjusted(3, 3, -3, -3))
-            else:
-                p.drawLine(r.left() + 3, r.center().y() + 3, r.right() - 3, r.center().y() + 3)
-            x -= 36
+        gnome = t.host in ("gnome", "linux")
+        w = 34 if gnome else 46
+        x = bar.right() - w - (4 if gnome else 0)
+        for kind in ("close", "max", "min"):
+            if kind == "max" and not resizable:
+                continue
+            paint_caption(p, QRect(x, bar.top(), w, bar.height()), kind, ink)
+            x -= w
 
     def geometry_moved(self):
         self.view.emit("OnGeometry", {})
@@ -330,7 +364,9 @@ class SurfaceView(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
         self.page = QWidget()
         self.page.setObjectName("DesignPage")
-        self.page.setStyleSheet("#DesignPage { background: #d4d7dd; }")
+        from .theme import theme
+        desk = "#1C1C1E" if theme().dark else "#E6E9EE"     # the desk the form sits on: quieter than a form, and its bar
+        self.page.setStyleSheet(f"#DesignPage {{ background: {desk}; }}")
         self.form = QWidget(self.page)
         self.form.setObjectName("DesignForm")
         self.form.setAttribute(Qt.WA_StyledBackground, True)
@@ -345,7 +381,7 @@ class SurfaceView(QScrollArea):
         self.setWidget(self.page)
         vp = self.viewport()                     # a palette colour, not a stylesheet: it can't cascade into the form
         pal = vp.palette()
-        pal.setColor(vp.backgroundRole(), QColor("#d4d7dd"))
+        pal.setColor(vp.backgroundRole(), QColor(desk))
         vp.setPalette(pal)
         vp.setAutoFillBackground(True)
         self.set_form_bg("#ffffff")
@@ -563,6 +599,7 @@ class SurfaceView(QScrollArea):
         self.menubar.menu_theme = st or None                # (its drop-downs ask the bar: vml/menus.py)
         self.menubar.set_height(num(st.get("Height"), 0) if st else 0)
         self.menubar.update()
+        self.set_form_bg(None)                              # (the edge follows the bar's colour)
         self.overlay.update()
 
     def reopen_menu_for(self, name):
@@ -615,8 +652,15 @@ class SurfaceView(QScrollArea):
         """The form's background (None: leave it as it is), and its edge, in its own colour if it has one."""
         if value is not None or not hasattr(self, "form_bg"):
             self.form_bg = colour(value or "#ffffff")
-        edge = colour(self.node.props.get("FormBorder") or "#9ca3af")
-        self.form.setStyleSheet(f"#DesignForm {{ background: {self.form_bg}; border: 1px solid {edge}; }}")
+        from .theme import theme                           # the edge it will have when it runs: 3px unless it says,
+        p = self.node.props                                 # its own colour, else its menu bar's, else the accent
+        edge = colour(p.get("FormBorder") or (self.menu_settings.get("Background") if getattr(self, "menu_settings", None) else "")
+                      or theme().edge)
+        width = int(num(p.get("FormBorderThickness"), 2)) if p.get("FormBorderThickness") not in (None, "") else 2
+        self.form_edge = (QColor(edge), width)              # drawn over the form's outermost pixels, as it is when it runs
+        self.form.setStyleSheet(f"#DesignForm {{ background: {self.form_bg}; border: none; }}")
+        if hasattr(self, "overlay"):
+            self.overlay.update()
 
     def commit(self, node, g, resized=False):
         e = self.engine
