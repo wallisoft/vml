@@ -16,7 +16,7 @@
 #   notification, and the GitHub tab shows every run and the steps of the
 #   one going now.
 #   Away from desk locks this computer and the Windows machines, and logs how
-#   long you were away (~/.local/share/bob/away.csv), today's total along the foot.
+#   long you were away (~/.local/share/bob/away.csv).
 #   Run it as a program: chmod +x Bob.vml, then ./Bob.vml
 #
 #   Made with Visualised.
@@ -24,7 +24,7 @@
 
 @Window Bob
 Title=Bob
-Version=2.4
+Version=2.5
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
 About=Bob builds your Visualised projects, here and on any machine you can reach over SSH. https://bob.vml.onl
@@ -248,7 +248,7 @@ Width=780
 Height=32
 Background=#E5E7EB
 Anchor=Bottom,Left,Right
-Panels=Ready|Away today 0m
+Panels=Ready
 
 # every few seconds while you're away: is the screen unlocked yet?
 @Timer tmrDesk
@@ -309,7 +309,6 @@ else
     Vml("SetSetting", "bob_projects", list)
     Vml("RunScript", "ShowProject", tostring(pick))
 end
-Vml("RunScript", "AwayToday")
 Vml("RunScript", "GhPoll")
 LUA
 
@@ -739,14 +738,6 @@ local m = math.floor(tonumber((...)) or 0)
 return m < 60 and (m .. "m") or string.format("%dh %02dm", math.floor(m / 60), m % 60)
 LUA
 
-@Script AwayToday
-Interpreter=lua
-<<LUA
--- Today's time away from the desk, from the log, along the foot
-local total = Vml("Shell", [[awk -F, -v d="$(date +%F)" '$1 == d { t += $4 } END { print t + 0 }' "$HOME/.local/share/bob/away.csv" 2>/dev/null]])
-Vml("SetProperty", "StatusBar", "Panels", "Ready|Away today " .. Vml("RunScript", "Minutes", ((total or "0"):gsub("%s+", ""))))
-LUA
-
 @Script Away
 Interpreter=lua
 <<LUA
@@ -786,7 +777,6 @@ local mins = math.floor((os.time() - start) / 60 + 0.5)
 Vml("Shell", string.format([[f="$HOME/.local/share/bob/away.csv"; mkdir -p "$(dirname "$f")"; [ -s "$f" ] || echo "date,away,back,minutes" > "$f"; echo "%s,%s,%s,%d" >> "$f"]],
     os.date("%Y-%m-%d", start), os.date("%H:%M", start), os.date("%H:%M"), mins))
 Vml("SetProperty", "StatusBar", "Text", "Welcome back: away " .. Vml("RunScript", "Minutes", mins) .. ", " .. os.date("%H:%M", start) .. " to " .. os.date("%H:%M"))
-Vml("RunScript", "AwayToday")
 LUA
 
 @Script GhPoll
