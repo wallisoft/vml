@@ -482,11 +482,20 @@ def stop(cfg_path, cfg, build):
             subprocess.call(["pkill", "-f", first], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+PRUNE = {".git", "build", "dist", "node_modules", "__pycache__", "venv", ".venv"}
+
+
+def walk(root=None):
+    """Every file under the repo, without going into .git, build output and the like (a build folder can hold
+    tens of thousands of files: looking through them made Bob slow to open)."""
+    for d, dirs, files in os.walk(root or REPO):
+        dirs[:] = [x for x in dirs if x not in PRUNE and not x.startswith(".") and not x.endswith((".build", ".dist"))]
+        for f in files:
+            yield Path(d) / f
+
+
 def recipes():
-    found = set()
-    for pattern in ("recipe.vml", "*.recipe.vml", "bob.json", "*.bob.json"):
-        found |= set(REPO.rglob(pattern))
-    return sorted(found)
+    return sorted(p for p in walk() if p.name in ("recipe.vml", "bob.json") or p.name.endswith((".recipe.vml", ".bob.json")))
 
 
 def projects():
@@ -515,7 +524,8 @@ def candidates():
             continue
         have.add(str((r.parent / (cfg.get("project") or "")).resolve()))
     out = []
-    for p in sorted(REPO.rglob("*.vmlproj")) + sorted(REPO.rglob("*.vml")):
+    files = list(walk())
+    for p in sorted(f for f in files if f.suffix == ".vmlproj") + sorted(f for f in files if f.suffix == ".vml"):
         rel = p.relative_to(REPO)
         if any(part in SKIP or part.startswith(".") for part in rel.parts[:-1]) or str(p.resolve()) in have:
             continue

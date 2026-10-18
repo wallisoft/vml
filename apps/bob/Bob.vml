@@ -23,8 +23,8 @@
 # ============================================================================
 
 @Window Bob
-Title=Bob
-Version=2.8
+Title=Bob build tool
+Version=2.9
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
 About=Bob builds your Visualised projects, here and on any machine you can reach over SSH. https://bob.vml.onl
@@ -280,6 +280,70 @@ Background=#E5E7EB
 Anchor=Bottom,Left,Right
 Panels=Ready
 
+# --- the splash, while Bob reads the recipes and asks the machines (the window shows at once) ---
+
+@Canvas splash
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=780
+Height=640
+Background=#1F2937
+Anchor=Top,Bottom,Left,Right
+
+@Image splashHat
+Parent=splash
+Canvas.Left=318
+Canvas.Top=150
+Width=144
+Height=144
+Source=bob.svg
+
+@TextBlock splashName
+Parent=splash
+Canvas.Left=190
+Canvas.Top=306
+Width=400
+Height=48
+FontSize=34
+FontWeight=Bold
+Foreground=#FFFFFF
+TextAlignment=Center
+Text=Bob
+
+@TextBlock splashWhat
+Parent=splash
+Canvas.Left=190
+Canvas.Top=354
+Width=400
+Height=26
+FontSize=15
+Foreground=#F59E0B
+TextAlignment=Center
+Text=build tool
+
+@TextBlock splashSays
+Parent=splash
+Canvas.Left=140
+Canvas.Top=420
+Width=500
+Height=24
+Foreground=#9CA3AF
+TextAlignment=Center
+Text=Loading the configuration…
+
+@Timer tmrStart
+Parent=c
+Interval=60
+IsEnabled=false
+OnTick=StartUp
+
+@Timer tmrSplash
+Parent=c
+Interval=1500
+IsEnabled=false
+OnTick=SplashDone
+
 # every few seconds while you're away: is the screen unlocked yet?
 @Timer tmrDesk
 Parent=c
@@ -322,6 +386,21 @@ LUA
 @Script Opened
 Interpreter=lua
 <<LUA
+-- Up at once with the splash; the reading and asking happen a moment later, with the window already showing
+Vml("SetProperty", "tmrStart", "IsEnabled", "true")
+LUA
+
+@Script SplashDone
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "tmrSplash", "IsEnabled", "false")
+if Vml("ControlExists", "splash") == "true" then Vml("SetProperty", "splash", "IsVisible", "false") end
+LUA
+
+@Script StartUp
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "tmrStart", "IsEnabled", "false")
 Vml("SetSetting", "bob_gh_state", "")
 Vml("SetSetting", "bob_gh_busy", "")
 Vml("SetSetting", "bob_stopping", "")
@@ -340,6 +419,14 @@ else
     Vml("RunScript", "ShowProject", tostring(pick))
 end
 Vml("RunScript", "GhPoll")
+-- the machines are asked in the background (ShowProject's Ping): say so, then out of the way
+local hosts = {}
+for i = 1, tonumber(Vml("GetSetting", "bob_n")) or 0 do
+    local m = Vml("GetSetting", "bob_machine_" .. i)
+    if Vml("GetSetting", "bob_host_" .. i) ~= "" and m ~= "" then hosts[#hosts + 1] = m end
+end
+Vml("SetProperty", "splashSays", "Text", #hosts > 0 and ("Testing connections: " .. table.concat(hosts, ", ") .. "…") or "Ready")
+Vml("SetProperty", "tmrSplash", "IsEnabled", "true")
 LUA
 
 @Script ShowProjects
@@ -523,6 +610,7 @@ LUA
 @Script Pinged
 Interpreter=lua
 <<LUA
+Vml("RunScript", "SplashDone")                          -- (the machines have answered: no need to wait longer)
 for i, state in (Vml("GetProperty", "txtPing", "Text") or ""):gmatch("(%d+):(%a+)") do
     if Vml("ControlExists", "host" .. i) == "true" then
         local m = Vml("GetSetting", "bob_machine_" .. i)

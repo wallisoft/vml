@@ -3584,7 +3584,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             for root in (here, repo):
                 bob = root / "apps" / "bob" / "Bob.vml"
                 if bob.is_file() and (root / "tools" / "bob" / "run.py").is_file():
-                    found.insert(0, {"name": "Bob, the builder", "path": str(bob), "builtin": True})
+                    found.insert(0, {"name": "Bob build tool", "path": str(bob), "builtin": True})
                     break
         return json.dumps(found)
 
