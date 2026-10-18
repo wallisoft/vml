@@ -722,7 +722,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             if not py:
                 log(f"{name}: Python isn't installed on this machine")
                 return ""
-            return self.shell([py, "-c", PYTHON_PRELUDE + content, name, *map(str, args)], name, origin)
+            return self.run_python(py, content, args, name, origin)
         if interp in ("powershell", "pwsh"):
             exe = shutil.which("pwsh") or shutil.which("powershell")
             if not exe:
@@ -731,6 +731,21 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             return self.shell([exe, "-NoProfile", "-Command", content, *map(str, args)], name, origin)
         log(f"{name}: '{interp}' scripts aren't supported by this engine (Lua, Bash and PowerShell are)")
         return ""
+
+    def run_python(self, py, code, args, label, origin=None):
+        """A Python script: in the app's Python worker (vml/pyhost.py: its form's variables kept, break mode), or, if
+        that won't start, in a Python of its own as before."""
+        from .pyhost import PythonHost
+        if getattr(self, "_python", None) is None or self._python.python != py:
+            self._python = PythonHost(self, log, py)
+        self._script_stack.append(origin)
+        try:
+            return self._python.run(code, args, self.lua_key(script=label), label)
+        except Exception as exc:
+            log(f"{label}: the Python worker didn't start ({exc}): running it on its own")
+            return self.shell([py, "-c", PYTHON_PRELUDE + code, label, *map(str, args)], label, origin)
+        finally:
+            self._script_stack.pop()
 
     def run_csharp(self, code, args, label, origin=None):
         from . import csharp

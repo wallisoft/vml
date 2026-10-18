@@ -10,7 +10,8 @@ Looking something up? The **[Reference](Reference)** lists every [control](Refer
 
 - [How To Build Your First Visualised App](How-To-Build-Your-First-Visualised-App): a tip calculator: a form, a button and a few lines of Lua.
 - [How To Build an App with Several Forms](How-To-Build-an-App-with-Several-Forms): a project with two forms and a shared module.
-- [How To Debug Your Scripts](How-To-Debug-Your-Scripts): see every call your scripts make, and their variables, while they run.
+- [How To Debug Your Scripts](How-To-Debug-Your-Scripts): every call your scripts make, their variables, and breakpoints to step through them, VB-style.
+- [How To Script in Python and C#](How-To-Script-in-Python-and-CSharp): scripts in Python (with your pip packages) and C#, kept as Lua is, and debugged the same way.
 - [How To Show Help and Documents with Markdown](How-To-Show-Help-and-Documents-with-Markdown): help, notes and terms inside your app, and an editor with a live preview.
 
 ## Making it look good

@@ -107,6 +107,8 @@ def build():
 
 
 class CSharpHost:
+    lang = "C#"
+
     def __init__(self, engine, log):
         self.engine, self.log, self.proc, self.next_id = engine, log, None, 0
 
@@ -142,7 +144,7 @@ class CSharpHost:
         if self.proc is None or self.proc.poll() is not None:
             self._start()
         self.next_id += 1
-        msg = {"type": "run", "id": self.next_id, "code": code, "args": [str(a) for a in args], "key": key}
+        msg = {"type": "run", "id": self.next_id, "code": code, "args": [str(a) for a in args], "key": key, "name": label}
         breaks = sorted(getattr(self.engine, "breaks", {}).get(label, ()))
         step = getattr(self.engine, "step", None)
         stepping = "into" if step and step[0] == "into" else None      # (over/out a Lua line: don't stop inside)
@@ -163,7 +165,9 @@ class CSharpHost:
             elif t == "pause":                             # stopped at a breakpoint or a step: the debugger shows it
                 name = msg.get("name") or label
                 locals_ = "\n".join("\t".join(str(x) for x in row) for row in msg.get("locals") or [])
-                self.engine._stepping_pause(name, msg.get("line", 0), msg.get("depth", 0), locals_, f"{name}\t{msg.get('line', 0)}\tC#")
+                stack = "\n".join("\t".join(str(x) for x in row) for row in msg.get("stack") or []) or \
+                    f"{name}\t{msg.get('line', 0)}\t{self.lang}"
+                self.engine._stepping_pause(name, msg.get("line", 0), msg.get("depth", 0), locals_, stack)
                 step = getattr(self.engine, "step", None)
                 self.engine._cs_stepping = step is not None
                 self._send({"type": "resume", "mode": step[0] if step else "",
@@ -177,6 +181,8 @@ class CSharpHost:
                         self.engine.step = ("into", 0)
                         self.engine._hook_all()
                 if msg.get("error"):
-                    self.log(f"C# error in {label}:\n{msg['error']}")
+                    self.log(f"{self.lang} error in {label}:\n{msg['error']}")
+                    if getattr(self.engine, "debugger", None) is not None or getattr(self.engine, "_tap", None) is not None:
+                        self.engine.debug_record("script error", (label,), msg["error"], error=True)
                     return ""
                 return msg.get("value", "")

@@ -14,9 +14,9 @@ runs then. Meanwhile the app's events and timers are held off (handled() says no
 middle of a script that's stopped. A debugger attached from another process (vml/debugger.py) does the same
 through DebugPauseInfo and DebugResume.
 
-Lua, and C# too: the C# host (csharp/VmlCSharpHost) compiles a script with a line hook while there are breakpoints
-or a step going, and its pauses come here the same way (vml/csharp.py). Python and shell scripts are programs of
-their own, and aren't stepped.
+Lua, C# and Python: the C# host (csharp/VmlCSharpHost) compiles a script with a line hook while there are
+breakpoints or a step going, the Python worker (vml/pyhost.py) follows one with sys.settrace, and their pauses come
+here the same way (vml/csharp.py). Shell scripts are programs of their own, and aren't stepped.
 """
 import json
 
@@ -68,6 +68,9 @@ local function hook(_, line)
 end
 __vml_hook = hook
 """
+
+
+STEPPABLE = ("lua", "csharp", "c#", "cs", "python", "python3", "py")
 
 
 class SteppingCommands:
@@ -171,8 +174,8 @@ class SteppingCommands:
         except Exception:
             rows = []
         for name, interp, content, instance, source in rows:
-            if str(interp or "lua").split()[0].lower() not in ("lua", "csharp", "c#", "cs") if str(interp or "").strip() else False:
-                continue                                     # (Lua and C# stop at breakpoints: the others run as programs)
+            if str(interp or "lua").split()[0].lower() not in STEPPABLE if str(interp or "").strip() else False:
+                continue                                     # (Lua, C# and Python stop at breakpoints: shell scripts run as programs)
             home = "instance:" + instance if instance else str(source or "")
             if not key or home == key or (key.startswith("instance:") and str(interp or "").split()[1:2] == [key[9:]]):
                 out.append({"name": name, "code": content or ""})
@@ -180,7 +183,7 @@ class SteppingCommands:
             for scope in list(self.scopes.values()):         # they run under, so a breakpoint can go in before F5
                 for n in list(scope.values()):
                     for event, (interp, code) in (getattr(n, "design_scripts", None) or {}).items():
-                        if str(interp or "lua").split()[0].lower() in ("lua", "csharp", "c#", "cs") and str(code).strip():
+                        if str(interp or "lua").split()[0].lower() in STEPPABLE and str(code).strip():
                             name = n.props.get(event) or (f"Form_{event}" if n.type.name == "DesignSurface" else f"{n.name}_{event}")
                             if not any(o["name"] == name for o in out):
                                 out.append({"name": name, "code": code})

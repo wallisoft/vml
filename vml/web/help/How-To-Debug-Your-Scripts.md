@@ -75,7 +75,7 @@ While it's stopped, the app waits: its clicks and timers are held, so nothing ru
 
 Good to know:
 
-- Breakpoints work in Lua and in C#. A C# script with a breakpoint (or reached by Step into) is compiled with a check before each line, so it stops, shows its locals, and steps just as Lua does; without breakpoints it runs at full speed as before. Scripts in Python, Bash or PowerShell run as programs of their own, so they aren't stepped, though their `Vml()` calls show in **Calls**.
+- Breakpoints work in Lua, C# and Python ([How To Script in Python and C#](How-To-Script-in-Python-and-CSharp)). A C# script with a breakpoint (or reached by Step into) is compiled with a check before each line; a Python one is followed line by line; either stops, shows its locals, and steps just as Lua does, and without breakpoints runs at full speed. Bash and PowerShell scripts run as programs of their own, so they aren't stepped, though their `Vml()` calls show in **Calls**.
 - Breakpoints last until Visualised closes. **Clear breakpoints** on the Stepping tab takes them all away.
 - With no breakpoints set, scripts run at full speed: Lua is only watched line by line while there's something to stop at.
 - Closing the debugger while a script is stopped lets it carry on.
