@@ -1,0 +1,41 @@
+@Window CsDemo
+Title=C# break mode
+Width=320
+Height=160
+
+@Canvas c
+Parent=CsDemo
+
+@Button btn
+Parent=c
+Canvas.Left=20
+Canvas.Top=20
+Width=120
+Height=32
+Content=Add up
+OnClick=Calc
+
+@TextBlock lbl
+Parent=c
+Canvas.Left=20
+Canvas.Top=70
+Width=250
+Height=24
+Text=
+
+@Script Calc
+Interpreter=csharp
+<<CS
+var total = 0;
+for (var i = 1; i <= 3; i++)
+{
+    total += Square(i);
+}
+Vml("SetProperty", "lbl", "Text", "Total " + total);
+int Square(int n)
+{
+    var r = n * n;
+    return r;
+}
+return total;
+CS

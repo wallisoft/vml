@@ -95,8 +95,9 @@ class VmlMenu(QMenu):
     def showEvent(self, e):
         super().showEvent(e)
         from PySide6.QtGui import QGuiApplication
-        if isinstance(self.parent(), QMenu) and QGuiApplication.platformName() != "wayland" \
-                and not getattr(self, "_dropped", False):
+        owners = self.menuAction().associatedObjects() if hasattr(self.menuAction(), "associatedObjects") else []
+        sub = isinstance(self.parent(), QMenu) or any(isinstance(o, QMenu) and o is not self for o in owners)
+        if sub and QGuiApplication.platformName() != "wayland" and not getattr(self, "_dropped", False):
             first = next((a for a in self.actions() if a.isVisible() and not a.isSeparator()), None)
             if first is not None:
                 self._dropped = True
@@ -182,7 +183,7 @@ class VmlMenuBar(QMenuBar):
         self.menu_theme = None
         self.setNativeMenuBar(False)
         k = _snug(self)
-        self.setStyleSheet("QMenuBar { background: transparent; border: none; padding: 2px 4px; spacing: 2px; }"
+        self.setStyleSheet("QMenuBar { background: transparent; border: none; padding: 2px 4px; spacing: 5px; }"
                            f" QMenuBar::item {{ padding: {round(6 * k)}px {round(7 * k)}px; margin: 2px 0px; }}")   # (close together, as VS Code's are)
 
     def addMenu(self, *args):                            # (menus made by addMenu("File") are ours too)

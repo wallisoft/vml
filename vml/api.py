@@ -90,6 +90,10 @@ class ApiServer:
                     else:
                         value = self.engine.vml_strict(req["cmd"], *req.get("args", []))
                         reply = {"ok": True, "value": "" if value is None else str(value)}
+                        if str(req["cmd"]).startswith("Debug"):
+                            pass                                 # (the debugger's own questions aren't the app's calls)
+                        elif getattr(self.engine, "debugger", None) is not None or getattr(self.engine, "_tap", None) is not None:
+                            self.engine.debug_record(req["cmd"], req.get("args", []), value)   # (a Python or shell script's call)
                 except Exception as exc:
                     reply = {"ok": False, "error": str(exc)}
                 try:

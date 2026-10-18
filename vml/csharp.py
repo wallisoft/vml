@@ -112,6 +112,15 @@ class CSharpHost:
 
     def _start(self):
         dotnet = find_dotnet()
+        try:                                             # (Visualised updated with a newer host: build it again, once)
+            src = project_dir() / "Program.cs"
+            if src.is_file() and host_dll().is_file() and src.stat().st_mtime > host_dll().stat().st_mtime and sdk_version():
+                self.log("C# host: updating it to this Visualised's (once, a few seconds)")
+                ok, said = build()
+                if not ok:
+                    self.log(f"C# host: couldn't update it ({said[-300:]}): using the one there")
+        except OSError:
+            pass
         self.proc = subprocess.Popen([dotnet, str(host_dll())], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      text=True, bufsize=1, encoding="utf-8", env=dict(os.environ, **QUIET), **_hidden())
         ready = self.proc.stdout.readline()
@@ -133,7 +142,13 @@ class CSharpHost:
         if self.proc is None or self.proc.poll() is not None:
             self._start()
         self.next_id += 1
-        self._send({"type": "run", "id": self.next_id, "code": code, "args": [str(a) for a in args], "key": key})
+        msg = {"type": "run", "id": self.next_id, "code": code, "args": [str(a) for a in args], "key": key}
+        breaks = sorted(getattr(self.engine, "breaks", {}).get(label, ()))
+        step = getattr(self.engine, "step", None)
+        stepping = "into" if step and step[0] == "into" else None      # (over/out a Lua line: don't stop inside)
+        if breaks or stepping:
+            msg["debug"] = {"name": label, "breaks": breaks, "step": stepping}
+        self._send(msg)
         while True:
             line = self.proc.stdout.readline()
             if not line:
@@ -145,9 +160,22 @@ class CSharpHost:
             if t == "call":
                 value = self.engine.vml(msg["cmd"], *msg.get("args", []))
                 self._send({"type": "result", "value": "" if value is None else str(value)})
+            elif t == "pause":                             # stopped at a breakpoint or a step: the debugger shows it
+                name = msg.get("name") or label
+                locals_ = "\n".join("\t".join(str(x) for x in row) for row in msg.get("locals") or [])
+                self.engine._stepping_pause(name, msg.get("line", 0), msg.get("depth", 0), locals_, f"{name}\t{msg.get('line', 0)}\tC#")
+                step = getattr(self.engine, "step", None)
+                self.engine._cs_stepping = step is not None
+                self._send({"type": "resume", "mode": step[0] if step else "",
+                            "breaks": sorted(getattr(self.engine, "breaks", {}).get(name, ()))})
             elif t == "log":
                 self.log(f"[{label}] {msg.get('text', '')}")
             elif t == "done":
+                if getattr(self.engine, "_cs_stepping", False):  # (stepped to the end of a C# script: stop at the next Lua line)
+                    self.engine._cs_stepping = False
+                    if getattr(self.engine, "step", None) is not None:
+                        self.engine.step = ("into", 0)
+                        self.engine._hook_all()
                 if msg.get("error"):
                     self.log(f"C# error in {label}:\n{msg['error']}")
                     return ""
