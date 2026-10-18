@@ -2232,10 +2232,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         """Bring a form made in another tool onto the design surface, using an importer from the library. kind: the
         importer's name ("WinForms", "VB6"), or "" to go by the file's ending. Returns "true" if it opened; the
         setting import_notes then says what was and was not brought across. (Pro.)"""
-        if not self.needs("import", "Importing forms from other tools"):
-            return ""
         source = Path(os.path.expanduser(str(path)))
         name = self.importer_for(kind, source)
+        free = bool(name and (self.importers().get(str(name).lower()) or {}).get("free"))   # (VB: free, the way in)
+        if not free and not self.needs("import", "Importing forms from other tools"):
+            return ""
         if name is None:
             raise ValueError(f"there's no importer for {kind or source.suffix or 'that kind of file'}")
         result = self.run_importer(name, "ImportForm", source.resolve().as_posix(), "") if source.is_file() \

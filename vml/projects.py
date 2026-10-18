@@ -423,10 +423,11 @@ class ProjectCommands:
         from the library. kind: the importer's name ("WinForms", "VB6"), or "" to go by the file's ending.
         Returns JSON: project (the new .vmlproj), summary, and what else the importer reports; or "" if nothing
         could be imported (the setting import_notes then says why). (Pro.)"""
-        if not self.needs("import", "Importing projects from other tools"):
-            return ""
         source, target = Path(os.path.expanduser(str(path))), Path(os.path.expanduser(str(folder)))
         name = self.importer_for(kind, source, project=True)
+        free = bool(name and (self.importers().get(str(name).lower()) or {}).get("free"))   # (VB: free, the way in)
+        if not free and not self.needs("import", "Importing projects from other tools"):
+            return ""
         if name is None:
             why = f"there's no importer for {source.suffix or 'that kind of'} projects"
         elif not source.is_file():
