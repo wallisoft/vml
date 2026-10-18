@@ -29,6 +29,23 @@ Press its **Release** button and Bob asks first, then:
 
 **Stop** cancels the run on GitHub. A release is never part of **Build all**: only its own button does it.
 
+## Fixes, without the clean build
+
+A clean build on GitHub takes a quarter of an hour, and a fix (1.5.1) rarely needs one: you've built and tried it here already. Name the builds whose results should go up, and a fix is released from them:
+
+```
+@Build GitHub
+Text=GitHub release
+Kind=github
+Tag=v{version}
+Workflow=Release
+Assets=Linux, Windows
+AssetsRepo=wallisoft/vml-releases
+AssetFiles=packaging/install.sh
+```
+
+Raise the version to 1.5.1, commit, press **Build all**, then **Release**. Bob checks each named build is newer than your last commit, tags `v1.5.1`, and publishes those files as a **pre-release**. Apps find it (a fix shows in their About box, with Install); the website's downloads, which follow GitHub's *latest* release, stay on the last clean one. A version ending in .0 still goes the clean way, through the workflow.
+
 ## Good to know
 
 - **Raise the version first.** A tag is made once: if GitHub has the tag already, Bob follows its run rather than making another. If the tag is in your folder but not on GitHub (an old one), Bob says so: remove it (`git tag -d mountie-v1.2.3`) or raise the version.

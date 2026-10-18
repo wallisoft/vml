@@ -409,10 +409,12 @@ class AppBar(QWidget):
         frozen = not (sys.argv and sys.argv[0].endswith(".py"))
         if not frozen:
             return "This Visualised runs from its source code: update it with git."
+        tag = str((self.info or {}).get("tag") or "")           # the release found (a fix is a pre-release)
+        at = (lambda name: f"https://github.com/wallisoft/vml-releases/releases/download/{tag}/{name}") if tag else None
         if sys.platform.startswith("win"):
             exe = os.path.join(tempfile.mkdtemp(prefix="vml-update-"), "Visualised-Setup.exe")
             with open(exe, "wb") as f:
-                f.write(_get(SETUP_EXE, 512 * 1024 * 1024))
+                f.write(_get(at("Visualised-Setup.exe") if at else SETUP_EXE, 512 * 1024 * 1024))
             subprocess.Popen([exe, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], close_fds=True)
             QApplication.quit()
             return ""
@@ -420,8 +422,9 @@ class AppBar(QWidget):
         if sys.platform.startswith("linux") and Path(sys.executable).resolve().is_relative_to(home.resolve()):
             script = os.path.join(tempfile.mkdtemp(prefix="vml-update-"), "install.sh")
             with open(script, "wb") as f:
-                f.write(_get(INSTALL_SH, 1024 * 1024))
-            r = subprocess.run(["bash", script], capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)
+                f.write(_get(at("install.sh") if at else INSTALL_SH, 1024 * 1024))
+            env = dict(os.environ, **({"VML_URL": at("vml-linux-x86_64.tar.gz")} if at else {}))
+            r = subprocess.run(["bash", script], capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL, env=env)
             if r.returncode != 0:
                 return (r.stdout + r.stderr)[-600:]
             subprocess.Popen([str(home / "vml")] + sys.argv[1:], cwd=os.getcwd())

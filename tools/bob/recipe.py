@@ -38,6 +38,13 @@ Bob's recipes and machines, written in VML: what to build and where, read the sa
     Tag=mountie-v{version}
     Workflow=Mountie release
 
+    A fix (1.2.5, not 1.2.0) needn't wait for GitHub's clean build: with Assets, Bob tags it and publishes the
+    named builds' results from here as a pre-release, which apps offer as a fix (the website stays on the last
+    clean release):
+    Assets=Linux, Windows                (the builds whose results go up: build them first)
+    AssetsRepo=wallisoft/vml-releases    (where the release goes, if not the project's own repo)
+    AssetFiles=packaging/install.sh      (more files to go up with them)
+
     @Build Windows                       a script of the project's own, run here: {host} {install} {version}
     Machine=a8
     Kind=script
@@ -137,8 +144,11 @@ def recipe_from_vml(text):
         for k in ("Run", "Results", "Platform", "Tag", "Workflow", "Repo"):
             if q.get(k):
                 build[k.lower()] = q[k]
-        if q.get("Platforms"):
-            build["platforms"] = _items(q["Platforms"])
+        if q.get("AssetsRepo"):
+            build["assets_repo"] = q["AssetsRepo"]
+        for k, key in (("Platforms", "platforms"), ("Assets", "assets"), ("AssetFiles", "asset_files")):
+            if q.get(k):
+                build[key] = _items(q[k])
         cfg["builds"].append(build)
     return cfg
 
@@ -182,6 +192,12 @@ def recipe_to_vml(cfg, title=None):
                 out.append(f"{k.capitalize()}={b[k]}")
         if b.get("platforms"):
             out.append("Platforms=" + ", ".join(b["platforms"]))
+        if b.get("assets"):
+            out.append("Assets=" + ", ".join(b["assets"]))
+        if b.get("assets_repo"):
+            out.append(f"AssetsRepo={b['assets_repo']}")
+        if b.get("asset_files"):
+            out.append("AssetFiles=" + ", ".join(b["asset_files"]))
     return "\n".join(out) + "\n"
 
 

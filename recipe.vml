@@ -20,3 +20,6 @@ Text=GitHub release
 Kind=github
 Tag=v{version}
 Workflow=Release
+Assets=Linux, Windows
+AssetsRepo=wallisoft/vml-releases
+AssetFiles=packaging/install.sh

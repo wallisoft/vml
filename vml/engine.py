@@ -1177,11 +1177,16 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if out["store"]:                     # a copy from the Microsoft Store is kept up to date by the Store
             return json.dumps(out)
         try:
-            req = urllib.request.Request("https://api.github.com/repos/wallisoft/vml-releases/releases/latest",
+            # every release, the fixes too (pre-releases, made by Bob from a tested build): the newest wins
+            req = urllib.request.Request("https://api.github.com/repos/wallisoft/vml-releases/releases?per_page=20",
                                          headers={"User-Agent": f"Visualised/{__version__}"})
             with urllib.request.urlopen(req, timeout=6) as r:
-                out["latest"] = str(json.load(r).get("tag_name", "")).lstrip("v")
+                releases = [x for x in json.load(r) if not x.get("draft")]
             number = lambda v: tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+            best = max(releases, key=lambda x: number(str(x.get("tag_name", ""))) or (0,), default={})
+            out["tag"] = str(best.get("tag_name", ""))
+            out["latest"] = out["tag"].lstrip("v")
+            out["url"] = best.get("html_url") or out["url"]
             out["newer"] = bool(out["latest"]) and number(out["latest"]) > number(__version__)
         except Exception as exc:
             out["error"] = str(exc)

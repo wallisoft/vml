@@ -24,7 +24,7 @@
 
 @Window Bob
 Title=Bob
-Version=2.7
+Version=2.8
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
 About=Bob builds your Visualised projects, here and on any machine you can reach over SSH. https://bob.vml.onl
@@ -587,6 +587,10 @@ if Vml("GetSetting", "bob_kind_" .. i) == "github" then          -- a release: s
     if out ~= nil and out:find(tag, 1, true) then                -- that version's out already: a look at its run, not a release
         yes = Vml("ConfirmDialog", tag .. " is on GitHub already, so this would be no new release: Bob just shows how its run went.\n\n" ..
             "For a new release, raise the version first. Look at " .. tag .. "'s run?", "Released already")
+    elseif b.fix then                                           -- a fix: from the builds here, no clean build
+        yes = Vml("ConfirmDialog", "Release " .. Vml("GetSetting", "bob_name") .. " " .. (info.version or "") .. " as a fix?\n\n" ..
+            "Bob tags it " .. tag .. " and publishes this computer's builds of it as a pre-release: no clean build on GitHub. " ..
+            "Apps offer it in About; the website keeps the last clean release.\n\nBuild it here first (Build all).", "Release a fix")
     else
         yes = Vml("ConfirmDialog", "Release " .. Vml("GetSetting", "bob_name") .. " " .. (info.version or "") .. " on GitHub, as " .. tag .. "?\n\n" ..
             "Bob pushes what's committed (if GitHub hasn't got it), tags it, and follows the run it starts.", "Release")

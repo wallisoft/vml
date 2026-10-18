@@ -273,6 +273,8 @@ def github(cfg_path, cfg, build):
     tag = (build.get("tag") or "v{version}").format(version=version)
     workflow = build.get("workflow") or ""
     repo = ["-R", build["repo"]] if build.get("repo") else []
+    if incremental(build, version):
+        return fix_release(cfg_path, cfg, build, version, tag)
     step(f"{cfg.get('name')} {version}: a release on GitHub, tag {tag}")
     if subprocess.call(["gh", "auth", "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
         fail("the gh command isn't signed in (or isn't installed): see Bob's help, Getting started")
@@ -339,6 +341,68 @@ def github(cfg_path, cfg, build):
         fail(f"the run ended {info.get('conclusion')}: {run.get('url')}")
     s = int(time.time() - STARTED)
     step(f"Green on GitHub in {s // 60}m {s % 60:02d}s: {run.get('url')}")
+
+
+def incremental(build, version):
+    """A fix (1.5.1, not 1.5.0) in a recipe that names Assets: released from the builds here, no clean build."""
+    nums = re.findall(r"\d+", str(version))
+    return bool(build.get("assets")) and len(nums) >= 3 and nums[2] != "0"
+
+
+def fix_release(cfg_path, cfg, build, version, tag):
+    """Tag a fix and publish this computer's builds of it as a pre-release: apps see it as a fix (About offers it),
+    while releases/latest, and so the website's downloads, stay on the last clean release."""
+    step(f"{cfg.get('name')} {version}: a fix, released from the builds here (tag {tag}, no clean build)")
+    if subprocess.call(["gh", "auth", "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        fail("the gh command isn't signed in (or isn't installed): see Bob's help, Getting started")
+    if git("status", "--porcelain", "--untracked-files=no"):
+        fail("there are changes not committed yet: commit them, then build, then release")
+    since = int(git("log", "-1", "--format=%ct") or "0")
+    files, builds = [], {b["name"]: b for b in cfg.get("builds") or []}
+    for name in build["assets"]:
+        b = builds.get(name)
+        if not b:
+            fail(f"Assets names {name!r}, but the recipe has no build called that")
+        d = Path(os.path.expanduser(b["results"])) if b.get("results") else out_dir(cfg, b)
+        found = [f for f in sorted(d.glob("*")) if f.is_file() and not f.name.endswith((".log", ".json"))] if d.is_dir() else []
+        if not found:
+            fail(f"nothing from the {name} build yet ({d}): build it first")
+        stale = [f.name for f in found if f.stat().st_mtime < since]
+        if stale:
+            fail(f"the {name} build is older than the last commit ({', '.join(stale[:3])}): build it again first")
+        files += found
+    base = Path(cfg_path).parent
+    for extra in build.get("asset_files") or []:
+        f = (base / extra).resolve()
+        if not f.is_file():
+            fail(f"AssetFiles names {extra}, which isn't there")
+        files.append(f)
+    for f in files:
+        print(f"    {f.name}  ({f.stat().st_size // 1024:,} KB)", flush=True)
+    if not git("ls-remote", "--tags", "origin", f"refs/tags/{tag}", check=False):
+        if git("tag", "-l", tag):
+            fail(f"the tag {tag} is here but not on GitHub: an old one? Remove it (git tag -d {tag}) or raise the version")
+        branch = git("rev-parse", "--abbrev-ref", "HEAD")
+        if (git("rev-list", "--count", f"origin/{branch}..HEAD", check=False) or "0") != "0":
+            step(f"Pushing {branch} first")
+            git("push", "origin", branch)
+        step(f"Tagging {git('rev-parse', '--short', 'HEAD')} as {tag} and pushing it")
+        git("tag", tag)
+        git("push", "origin", tag)
+    repo = build.get("assets_repo") or build.get("repo") or ""
+    where = ["-R", repo] if repo else []
+    if subprocess.call(["gh", "release", "view", tag, *where], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        step(f"{tag} is released already: nothing new to do. Raise the version for the next fix.")
+        return
+    step(f"Publishing {tag} as a pre-release" + (f" on {repo}" if repo else ""))
+    notes = (f"A fix, built by Bob from {git('rev-parse', '--short', 'HEAD')} (not GitHub's clean build). "
+             f"Apps offer it in About; the website's downloads stay on the last clean release.")
+    r = subprocess.run(["gh", "release", "create", tag, *where, "--prerelease", "--title", f"{cfg.get('name')} {version}",
+                        "--notes", notes, *[str(f) for f in files]], capture_output=True, text=True)
+    if r.returncode != 0:
+        fail("GitHub wouldn't take the release: " + (r.stderr or r.stdout).strip()[-300:])
+    s = int(time.time() - STARTED)
+    step(f"Released {tag} in {s // 60}m {s % 60:02d}s: {r.stdout.strip()}")
 
 
 def run_build(cfg_path, cfg, build, install):
@@ -543,6 +607,7 @@ def main():
                         "os": m.get("os") or "", "kind": b.get("kind", "compiled"),
                         "uses_install": "{install}" in b.get("run", ""),
                         "tag": (b.get("tag") or "v{version}").format(version=version_of(cfg_path, cfg)) if b.get("kind") == "github" else "",
+                        "fix": b.get("kind") == "github" and incremental(b, version_of(cfg_path, cfg)),
                         "out": os.path.expanduser(b["results"]) if b.get("results") else str(out_dir(cfg, b))})
         print(json.dumps({"name": cfg.get("name"), "version": version_of(cfg_path, cfg), "builds": out,
                           "machines_file": str(MACHINES)}))
