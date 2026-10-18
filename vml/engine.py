@@ -124,6 +124,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
     def __init__(self, db_path=None, lua_paths=()):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(True)
+        # one look on every desktop: Qt's own Fusion style (in the desktop's light or dark), rather than whatever
+        # each desktop's Qt happens to pick (QT_STYLE_OVERRIDE or -style still win, for anyone who wants theirs)
+        if not os.environ.get("QT_STYLE_OVERRIDE") and "-style" not in sys.argv and not getattr(self.app, "_vml_styled", False):
+            self.app.setStyle("Fusion")
+            self.app._vml_styled = True
         if SCROLLBARS not in (self.app.styleSheet() or ""):
             self.app.setStyleSheet((self.app.styleSheet() or "") + SCROLLBARS)
         if db_path is None:
@@ -1559,6 +1564,156 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         self.cmd_SetStatusText(f"Added {name}")
         return name
 
+    # ---- undo and redo: the whole design, as the VML it saves as, after each change (the save and open that are
+    # used every day, so a step back is exactly what was there). New and Open start the list again.
+    UNDO_MAX = 200
+
+    def _design_text(self, surface):
+        if not getattr(self, "_undo_file", None):
+            fd, self._undo_file = tempfile.mkstemp(prefix="vml-undo-", suffix=".vml")
+            os.close(fd)
+        self._quiet = True
+        try:
+            self.cmd_ExportVml(surface, self._undo_file)
+        finally:
+            self._quiet = False
+        return Path(self._undo_file).read_text(encoding="utf-8")
+
+    def _history(self, surface):
+        if not hasattr(self, "_undo"):
+            self._undo = {}
+        return self._undo.setdefault(surface, {"states": [], "at": -1})
+
+    def cmd_UndoReset(self, surface="Surface"):
+        """Start the undo list again from the design as it is (a new form, one just opened)."""
+        if getattr(self, "_restoring", False):
+            return ""
+        h = self._history(surface)
+        h["states"], h["at"] = [self._design_text(surface)], 0
+        return ""
+
+    def cmd_UndoMark(self, surface="Surface"):
+        """The design has changed: remember it, so Undo can come back to it (and forget what Redo had)."""
+        if getattr(self, "_restoring", False):
+            return ""
+        h = self._history(surface)
+        text = self._design_text(surface)
+        if h["states"] and h["states"][h["at"]] == text:          # (a click that only selected something)
+            return ""
+        if not h["states"]:
+            h["states"], h["at"] = [text], 0
+            return ""
+        del h["states"][h["at"] + 1:]
+        h["states"].append(text)
+        if len(h["states"]) > self.UNDO_MAX:
+            del h["states"][0]
+        h["at"] = len(h["states"]) - 1
+        return ""
+
+    def cmd_CanUndo(self, surface="Surface"):
+        return "true" if self._history(surface)["at"] > 0 else "false"
+
+    def cmd_CanRedo(self, surface="Surface"):
+        h = self._history(surface)
+        return "true" if 0 <= h["at"] < len(h["states"]) - 1 else "false"
+
+    def cmd_Undo(self, surface="Surface"):
+        h = self._history(surface)
+        if h["at"] <= 0:
+            return ""
+        h["at"] -= 1
+        return self._restore(surface, h["states"][h["at"]])
+
+    def cmd_Redo(self, surface="Surface"):
+        h = self._history(surface)
+        if h["at"] >= len(h["states"]) - 1:
+            return ""
+        h["at"] += 1
+        return self._restore(surface, h["states"][h["at"]])
+
+    def _restore(self, surface, text):
+        surf = self._surface(surface)
+        selected = str(self.cmd_GetProperty(surf.name, "Selected") or "")
+        Path(self._undo_file).write_text(text, encoding="utf-8")
+        self._restoring, self._quiet = True, True
+        try:
+            self.cmd_ImportVml(self._undo_file, surface)
+            keep = selected if selected and self.find(selected) is not None else ""
+            surf.widget.select(keep)
+            surf.widget.emit("OnChanged", {"selected_control": keep})
+        finally:
+            self._restoring, self._quiet = False, False
+        return "true"
+
+    # ---- cut, copy and paste: a control (and whatever's inside it), its properties and its scripts. On the
+    # clipboard as text too, so it pastes into another Visualised designer.
+    CLIP_MARK = "VML-CONTROLS:"
+
+    def _control_spec(self, node):
+        ctype = getattr(node, "template", None) or node.type.name
+        spec = {"type": ctype, "name": node.name,
+                "props": {k: v for k, v in node.props.items() if k not in ("Name", "X", "Y")},
+                "scripts": {ev: list(s) for ev, s in getattr(node, "design_scripts", {}).items()}, "children": []}
+        if node.type.container and not getattr(node, "template", None):
+            spec["children"] = [self._control_spec(k) for k in node.children]
+        return spec
+
+    def cmd_CopyControl(self, name):
+        """Copy a control (and what's inside it) for Paste."""
+        node = self.find(name)
+        if node is None or name.startswith("menu:") or name == "menubar":
+            return ""
+        self._clip, self._pastes = self._control_spec(node), 0
+        self.cmd_ClipboardSet(self.CLIP_MARK + json.dumps(self._clip))
+        return "true"
+
+    def _clip_spec(self):
+        text = self.cmd_ClipboardGet() or ""
+        if text.startswith(self.CLIP_MARK):
+            try:
+                spec = json.loads(text[len(self.CLIP_MARK):])
+                if spec != getattr(self, "_clip", None):
+                    self._clip, self._pastes = spec, 0
+            except ValueError:
+                pass
+        return getattr(self, "_clip", None)
+
+    def cmd_CanPaste(self):
+        return "true" if self._clip_spec() else "false"
+
+    def _make_from_spec(self, spec, parent):
+        name = self._unique(spec["type"])
+        if self.cmd_CreateControl(spec["type"], name, parent) == "Failed":
+            return ""
+        for k, v in spec["props"].items():
+            if k in ("Text", "Content") and v == spec["name"]:   # (a button still called Button1 becomes Button2)
+                v = name
+            self.cmd_SetProperty(name, k, v)
+        for event, (interp, code) in spec.get("scripts", {}).items():
+            self.cmd_SetDesignScript(name, event, interp, code)
+        for kid in spec.get("children", []):
+            self._make_from_spec(kid, name)
+        return name
+
+    def cmd_PasteControl(self, x="", y="", surface="Surface"):
+        """Paste what was copied: where the form was right-clicked (x, y), or a step down and right of the original."""
+        spec = self._clip_spec()
+        if not spec:
+            return ""
+        surf = self._surface(surface)
+        spec = json.loads(json.dumps(spec))
+        if x not in ("", None) and y not in ("", None):
+            spec["props"]["Canvas.Left"], spec["props"]["Canvas.Top"] = str(surf.widget.snap(float(x))), str(surf.widget.snap(float(y)))
+        else:
+            self._pastes = getattr(self, "_pastes", 0) + 1
+            for k in ("Canvas.Left", "Canvas.Top"):
+                spec["props"][k] = str(int(float(spec["props"].get(k, 0) or 0)) + 16 * self._pastes)
+        name = self._make_from_spec(spec, surf.name)
+        if name:
+            surf.widget.select(name, user=True)
+            surf.widget.emit("OnChanged", {"selected_control": name})
+        return name
+
     def cmd_DuplicateControl(self, name):
         node = self._node(name)
         surf = node.parent
@@ -1706,6 +1861,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         for k, v in (("FormName", "Form1"), ("FormTitle", "Form1"), ("FormWidth", "640"), ("FormHeight", "480"),
                      ("FormBackground", "#ffffff"), ("FormTitleBar", "Own")):    # a new form wears its own title bar
             self.cmd_SetProperty(surf.name, k, v)
+        if not getattr(self, "_importing", False):
+            self.cmd_UndoReset(surf.name)
 
     # What a form says about the app it is, in its @Window, and the designer's name for each: read when a form is
     # opened and written back when it is saved, so a form keeps its version, picture and the rest through the designer.
@@ -1803,15 +1960,28 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             if carry:
                 out.insert(out.index("", out.index(f"@Window {form}")), f"LinkPass={carry}")
         Path(os.path.expanduser(path)).write_text("\n".join(out) + "\n", encoding="utf-8")
-        log(f"saved {len(everything)} controls to {path}")
+        if not getattr(self, "_quiet", False):
+            log(f"saved {len(everything)} controls to {path}")
         return True
 
     def cmd_ImportVml(self, path, surface="Surface"):
         """Open a VML form for editing: its Window becomes the form, its Canvas's controls the design."""
+        self._importing = True
+        try:
+            done = self._import_vml(path, surface)
+        finally:
+            self._importing = False
+        if done is not False:
+            self.cmd_UndoReset(surface)                     # (a form just opened: nothing to undo yet)
+        return done
+
+    def _import_vml(self, path, surface="Surface"):
         surf = self._surface(surface)
         rows, props, scripts = self.store.parse_form(os.path.expanduser(path))
         while PARSER_LOG:
-            log(PARSER_LOG.pop(0))
+            line = PARSER_LOG.pop(0)
+            if not getattr(self, "_quiet", False):        # (an undo or redo opens the design quietly)
+                log(line)
         window = next((r for r in rows if r[2] == "Window"), None)
         canvas = next((r for r in rows if window and r[1] == window[0] and r[2] == "Canvas"), None)
         if window is not None and canvas is None:            # a form with a menu: Window > DockPanel > Canvas
@@ -1934,7 +2104,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.form_scripts = {n: v for n, v in scripts.items() if n not in used}
         if hasattr(surf.widget, "arrange_layers"):
             surf.widget.arrange_layers(fresh=True)
-        log(f"opened {path}: {count} controls")
+        if not getattr(self, "_quiet", False):
+            log(f"opened {path}: {count} controls")
         if notes:
             said = [f"Converted from a panel layout: {notes['controls']} controls placed, {notes['frames']} panels kept as "
                     f"frames, {notes['dissolved']} layout-only panels removed."]

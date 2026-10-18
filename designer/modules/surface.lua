@@ -10,9 +10,10 @@ end
 
 function ShowSurfaceMenu(...)
     local selected = Vml("GetProperty", "Surface", "Selected") ~= ""
-    for _, item in ipairs({"CtxEditScript", "CtxDuplicate", "CtxFront", "CtxBack", "CtxDelete"}) do
+    for _, item in ipairs({"CtxEditScript", "CtxCut", "CtxCopy", "CtxDuplicate", "CtxFront", "CtxBack", "CtxDelete"}) do
         Vml("SetMenuItemEnabled", item, selected)
     end
+    Vml("SetMenuItemEnabled", "CtxPaste", Vml("CanPaste") == "true")
     Vml("SetMenuItemEnabled", "CtxAddMenu", Vml("GetDesignMenu", "Surface") == "[]")
     Vml("ShowContextMenu", "SurfaceMenu")
 end
@@ -24,6 +25,7 @@ function SelectionChanged(...)
 end
 
 function DesignChanged(...)
+    Vml("UndoMark")
     Vml("SetSetting", "dirty", "true")
     Vml("RunScript", "UpdateTitle")
     Vml("RunScript", "ShowGeometry")
@@ -92,4 +94,56 @@ end
 function SendSelectedToBack(...)
     local sel = Vml("GetProperty", "Surface", "Selected")
     if sel ~= "" then Vml("SendToBack", sel) end
+end
+
+-- ---------------------------------------------------------------- undo, redo, cut, copy, paste
+function UndoDesign(...)
+    if Vml("Undo") == "true" then
+        Vml("SetSetting", "dirty", "true")
+        Vml("RunScript", "UpdateTitle")
+        Vml("SetStatusText", "Undone")
+    else
+        Vml("SetStatusText", "Nothing to undo")
+    end
+end
+
+function RedoDesign(...)
+    if Vml("Redo") == "true" then
+        Vml("SetSetting", "dirty", "true")
+        Vml("RunScript", "UpdateTitle")
+        Vml("SetStatusText", "Redone")
+    else
+        Vml("SetStatusText", "Nothing to redo")
+    end
+end
+
+local function selected_control()
+    local sel = Vml("GetProperty", "Surface", "Selected")
+    if sel == "" or sel == "menubar" or sel:sub(1, 5) == "menu:" then return "" end
+    return sel
+end
+
+function CopySelected(...)
+    local sel = selected_control()
+    if sel == "" then return Vml("SetStatusText", "Select a control to copy") end
+    Vml("CopyControl", sel)
+    Vml("SetStatusText", "Copied " .. sel .. ": Ctrl+V to paste")
+end
+
+function CutSelected(...)
+    local sel = selected_control()
+    if sel == "" then return Vml("SetStatusText", "Select a control to cut") end
+    Vml("CopyControl", sel)
+    Vml("RunScript", "DeleteSelected")
+    Vml("SetStatusText", "Cut " .. sel .. ": Ctrl+V to paste")
+end
+
+function PasteControl(...)
+    local name = Vml("PasteControl")
+    Vml("SetStatusText", name ~= "" and ("Pasted " .. name) or "Nothing to paste: copy a control first")
+end
+
+function PasteHere(...)
+    local name = Vml("PasteControl", Vml("GetSetting", "click_x"), Vml("GetSetting", "click_y"))
+    Vml("SetStatusText", name ~= "" and ("Pasted " .. name) or "Nothing to paste: copy a control first")
 end

@@ -139,7 +139,8 @@ class Debugger(WindowWidget):
         self.var_timer.timeout.connect(lambda: self.isVisible() and self.tabs.currentIndex() == 1 and self.show_vars(keep=True))
         self.var_timer.start()
         QShortcut(QKeySequence("F12"), self, activated=self.hide)
-        from .theme import theme
+        from .theme import theme, tool_sheet
+        self.setStyleSheet(tool_sheet())
         self.set_title_bar("Own")
         self.set_edge(theme().edge, 2)
         col.setContentsMargins(8, 8 + self.bar_h(), 8, 8)    # (under the title bar)

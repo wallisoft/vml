@@ -33,6 +33,7 @@ function DesignerInit(...)
     Vml("SetMenuItemText", "HelpVersion", "Visualised " .. Vml("VmlVersion"))
     Vml("RunScript", "ApplyCSharp")
     Vml("RunScript", "RefreshProject")
+    Vml("UndoReset")                                  -- the form as it opens: what Undo comes back to
     Vml("SetStatusText", "Right-click the form to add a control")
 end
 

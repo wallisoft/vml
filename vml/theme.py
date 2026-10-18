@@ -140,6 +140,30 @@ def theme():
     return _current
 
 
+def tool_sheet(t=None):
+    """How a tool window of ours (the debugger, say) draws its everyday controls: a light card, rounded buttons and
+    boxes, tabs as a quiet strip, the accent for what's chosen; the same on every desktop."""
+    t = t or theme()
+    hover = "rgba(255,255,255,0.06)" if t.dark else "rgba(17,24,39,0.05)"
+    return (
+        f"QWidget {{ color: {t.ink}; }}"
+        f" QTabWidget::pane {{ border: 1px solid {t.line}; border-radius: 8px; background: {t.surface}; top: -1px; }}"
+        f" QTabBar::tab {{ background: transparent; color: {t.muted}; padding: 7px 16px; margin-right: 2px;"
+        f" border: none; border-bottom: 2px solid transparent; }}"
+        f" QTabBar::tab:selected {{ color: {t.ink}; border-bottom: 2px solid {t.accent}; font-weight: 600; }}"
+        f" QTabBar::tab:hover {{ color: {t.ink}; }}"
+        f" QPushButton {{ background: {t.surface}; border: 1px solid {t.line}; border-radius: 6px; padding: 5px 14px; }}"
+        f" QPushButton:hover {{ background: {hover}; }}"
+        f" QPushButton:checked, QPushButton:pressed {{ background: {t.accent}; color: {t.accent_ink}; border-color: {t.accent}; }}"
+        f" QLineEdit, QComboBox {{ background: {t.surface}; border: 1px solid {t.line}; border-radius: 6px; padding: 5px 8px; }}"
+        f" QLineEdit:focus, QComboBox:focus {{ border-color: {t.accent}; }}"
+        f" QTreeWidget, QListWidget {{ background: {t.surface}; alternate-background-color: {t.band};"
+        f" border: 1px solid {t.line}; border-radius: 6px; }}"
+        f" QTreeWidget::item:selected, QListWidget::item:selected {{ background: {t.accent}; color: {t.accent_ink}; }}"
+        f" QHeaderView::section {{ background: {t.band}; color: {t.muted}; border: none;"
+        f" border-bottom: 1px solid {t.line}; padding: 5px 6px; font-weight: 600; }}")
+
+
 def refresh():
     global _current
     _current = None

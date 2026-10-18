@@ -1,0 +1,50 @@
+"""The designer's Undo, Redo, Cut, Copy and Paste: driven from its own Edit menu, as a user would."""
+import os, sys, time, json, tempfile
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, HERE)
+os.environ.setdefault("VML_PREFS", os.path.join(tempfile.mkdtemp(prefix="vml-prefs-"), "prefs.json"))   # never the real settings
+from PySide6.QtWidgets import QApplication
+from vml.engine import Engine
+eng = Engine(); eng.load(os.path.join(HERE, "designer", "designer.vml")); app = QApplication.instance()
+def settle(t=0.4):
+    t0 = time.time()
+    while time.time() - t0 < t: app.processEvents()
+settle()
+ok = []
+def check(label, got, want):
+    ok.append(got == want); print(("PASS " if got == want else "FAIL ") + label, got, "" if got == want else f"(wanted {want})")
+run = lambda h: eng.find(h).action.trigger() or settle(0.2)
+names = lambda: sorted(k.name for k in eng._surface("Surface").children)
+check("nothing to undo at first", eng.cmd_CanUndo(), "false")
+eng.find("ToolsAdd_Button").action.trigger(); settle(0.2)
+eng.find("ToolsAdd_TextBox").action.trigger(); settle(0.2)
+check("two added", names(), ["Button1", "TextBox1"])
+eng.cmd_SetProperty("Props", "Target", "Button1")
+run("EditUndo"); check("undo takes the TextBox away", names(), ["Button1"])
+run("EditUndo"); check("and the Button", names(), [])
+check("nothing more to undo", eng.cmd_CanUndo(), "false")
+run("EditRedo"); run("EditRedo"); check("redo brings both back", names(), ["Button1", "TextBox1"])
+eng.cmd_SetProperty("Button1", "Content", "Go")
+eng._surface("Surface").widget.emit("OnChanged", {"selected_control": "Button1"}); settle(0.2)
+run("EditUndo"); check("a property change undoes", eng.find("Button1").props.get("Content"), "Button1")
+run("EditRedo"); check("and redoes", eng.find("Button1").props.get("Content"), "Go")
+eng.cmd_SetDesignScript("Button1", "OnClick", "lua", "print('hi')")
+eng._surface("Surface").widget.select("Button1", user=True)
+eng.cmd_SetProperty("Surface", "Selected", "Button1")
+run("EditCopy"); run("EditPaste")
+check("paste makes Button2", names(), ["Button1", "Button2", "TextBox1"])
+b2 = eng.find("Button2")
+check("with its properties, script, and a step down", (b2.props.get("Content"), int(float(b2.props["Canvas.Top"])) - int(float(eng.find("Button1").props["Canvas.Top"])), list(getattr(b2, "design_scripts", {}).keys())), ("Go", 16, ["OnClick"]))
+check("the clipboard has it as text", eng.cmd_ClipboardGet().startswith("VML-CONTROLS:"), True)
+eng.cmd_SetProperty("Surface", "Selected", "TextBox1"); eng._surface("Surface").widget.select("TextBox1", user=True)
+run("EditCut"); check("cut takes it off", names(), ["Button1", "Button2"])
+run("EditPaste"); check("and paste puts it back", names(), ["Button1", "Button2", "TextBox1"])
+run("EditUndo"); run("EditUndo"); check("undo the paste and the cut", names(), ["Button1", "Button2", "TextBox1"])
+# a frame with something inside
+eng.cmd_AddDesignControl("Frame", 300, 200); settle(0.2)
+eng.cmd_CreateControl("CheckBox", "Inner", "Frame1"); settle(0.1)
+eng.cmd_CopyControl("Frame1"); n = eng.cmd_PasteControl(); settle(0.2)
+check("a frame pastes with what's inside", [k.type.name for k in eng.find(n).children], ["CheckBox"])
+eng.cmd_ClearDesign("Surface"); check("New starts the list again", (eng.cmd_CanUndo(), eng.cmd_CanRedo()), ("false", "false"))
+print(f"{sum(ok)}/{len(ok)} passed")
+sys.exit(0 if all(ok) else 1)

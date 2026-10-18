@@ -249,6 +249,44 @@ OnClick=DesignerExit
 Parent=MenuBar
 Text=Edit
 
+@MenuItem EditUndo
+Parent=Edit
+Text=Undo
+Shortcut=Ctrl+Z
+OnClick=UndoDesign
+
+@MenuItem EditRedo
+Parent=Edit
+Text=Redo
+Shortcut=Ctrl+Y
+OnClick=RedoDesign
+
+@MenuItem EditSepUndo
+Parent=Edit
+IsSeparator=true
+
+@MenuItem EditCut
+Parent=Edit
+Text=Cut
+Shortcut=Ctrl+X
+OnClick=CutSelected
+
+@MenuItem EditCopy
+Parent=Edit
+Text=Copy
+Shortcut=Ctrl+C
+OnClick=CopySelected
+
+@MenuItem EditPaste
+Parent=Edit
+Text=Paste
+Shortcut=Ctrl+V
+OnClick=PasteControl
+
+@MenuItem EditSepClip
+Parent=Edit
+IsSeparator=true
+
 @MenuItem EditScript
 Parent=Edit
 Text=Edit Script...
@@ -564,6 +602,21 @@ IsSeparator=true
 Parent=SurfaceMenu
 Text=Edit Script...
 OnClick=EditScript
+
+@MenuItem CtxCut
+Parent=SurfaceMenu
+Text=Cut
+OnClick=CutSelected
+
+@MenuItem CtxCopy
+Parent=SurfaceMenu
+Text=Copy
+OnClick=CopySelected
+
+@MenuItem CtxPaste
+Parent=SurfaceMenu
+Text=Paste Here
+OnClick=PasteHere
 
 @MenuItem CtxDuplicate
 Parent=SurfaceMenu

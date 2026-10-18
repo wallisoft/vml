@@ -20,7 +20,7 @@
 
 @Window Mountie
 Title=Mountie
-Version=1.2.3
+Version=1.2.4
 TitleBar=Own
 BorderBrush=#127A68
 Width=480
