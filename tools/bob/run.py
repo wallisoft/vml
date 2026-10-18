@@ -357,7 +357,8 @@ def fix_release(cfg_path, cfg, build, version, tag):
         fail("the gh command isn't signed in (or isn't installed): see Bob's help, Getting started")
     if git("status", "--porcelain", "--untracked-files=no"):
         fail("there are changes not committed yet: commit them, then build, then release")
-    since = int(git("log", "-1", "--format=%ct") or "0")
+    # the builds must be newer than what's released: the tag's commit if it's made already, else the last one
+    since = int(git("log", "-1", "--format=%ct", tag, check=False) or git("log", "-1", "--format=%ct") or "0")
     files, builds = [], {b["name"]: b for b in cfg.get("builds") or []}
     for name in build["assets"]:
         b = builds.get(name)
@@ -399,8 +400,17 @@ def fix_release(cfg_path, cfg, build, version, tag):
     step(f"Publishing {tag} as a pre-release" + (f" on {repo}" if repo else ""))
     notes = (f"A fix, built by Bob from {git('rev-parse', '--short', 'HEAD')} (not GitHub's clean build). "
              f"Apps offer it in About; the website's downloads stay on the last clean release.")
-    r = subprocess.run(["gh", "release", "create", tag, *where, "--prerelease", "--title", f"{cfg.get('name')} {version}",
-                        "--notes", notes, *[str(f) for f in files]], capture_output=True, text=True)
+    # gh from a snap can't open anything under a hidden folder (~/.cache), so the files go up from a plain one
+    stage = Path.home() / f"bob-upload-{re.sub(r'[^A-Za-z0-9._-]', '', tag)}"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir()
+    try:
+        for f in files:
+            shutil.copy2(f, stage / f.name)
+        r = subprocess.run(["gh", "release", "create", tag, *where, "--prerelease", "--title", f"{cfg.get('name')} {version}",
+                            "--notes", notes, *[str(stage / f.name) for f in files]], capture_output=True, text=True)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
     if r.returncode != 0:
         fail("GitHub wouldn't take the release: " + (r.stderr or r.stdout).strip()[-300:])
     s = int(time.time() - STARTED)
