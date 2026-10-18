@@ -2,13 +2,15 @@
 # Script editor: opened by the designer (double-click a control, or
 # right-click > Edit Script...). Pick an event, pick Lua or the OS shell,
 # write the script. Switching event keeps what you wrote for the last one.
+# The code is a CodeEditor (vml/codeedit.py): line numbers, colours, and a
+# click in the margin for a breakpoint (the debugger's Stepping tab).
 # ============================================================================
 
 @Window ScriptEditor
 Title=Edit Script
 BorderBrush=#1E3A8A
-Width=760
-Height=540
+Width=900
+Height=620
 OnOpened=EditorLoad
 
 @DockPanel EdRoot
@@ -74,7 +76,7 @@ Spacing=8
 
 @TextBlock lblHint
 Parent=EdButtons
-Text=Scripts call Vml("Command", ...) to work with the form.
+Text=Click the margin for a breakpoint. Tab indents, Ctrl+/ comments, Ctrl+F finds.
 Foreground=#6B7280
 FontSize=11
 VerticalAlignment=Center
@@ -99,14 +101,10 @@ Foreground=White
 Padding=18,5
 OnClick=EditorSave
 
-@TextBox txtCode
+@CodeEditor txtCode
 Parent=EdRoot
-AcceptsReturn=true
-TextWrapping=NoWrap
-FontFamily=monospace
-FontSize=13
-Background=#FFFFFF
-Padding=8
+Language=Lua
+BreakpointsChanged=EditorBreaks
 
 # ============================================================================ scripts
 
@@ -148,9 +146,32 @@ Vml("SetProperty", "cboLang", "SelectedItem", chosen)
 local code = s.code
 if code == "" then code = Vml("RunScript", "EditorStarter", chosen, ctrl, event) end
 Vml("SetProperty", "txtCode", "Text", code)
+Vml("SetProperty", "txtCode", "Language", ((chosen:match("^(%S+)") or "Lua"):gsub("#", "Sharp")))
+-- the breakpoints this script has (by the name it runs under: Form_OnOpened, btnGo_OnClick...)
+local script = s.script ~= "" and s.script or (ctrl == "Surface" and ("Form_" .. event) or (ctrl .. "_" .. event))
+Vml("SetSetting", "editor_script", script)
+local marks = (json.decode(Vml("DebugBreaks")) or {})[script] or {}
+local shown = {}
+for _, n in ipairs(marks) do shown[#shown + 1] = tostring(n) end
+Vml("SetProperty", "txtCode", "Breakpoints", table.concat(shown, ", "))
 Vml("SetProperty", "btnRemove", "IsEnabled", s.code ~= "" and "true" or "false")
 Vml("SetSetting", "editor_loaded_event", event)
 Vml("SetSetting", "editor_original", code)
+LUA
+
+@Script EditorBreaks
+Interpreter=lua
+<<LUA
+-- a click in the margin: the engine's breakpoints for this script follow (the debugger's Stepping tab shows them too)
+local json = require("dkjson")
+local all = json.decode(Vml("DebugBreaks")) or {}
+local lines = {}
+for n in (Vml("GetProperty", "txtCode", "Breakpoints") or ""):gmatch("%d+") do lines[#lines + 1] = tonumber(n) end
+all[Vml("GetSetting", "editor_script")] = #lines > 0 and lines or nil
+Vml("DebugBreaks", json.encode(all))
+Vml("SetProperty", "lblHint", "Text", #lines > 0 and (#lines .. " breakpoint" .. (#lines == 1 and "" or "s") ..
+    " here: run the form (F5) and it stops there, with the debugger showing where") or
+    "Click the margin for a breakpoint. Tab indents, Ctrl+/ comments, Ctrl+F finds.")
 LUA
 
 @Script EditorLangChanged
@@ -162,6 +183,7 @@ if code == Vml("GetSetting", "editor_original") then
     local ctrl, event = Vml("GetSetting", "editor_control"), Vml("GetProperty", "cboEvent", "SelectedItem")
     code = Vml("RunScript", "EditorStarter", Vml("GetProperty", "cboLang", "SelectedItem"), ctrl, event)
     Vml("SetProperty", "txtCode", "Text", code)
+    Vml("SetProperty", "txtCode", "Language", ((Vml("GetProperty", "cboLang", "SelectedItem"):match("^(%S+)") or "Lua"):gsub("#", "Sharp")))
     Vml("SetSetting", "editor_original", code)
 end
 LUA

@@ -290,6 +290,10 @@ class Page:
                 return f'<textarea {attrs}{wrap} placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>{esc(p.get("Text", ""))}</textarea>'
             kind = "password" if str(p.get("IsPassword", "")).lower() == "true" else "text"
             return f'<input type="{kind}" {attrs} value="{esc(p.get("Text", ""))}" placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>'
+        if ctype == "CodeEditor":                               # (the desktop's code editor: a plain text area here)
+            ro = " readonly" if str(p.get("IsReadOnly", "")).lower() == "true" else ""
+            css += ["font-family:ui-monospace,Consolas,monospace", "white-space:pre", "tab-size:4"]
+            return f'<textarea {attrs} wrap="off" spellcheck="false" style="{";".join(css)}"{ro}{disabled}>{esc(p.get("Text", ""))}</textarea>'
         if ctype == "RadioButton":
             checked = " checked" if str(p.get("IsChecked", "")).lower() == "true" else ""
             group = esc(f"{self.by_id[self.by_id[cid][1]][3] if self.by_id[cid][1] in self.by_id else 'form'}.{p.get('GroupName', '')}")

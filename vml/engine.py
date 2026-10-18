@@ -32,6 +32,7 @@ from . import statusbar  # noqa: F401  (registers StatusBar)
 from . import tabs  # noqa: F401  (registers TabStrip, TabPage, Toolbar)
 from . import pickers  # noqa: F401  (registers ColorPicker, DatePicker, TimePicker, NumberBox, ToggleSwitch)
 from . import mdview  # noqa: F401  (registers MarkdownView, MarkdownEditor)
+from . import codeedit  # noqa: F401  (registers CodeEditor)
 from .store import LUA_DIR, PARSER_LOG, Store
 from .data import DataCommands
 from .projects import ProjectCommands
