@@ -197,8 +197,10 @@ if lang:sub(1, 2) == "C#" then
     return "// " .. ctrl .. " " .. event .. "  (Vml(...), args and State are available)\n\n"
 elseif lang:sub(1, 6) == "Python" then
     return "# " .. ctrl .. " " .. event .. "  (Vml(...) and args are available)\n\n"
-elseif lang:sub(1, 5) == "Shell" then
-    return "#!/bin/sh\n# " .. ctrl .. " " .. event .. "\n\n"
+elseif lang:sub(1, 10) == "PowerShell" then
+    return "# " .. ctrl .. " " .. event .. "  (vml Command ... calls back; $args are the arguments)\n\n"
+elseif lang:sub(1, 4) == "Bash" or lang:sub(1, 5) == "Shell" then
+    return "# " .. ctrl .. " " .. event .. "  (vml Command ... calls back; $1, $2 are the arguments)\n\n"
 end
 return "-- " .. ctrl .. " " .. event .. "\n\n"
 LUA

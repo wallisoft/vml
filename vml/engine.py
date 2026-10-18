@@ -861,13 +861,18 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         return ""
 
     def cmd_GetLanguages(self):
-        """The script languages this machine can run, for the script editor."""
+        """The script languages, for the script editor: all five, each saying what it still needs on this computer
+        when it isn't ready (a script can be written either way; it runs once its language is there)."""
         from . import csharp
-        langs = ["Lua", f"Shell ({self.cmd_GetShellName()})"]
-        if self.python_exe():
-            langs.append("Python")
-        if csharp.available():
-            langs.append("C#")
+        bash = self.bash_exe()
+        has_bash = os.path.isfile(bash) if os.path.isabs(bash) else bool(shutil.which("bash")) and not sys.platform.startswith("win")
+        langs = ["Lua",
+                 "Python" if self.python_exe() else "Python (needs Python: python.org)",
+                 "C#" if csharp.available() else "C# (needs setting up: Settings > C# Scripting)",
+                 "Bash" if has_bash else "Bash (needs Git Bash: winget install Git.Git)",
+                 "PowerShell" if (shutil.which("pwsh") or shutil.which("powershell")) else "PowerShell (needs PowerShell 7: aka.ms/pwsh)"]
+        if self.SHELL == "powershell":                       # (the computer's own shell first, after Lua)
+            langs.insert(1, langs.pop(4))
         return json.dumps(langs)
 
     @staticmethod
@@ -2655,7 +2660,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
 
     @staticmethod
     def _lang_label(interp):
-        return {"lua": "Lua", "csharp": "C#", "python": "Python"}.get(interp, "Shell")
+        return {"lua": "Lua", "csharp": "C#", "python": "Python", "bash": "Bash", "sh": "Bash",
+                "powershell": "PowerShell", "pwsh": "PowerShell"}.get(interp, "Bash")
 
     def cmd_GetShellName(self):
         return "PowerShell" if self.SHELL == "powershell" else "Bash"
