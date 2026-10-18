@@ -1,12 +1,22 @@
 # Commands reference
 
-Every `Vml()` command a script can call, in Visualised 1.3.0. Generated from the engine itself (`tools/make_reference.py`): the descriptions are the engine's own.
+Every `Vml()` command a script can call, in Visualised 1.6.1. Generated from the engine itself (`tools/make_reference.py`): the descriptions are the engine's own.
 
 A command is called as `Vml("Name", arguments...)` and returns text (`""` when there's nothing to say). Arguments in [brackets] can be left out. A command that goes wrong is logged and returns `""`: press **F12** while the designer runs your app to see every call and what came back.
 
 **Sections:** [Properties and controls](#properties-and-controls) · [Forms and dialogs](#forms-and-dialogs) · [Scripts, events and programs](#scripts,-events-and-programs) · [Settings and preferences](#settings-and-preferences) · [Data](#data) · [Web and the network](#web-and-the-network) · [Link (app to app)](#link-app-to-app) · [Phone and device](#phone-and-device) · [Drives (as Mountie uses them)](#drives-as-mountie-uses-them) · [Licence, version and updates](#licence,-version-and-updates) · [More](#more) · [The designer's own](#the-designers-own)
 
 ## Properties and controls
+
+### AddStackedControl
+
+`Vml("AddStackedControl", ctype, [surface])`
+
+Put a control on the form, stacked down the left: top first, each under the last one added (a new column when the form's full), started again when the last one added has gone. Then drag it where it belongs.
+
+### AlignControls
+
+`Vml("AlignControls", how, [surface])`
 
 ### BringToFront
 
@@ -23,6 +33,12 @@ Put a control in front of the others it overlaps.
 `Vml("ControlExists", name)`
 
 "true" if there's a control of that name, else "false".
+
+### CopyControl
+
+`Vml("CopyControl", names)`
+
+Copy controls (and what's inside them) for Paste: one name, or several comma-separated (a group). One that's inside another being copied goes with it, not twice.
 
 ### CreateControl
 
@@ -79,6 +95,12 @@ Where the control is, in pixels from the top of what it's in.
 `Vml("GetProperty", name, prop)`
 
 Read a control's property, as text: `Vml("GetProperty", "txtName", "Text")`. name can be `Form.control` for a control on another open form.
+
+### PasteControl
+
+`Vml("PasteControl", [x], [y], [surface])`
+
+Paste what was copied: where the form was right-clicked (x, y), or a step down and right of the original. A group keeps its shape. What's pasted is selected (all of it), and its names are the answer, comma-separated.
 
 ### SendToBack
 
@@ -208,7 +230,7 @@ Ask for one line of text. Returns what was typed, or "" if cancelled. secret "tr
 
 `Vml("Quit")`
 
-Quit (the app's own Exit). The tray icon goes first, and the quitting a moment later: a desktop panel that sent "this menu item was picked" waits for the answer, and spins until it gives up if the app has already gone.
+Quit (the app's own Exit). The windows and the tray icon go at once; the drives are taken down side by side (SSH and disks together, never more than a few seconds however unreachable a server is) while the app keeps answering the desktop, so its panel never spins waiting for a reply; then it quits.
 
 ### SetDialogResult
 
@@ -842,6 +864,90 @@ The running Visualised runtime version, e.g. "0.17.1". Apps can check they have 
 
 Add an importer (a .vml file with an @Importer in it) to your own library, ~/.vml/importers. Returns "" if it was added, or why it wasn't.
 
+### AttachDebugger
+
+`Vml("AttachDebugger", [pid])`
+
+Open a debugger on another running Visualised app (by its pid; none: choose from a list).
+
+### CanPaste
+
+`Vml("CanPaste")`
+
+### CanRedo
+
+`Vml("CanRedo", [surface])`
+
+### CanUndo
+
+`Vml("CanUndo", [surface])`
+
+### DebugApps
+
+`Vml("DebugApps")`
+
+The other Visualised apps running now: JSON [{pid, title}], for "Attach to a running app".
+
+### DebugAttach
+
+`Vml("DebugAttach", [everything])`
+
+Start keeping a record of Vml() calls for an attached debugger to collect (DebugCalls).
+
+### DebugBreaks
+
+`Vml("DebugBreaks", [spec])`
+
+Set the breakpoints: JSON {name: [line, ...]}; none: what they are now.
+
+### DebugCalls
+
+`Vml("DebugCalls", [since])`
+
+The calls recorded since a number: JSON {seq, rows}.
+
+### DebugDetach
+
+`Vml("DebugDetach")`
+
+### DebugLua
+
+`Vml("DebugLua", key, code, [arg])`
+
+Run Lua in one of this app's forms (the Variables tab); a table comes back as {name: "type<TAB>value"}.
+
+### DebugPauseInfo
+
+`Vml("DebugPauseInfo")`
+
+Where a script is stopped (JSON), or "" if nothing is.
+
+### DebugResume
+
+`Vml("DebugResume", [mode])`
+
+### DebugScripts
+
+`Vml("DebugScripts", [key])`
+
+The Lua a form runs, to set breakpoints in: JSON [{name, code}] (its scripts, then its project's modules).
+
+### DebugShared
+
+`Vml("DebugShared")`
+
+### DebugStates
+
+`Vml("DebugStates")`
+
+The forms with Lua running, for the Variables tab: JSON [[key, name]].
+
+### DebugTitle
+
+`Vml("DebugTitle")`
+
+What this app is, for a debugger's list of running apps.
+
 ### FileCopy
 
 `Vml("FileCopy", source, target)`
@@ -946,6 +1052,12 @@ The first match of a regular expression in some text, as JSON: [whole match, gro
 
 The text with every match replaced. In the replacement, \1 is group 1 and so on.
 
+### RunApp
+
+`Vml("RunApp", path, [project])`
+
+Start a form or project as an app of its own, in its own process: it carries on if this one closes. project: the project (or form) the designer has open, for a tool to work on: it finds it in VML_PROJECT.
+
 ### SetMenuItemEnabled
 
 `Vml("SetMenuItemEnabled", name, enabled)`
@@ -956,11 +1068,29 @@ Grey a menu item out ("false") or back ("true").
 
 `Vml("SetMenuItemText", name, text)`
 
+### SetTabs
+
+`Vml("SetTabs", strip_name, spec)`
+
+A tab strip's pages, in tab order: JSON [{"page": its name, or "" for a new one, "header": its words}]. A page left out is deleted, with what's on it. The designer's Edit Tabs box uses this.
+
 ### StartAtBoot
 
 `Vml("StartAtBoot", [on])`
 
 Start this app when the user logs in ("true"), or not ("false").
+
+### ToolsFolder
+
+`Vml("ToolsFolder")`
+
+The tools folder (made if it isn't there yet).
+
+### ToolsList
+
+`Vml("ToolsList")`
+
+The tools, as JSON [{name, path}]: each .vml or .vmlproj in the tools folder, and each folder in it that holds a .vmlproj or a .vml (a link to an app's folder will do: ln -s ~/projects/x/apps/bob ~/.vml/tools/Bob).
 
 ### Tray
 
@@ -978,4 +1108,4 @@ Show a notification from the app's tray icon.
 
 Commands the designer itself is built from (its forms are VML too). Handy for tools that work on forms; most apps never need them.
 
-`AddDesignControl`, `AndroidKey`, `AndroidKeyRestore`, `AndroidKeySave`, `ClearDesign`, `DuplicateControl`, `ExportApk`, `ExportApp`, `ExportHtml`, `ExportVml`, `GetControlAt`, `GetControlEvents`, `GetControlTypes`, `GetCurrentControl`, `GetDesignMenu`, `GetDesignScript`, `GetFocusedControlName`, `GetResizeZone`, `GetSelectedControlName`, `ImportForm`, `ImportProject`, `ImportVml`, `LoadControlTemplate`, `MenuAddItem`, `MenuDeleteItem`, `PhoneSize`, `PreviewDesign`, `PreviewInBrowser`, `PreviewOnPhone`, `ProjectAdd`, `ProjectClose`, `ProjectDatabase`, `ProjectInFolder`, `ProjectInfo`, `ProjectName`, `ProjectNew`, `ProjectOpen`, `ProjectPath`, `ProjectRemove`, `ProjectSetName`, `ProjectSetStartup`, `ProjectTree`, `RenameControl`, `RunProject`, `SelectControl`, `SetCurrentControl`, `SetDesignMenu`, `SetDesignScript`, `SetParent`, `ShowContextMenu`
+`AddDesignControl`, `AndroidKey`, `AndroidKeyRestore`, `AndroidKeySave`, `ClearDesign`, `DuplicateControl`, `ExportApk`, `ExportApp`, `ExportHtml`, `ExportVml`, `GetControlAt`, `GetControlEvents`, `GetControlTypes`, `GetCurrentControl`, `GetDesignMenu`, `GetDesignScript`, `GetFocusedControlName`, `GetResizeZone`, `GetSelectedControlName`, `ImportForm`, `ImportProject`, `ImportVml`, `LoadControlTemplate`, `MenuAddItem`, `MenuDeleteItem`, `PhoneSize`, `PreviewDesign`, `PreviewInBrowser`, `PreviewOnPhone`, `ProjectAdd`, `ProjectClose`, `ProjectDatabase`, `ProjectInFolder`, `ProjectInfo`, `ProjectName`, `ProjectNew`, `ProjectOpen`, `ProjectPath`, `ProjectRemove`, `ProjectSetName`, `ProjectSetStartup`, `ProjectTree`, `Redo`, `RenameControl`, `RunProject`, `SelectControl`, `SetCurrentControl`, `SetDesignMenu`, `SetDesignScript`, `SetParent`, `ShowContextMenu`, `Undo`, `UndoMark`, `UndoReset`

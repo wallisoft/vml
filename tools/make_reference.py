@@ -110,6 +110,10 @@ PER_CONTROL = {
     ("MarkdownView", "Source"): "Where its Markdown comes from instead: a file, a web address, or help:Page for a page of Visualised's help. Links in it open in place.",
     ("MarkdownEditor", "Text"): "The Markdown written in it.",
     ("MarkdownEditor", "ShowPreview"): "How the Markdown looks, shown beside it as you type.",
+    ("CodeEditor", "Text"): "The code in it.",
+    ("CodeEditor", "Language"): "What it's coloured as: Lua, Python, Shell or CSharp.",
+    ("CodeEditor", "Breakpoints"): "The lines with a breakpoint, \"3, 12\": a click in the margin sets or clears one.",
+    ("CodeEditor", "CurrentLine"): "A line to show in yellow (where a script is stopped), 0 for none.",
 }
 
 

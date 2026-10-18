@@ -1,6 +1,6 @@
 # Reference
 
-Everything in Visualised 1.3.0, generated from the engine itself. For step-by-step guides, see the [tutorials](Home).
+Everything in Visualised 1.6.1, generated from the engine itself. For step-by-step guides, see the [tutorials](Home).
 
 - [Controls](Reference-Controls): every control, its properties and events.
 - [Commands](Reference-Commands): every `Vml()` command a script can call.

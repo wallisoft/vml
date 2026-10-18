@@ -89,9 +89,22 @@ class VmlMenu(QMenu):
             return sub
         return super().addMenu(*args)
 
-    # (Where Qt puts the menu is left alone: the card hangs a little below and to the right of the item it opens
-    # from, a natural cascade. Moving it back after it shows only works on some desktops (not Wayland), and on
-    # Windows it lifted every sub-menu over the one before and the drop-downs over the bar.)
+    # Where Qt puts the menu is left alone, but for one thing. On Wayland a sub-menu's card hangs a little below the
+    # item it opens from (its margin above the first item): a natural cascade. Elsewhere (Windows, X11) Qt lines the
+    # first item up exactly with it, which looks stiff beside it, so there the sub-menu is dropped by the same.
+    def showEvent(self, e):
+        super().showEvent(e)
+        from PySide6.QtGui import QGuiApplication
+        if isinstance(self.parent(), QMenu) and QGuiApplication.platformName() != "wayland" \
+                and not getattr(self, "_dropped", False):
+            first = next((a for a in self.actions() if a.isVisible() and not a.isSeparator()), None)
+            if first is not None:
+                self._dropped = True
+                self.move(self.pos() + QPoint(0, self.actionGeometry(first).top()))
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._dropped = False
 
     def paintEvent(self, e):
         t = _theme()
@@ -169,8 +182,8 @@ class VmlMenuBar(QMenuBar):
         self.menu_theme = None
         self.setNativeMenuBar(False)
         k = _snug(self)
-        self.setStyleSheet("QMenuBar { background: transparent; border: none; padding: 2px 4px; }"
-                           f" QMenuBar::item {{ padding: {round(6 * k)}px {round(12 * k)}px; margin: 2px 1px; }}")
+        self.setStyleSheet("QMenuBar { background: transparent; border: none; padding: 2px 4px; spacing: 2px; }"
+                           f" QMenuBar::item {{ padding: {round(6 * k)}px {round(7 * k)}px; margin: 2px 0px; }}")   # (close together, as VS Code's are)
 
     def addMenu(self, *args):                            # (menus made by addMenu("File") are ours too)
         if args and isinstance(args[0], str):

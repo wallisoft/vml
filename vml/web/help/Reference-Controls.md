@@ -1,10 +1,10 @@
 # Controls reference
 
-Every control in Visualised 1.3.0, with its properties and events. Generated from the engine itself (`tools/make_reference.py`).
+Every control in Visualised 1.6.1, with its properties and events. Generated from the engine itself (`tools/make_reference.py`).
 
 Set a property in the form (`Background=#FFFFFF`) or from a script (`Vml("SetProperty", "btnGo", "Background", "#FFFFFF")`); read it with `GetProperty`. An event's value is the script to run (`OnClick=SaveIt`).
 
-**Controls:** [AutoCompleteBox](#autocompletebox) · [Border](#border) · [Button](#button) · [Calendar](#calendar) · [Canvas](#canvas) · [CheckBox](#checkbox) · [ColorPicker](#colorpicker) · [ComboBox](#combobox) · [ContextMenu](#contextmenu) · [DataGrid](#datagrid) · [DatePicker](#datepicker) · [DockPanel](#dockpanel) · [Frame](#frame) · [Grid](#grid) · [HyperlinkButton](#hyperlinkbutton) · [Image](#image) · [ListBox](#listbox) · [MarkdownEditor](#markdowneditor) · [MarkdownView](#markdownview) · [MenuItem](#menuitem) · [MenuTheme](#menutheme) · [NumberBox](#numberbox) · [ProgressBar](#progressbar) · [RadioButton](#radiobutton) · [Rectangle](#rectangle) · [ScrollViewer](#scrollviewer) · [Slider](#slider) · [Splitter](#splitter) · [StackPanel](#stackpanel) · [TextBlock](#textblock) · [TextBox](#textbox) · [TimePicker](#timepicker) · [Timer](#timer) · [TinyMenu](#tinymenu) · [ToggleButton](#togglebutton) · [ToggleSwitch](#toggleswitch) · [TreeView](#treeview) · [Window](#window)
+**Controls:** [AutoCompleteBox](#autocompletebox) · [Border](#border) · [Button](#button) · [Calendar](#calendar) · [Canvas](#canvas) · [CheckBox](#checkbox) · [CodeEditor](#codeeditor) · [ColorPicker](#colorpicker) · [ComboBox](#combobox) · [ContextMenu](#contextmenu) · [DataGrid](#datagrid) · [DatePicker](#datepicker) · [DockPanel](#dockpanel) · [Frame](#frame) · [Grid](#grid) · [HyperlinkButton](#hyperlinkbutton) · [Image](#image) · [ListBox](#listbox) · [MarkdownEditor](#markdowneditor) · [MarkdownView](#markdownview) · [MenuItem](#menuitem) · [MenuTheme](#menutheme) · [NumberBox](#numberbox) · [ProgressBar](#progressbar) · [RadioButton](#radiobutton) · [Rectangle](#rectangle) · [ScrollViewer](#scrollviewer) · [Slider](#slider) · [Splitter](#splitter) · [StackPanel](#stackpanel) · [StatusBar](#statusbar) · [TabPage](#tabpage) · [TabStrip](#tabstrip) · [TextBlock](#textblock) · [TextBox](#textbox) · [TimePicker](#timepicker) · [Timer](#timer) · [TinyMenu](#tinymenu) · [ToggleButton](#togglebutton) · [ToggleSwitch](#toggleswitch) · [Toolbar](#toolbar) · [TreeView](#treeview) · [Window](#window)
 
 ## Every control
 
@@ -175,6 +175,30 @@ Has the properties [every control](#every-control) has.
 | `Grid.RowSpan` | number | How many Grid rows it spans. |
 
 **Events:** `OnChecked`, `OnClick`, `OnGotFocus`, `OnKeyDown`, `OnKeyUp`, `OnLostFocus`, `OnPointerMoved`, `OnPointerPressed`, `OnPointerReleased`
+
+## CodeEditor
+
+*Common*
+
+Has the properties [every control](#every-control) has, or most of them.
+
+| Property | Kind | What it does |
+|---|---|---|
+| `Breakpoints` | text | The lines with a breakpoint, "3, 12": a click in the margin sets or clears one. |
+| `CurrentLine` | number | A line to show in yellow (where a script is stopped), 0 for none. Default `0`. |
+| `IsReadOnly` | true/false | Can be read and selected, but not changed. Default `false`. |
+| `Language` | choice (Lua, Python, Shell, CSharp) | What it's coloured as: Lua, Python, Shell or CSharp. Default `Lua`. |
+| `Text` | text | The code in it. |
+| `Anchor` | choice (Top,Left, Top,Right, Bottom,Left, Bottom,Right, Top,Left,Right, Bottom,Left,Right, Top,Bottom,Left, Top,Bottom,Right, Top,Bottom,Left,Right) | The Canvas edges it keeps its distance from as the form is resized: anchored to both sides, it stretches. Default `Top,Left`. |
+| `Canvas.Left` | number | Its place on a Canvas: pixels from the left. |
+| `Canvas.Top` | number | Its place on a Canvas: pixels from the top. |
+| `DockPanel.Dock` | choice (Left, Top, Right, Bottom) | The side of a DockPanel it docks to. |
+| `Grid.Column` | number | Its column in a Grid, from 0. |
+| `Grid.ColumnSpan` | number | How many Grid columns it spans. |
+| `Grid.Row` | number | Its row in a Grid, from 0. |
+| `Grid.RowSpan` | number | How many Grid rows it spans. |
+
+**Events:** `BreakpointsChanged`, `TextChanged`
 
 ## ColorPicker
 
@@ -680,6 +704,73 @@ Has the properties [every control](#every-control) has.
 
 **Events:** `OnGotFocus`, `OnLostFocus`, `OnPointerMoved`, `OnPointerPressed`, `OnPointerReleased`
 
+## StatusBar
+
+*Common*
+
+Has the properties [every control](#every-control) has.
+
+| Property | Kind | What it does |
+|---|---|---|
+| `Panels` | text |  Default `Ready`. |
+| `Text` | text | The text shown (or typed, in a TextBox). |
+| `Anchor` | choice (Top,Left, Top,Right, Bottom,Left, Bottom,Right, Top,Left,Right, Bottom,Left,Right, Top,Bottom,Left, Top,Bottom,Right, Top,Bottom,Left,Right) | The Canvas edges it keeps its distance from as the form is resized: anchored to both sides, it stretches. Default `Top,Left`. |
+| `Canvas.Left` | number | Its place on a Canvas: pixels from the left. |
+| `Canvas.Top` | number | Its place on a Canvas: pixels from the top. |
+| `DockPanel.Dock` | choice (Left, Top, Right, Bottom) | The side of a DockPanel it docks to. |
+| `Grid.Column` | number | Its column in a Grid, from 0. |
+| `Grid.ColumnSpan` | number | How many Grid columns it spans. |
+| `Grid.Row` | number | Its row in a Grid, from 0. |
+| `Grid.RowSpan` | number | How many Grid rows it spans. |
+
+**Events:** `OnGotFocus`, `OnLostFocus`, `OnPointerMoved`, `OnPointerPressed`, `OnPointerReleased`
+
+## TabPage
+
+*Containers* · holds other controls
+
+Has the properties [every control](#every-control) has.
+
+| Property | Kind | What it does |
+|---|---|---|
+| `Header` | text | The heading text. |
+| `SameAs` | text |  |
+| `Anchor` | choice (Top,Left, Top,Right, Bottom,Left, Bottom,Right, Top,Left,Right, Bottom,Left,Right, Top,Bottom,Left, Top,Bottom,Right, Top,Bottom,Left,Right) | The Canvas edges it keeps its distance from as the form is resized: anchored to both sides, it stretches. Default `Top,Left`. |
+| `Canvas.Left` | number | Its place on a Canvas: pixels from the left. |
+| `Canvas.Top` | number | Its place on a Canvas: pixels from the top. |
+| `DockPanel.Dock` | choice (Left, Top, Right, Bottom) | The side of a DockPanel it docks to. |
+| `Grid.Column` | number | Its column in a Grid, from 0. |
+| `Grid.ColumnSpan` | number | How many Grid columns it spans. |
+| `Grid.Row` | number | Its row in a Grid, from 0. |
+| `Grid.RowSpan` | number | How many Grid rows it spans. |
+
+**Events:** `OnGotFocus`, `OnLostFocus`, `OnPointerMoved`, `OnPointerPressed`, `OnPointerReleased`
+
+## TabStrip
+
+*Containers* · holds other controls
+
+Has the properties [every control](#every-control) has.
+
+| Property | Kind | What it does |
+|---|---|---|
+| `Accent` | colour |  |
+| `SelectedIndex` | number | Which item is chosen, from 0 (-1: none). Default `0`. |
+| `TabOrientation` | choice (Horizontal, Vertical) |  Default `Horizontal`. |
+| `TabPlacement` | choice (Top, Bottom, Left, Right) |  Default `Top`. |
+| `TabStyle` | choice (Underline, Folder) |  Default `Underline`. |
+| `TabWidth` | number |  Default `120`. |
+| `Anchor` | choice (Top,Left, Top,Right, Bottom,Left, Bottom,Right, Top,Left,Right, Bottom,Left,Right, Top,Bottom,Left, Top,Bottom,Right, Top,Bottom,Left,Right) | The Canvas edges it keeps its distance from as the form is resized: anchored to both sides, it stretches. Default `Top,Left`. |
+| `Canvas.Left` | number | Its place on a Canvas: pixels from the left. |
+| `Canvas.Top` | number | Its place on a Canvas: pixels from the top. |
+| `DockPanel.Dock` | choice (Left, Top, Right, Bottom) | The side of a DockPanel it docks to. |
+| `Grid.Column` | number | Its column in a Grid, from 0. |
+| `Grid.ColumnSpan` | number | How many Grid columns it spans. |
+| `Grid.Row` | number | Its row in a Grid, from 0. |
+| `Grid.RowSpan` | number | How many Grid rows it spans. |
+
+**Events:** `SelectionChanged`
+
 ## TextBlock
 
 *Common*
@@ -838,6 +929,26 @@ Has the properties [every control](#every-control) has.
 
 **Events:** `ValueChanged`
 
+## Toolbar
+
+*Common*
+
+Has the properties [every control](#every-control) has.
+
+| Property | Kind | What it does |
+|---|---|---|
+| `Items` | text | Its list, comma-separated: Items=Red,Green,Blue. |
+| `Anchor` | choice (Top,Left, Top,Right, Bottom,Left, Bottom,Right, Top,Left,Right, Bottom,Left,Right, Top,Bottom,Left, Top,Bottom,Right, Top,Bottom,Left,Right) | The Canvas edges it keeps its distance from as the form is resized: anchored to both sides, it stretches. Default `Top,Left`. |
+| `Canvas.Left` | number | Its place on a Canvas: pixels from the left. |
+| `Canvas.Top` | number | Its place on a Canvas: pixels from the top. |
+| `DockPanel.Dock` | choice (Left, Top, Right, Bottom) | The side of a DockPanel it docks to. |
+| `Grid.Column` | number | Its column in a Grid, from 0. |
+| `Grid.ColumnSpan` | number | How many Grid columns it spans. |
+| `Grid.Row` | number | Its row in a Grid, from 0. |
+| `Grid.RowSpan` | number | How many Grid rows it spans. |
+
+**Events:** `OnClick`
+
 ## TreeView
 
 *Common*
@@ -872,13 +983,16 @@ Has the properties [every control](#every-control) has.
 
 | Property | Kind | What it does |
 |---|---|---|
+| `TitleBackground` | colour | (the edge's colour if not set) |
+| `TitleBar` | choice (System, Own, None) |  Default `Own`. |
+| `TitleForeground` | colour | (black or white, whichever reads) |
 | `AppBar` | true/false | Terms · About · version along the foot, with ⚠ when there's a newer one: vml/appbar.py. Default `false`. |
 | `LinkPass` | text | Put in by Visualised Pro when it saves an app that uses Link: see vml/link.py. |
 | `Modal` | true/false | Opened as a dialog: the rest of the app waits until it closes. Default `false`. |
 | `PhoneFit` | choice (Fit, None) | On a phone: Fit scales the form to the screen's width; None leaves it at its own size. |
 | `Resizable` | true/false | Applied by the engine when shown. Default `true`. |
-| `WindowState` | choice (Normal, Maximized, Auto, FullScreen) | How it opens on a computer: Normal (its own size), Maximized, FullScreen, or Auto: maximised on an HD screen (1920 wide) or smaller, its own size on a bigger one. |
 | `WebFit` | choice (Window, Fill) | As a web page on a phone: scale to the screen's width, or leave alone. |
+| `WindowState` | choice (Normal, Maximized, Auto, FullScreen) | How it opens on a computer: Auto is maximised on an HD screen or smaller. |
 | `About` | text | A line or two for its About box. |
 | `AndroidKey` | text | Which signing key it was last exported with: put in by the export. |
 | `AndroidPackage` | text | Its package name as an Android app, to choose one's own (com.example.myapp) |
@@ -887,7 +1001,7 @@ Has the properties [every control](#every-control) has.
 | `Title` | text | The window's title. |
 | `UpdateApk` | text | And of its phone app (an .apk's address) |
 | `UpdateFrom` | text | Where the newest copy of this form is (a .vml's address) |
-| `Version` | text | The app's own version; a phone shows it beside the app. |
+| `Version` | text | The app's own version; a phone shows it beside the app,. |
 | `WebAddress` | text | Where the app is on the web, if it is: LinkAddress builds on it. |
 | `MaxHeight` | number | The tallest it can be, in pixels. |
 | `MaxWidth` | number | The widest it can be, in pixels. |
