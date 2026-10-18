@@ -1005,16 +1005,16 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
                                 "Attach the debugger")
             return ""
         pick = next((a for a in apps if str(a["pid"]) == str(pid)), None)
-        if pick is None:
-            from PySide6.QtWidgets import QMenu
-            from PySide6.QtGui import QCursor
-            menu = QMenu()
-            for a in apps:
-                menu.addAction(a["title"]).setData(a["pid"])
-            chosen = menu.exec(QCursor.pos())
-            if chosen is None:
+        if pick is None and len(apps) == 1:
+            pick = apps[0]                                   # (only one running: that's the one)
+        if pick is None:                                     # (a list in a dialog: a loose menu can't show on Wayland)
+            from PySide6.QtWidgets import QInputDialog
+            titles = [a["title"] for a in apps]
+            chosen, ok = QInputDialog.getItem(QApplication.activeWindow(), "Attach the debugger",
+                                              "Which running app?", titles, 0, False)
+            if not ok:
                 return ""
-            pick = next(a for a in apps if a["pid"] == chosen.data())
+            pick = apps[titles.index(chosen)]
         win = Debugger(self, remote=pick)
         self.__dict__.setdefault("_remotes", []).append(win)
         win.show()

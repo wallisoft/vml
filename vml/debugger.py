@@ -305,6 +305,9 @@ class Debugger(WindowWidget):
         i = self.script.findData(keep.replace("   ●", ""))
         self.script.setCurrentIndex(max(0, i))
         self.script.blockSignals(False)
+        if not self.scripts and not self.stopped:
+            self.where.setText("No Lua scripts to show yet. Give a control an event script (double-click it), or run "
+                               "the form (F5), then Refresh. Or attach to a running app: Tools > Attach the debugger.")
         self.show_code()
 
     def show_code(self, line=None):

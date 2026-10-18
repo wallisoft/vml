@@ -174,6 +174,14 @@ class SteppingCommands:
             home = "instance:" + instance if instance else str(source or "")
             if not key or home == key or (key.startswith("instance:") and str(interp or "").split()[1:2] == [key[9:]]):
                 out.append({"name": name, "code": content or ""})
+        if not key:                                          # the form being designed: its event scripts, by the names
+            for scope in list(self.scopes.values()):         # they run under, so a breakpoint can go in before F5
+                for n in list(scope.values()):
+                    for event, (interp, code) in (getattr(n, "design_scripts", None) or {}).items():
+                        if str(interp or "lua").split()[0].lower() == "lua" and str(code).strip():
+                            name = n.props.get(event) or (f"Form_{event}" if n.type.name == "DesignSurface" else f"{n.name}_{event}")
+                            if not any(o["name"] == name for o in out):
+                                out.append({"name": name, "code": code})
         project = self._project_of(key) if key and hasattr(self, "_project_of") else None
         if project is not None:
             for rel in project.modules:
