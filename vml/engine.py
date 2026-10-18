@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 from lupa import lua54
-from PySide6.QtCore import QEventLoop, Qt, QTimer, QUrl
+from PySide6.QtCore import QEventLoop, QRect, Qt, QTimer, QUrl
 from PySide6.QtGui import QCursor, QDesktopServices
 from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QVBoxLayout, QWidget
 
@@ -1738,6 +1738,64 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             surf.widget.select_group(names)
             surf.widget.emit("OnChanged", {"selected_control": names[0]})
         return ",".join(names)
+
+    # ---- lining a group up (right-click > Align): left, centre, right, top, middle, bottom; spaced evenly; the
+    # same size; or Tidy, which makes a neat column (or a row, if they're spread across) with even gaps
+    ALIGN_GAP = 8
+
+    def cmd_AlignControls(self, how, surface="Surface"):
+        surf = self._surface(surface)
+        view = surf.widget
+        nodes = view.group()
+        if len(nodes) < 2:
+            return ""
+        how = str(how).lower()
+        r = {n.name: QRect(n.host.geometry()) for n in nodes}
+        left, top = min(g.left() for g in r.values()), min(g.top() for g in r.values())
+        right, bottom = max(g.right() for g in r.values()), max(g.bottom() for g in r.values())
+        sized = {}
+        if how == "tidy":                                 # the way they mostly run (by their middles): a column, or a row
+            xs, ys = [g.center().x() for g in r.values()], [g.center().y() for g in r.values()]
+            how = "row" if (max(xs) - min(xs)) > (max(ys) - min(ys)) else "column"
+        if how == "column":
+            y = top
+            for n in sorted(nodes, key=lambda n: (r[n.name].top(), r[n.name].left())):
+                r[n.name].moveTo(left, y)
+                y += r[n.name].height() + self.ALIGN_GAP
+        elif how == "row":
+            x = left
+            for n in sorted(nodes, key=lambda n: (r[n.name].left(), r[n.name].top())):
+                r[n.name].moveTo(x, top)
+                x += r[n.name].width() + self.ALIGN_GAP
+        elif how in ("left", "right", "centre", "center"):
+            mid = (left + right) // 2
+            for g in r.values():
+                g.moveLeft(left if how == "left" else right - g.width() + 1 if how == "right" else mid - g.width() // 2)
+        elif how in ("top", "bottom", "middle"):
+            mid = (top + bottom) // 2
+            for g in r.values():
+                g.moveTop(top if how == "top" else bottom - g.height() + 1 if how == "bottom" else mid - g.height() // 2)
+        elif how in ("across", "down"):                    # the first and last stay; the gaps between come out even
+            key = (lambda n: r[n.name].left()) if how == "across" else (lambda n: r[n.name].top())
+            order = sorted(nodes, key=key)
+            span = (lambda g: g.width()) if how == "across" else (lambda g: g.height())
+            room = (right - left + 1 if how == "across" else bottom - top + 1) - sum(span(r[n.name]) for n in order)
+            gap, at = room / (len(order) - 1), (left if how == "across" else top)
+            for n in order:
+                g = r[n.name]
+                g.moveLeft(round(at)) if how == "across" else g.moveTop(round(at))
+                at += span(g) + gap
+        elif how in ("width", "height"):                    # the same size as the one the properties show
+            first = r[nodes[0].name]
+            for n in nodes[1:]:
+                sized[n.name] = (first.width(), r[n.name].height()) if how == "width" else (r[n.name].width(), first.height())
+        else:
+            return ""
+        for name, (w, h) in sized.items():
+            self.cmd_SetProperty(name, "Width", str(w))
+            self.cmd_SetProperty(name, "Height", str(h))
+        view.commit_group({name: QRect(max(0, g.x()), max(0, g.y()), g.width(), g.height()) for name, g in r.items()})
+        return "true"
 
     def cmd_DuplicateControl(self, name):
         node = self._node(name)

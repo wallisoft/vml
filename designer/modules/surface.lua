@@ -14,6 +14,7 @@ function ShowSurfaceMenu(...)
         Vml("SetMenuItemEnabled", item, selected)
     end
     Vml("SetMenuItemEnabled", "CtxPaste", Vml("CanPaste") == "true")
+    Vml("SetMenuItemEnabled", "CtxAlign", Vml("GetProperty", "Surface", "SelectedAll"):find(",") ~= nil)   -- a group
     Vml("SetMenuItemEnabled", "CtxAddMenu", Vml("GetDesignMenu", "Surface") == "[]")
     Vml("ShowContextMenu", "SurfaceMenu")
 end
@@ -159,4 +160,16 @@ end
 function PasteHere(...)
     local names = Vml("PasteControl", Vml("GetSetting", "click_x"), Vml("GetSetting", "click_y"))
     Vml("SetStatusText", names ~= "" and ("Pasted " .. described(names)) or "Nothing to paste: copy a control first")
+end
+
+function AlignGroup(...)
+    local how = (...) or "tidy"
+    if Vml("AlignControls", how) == "true" then
+        local done = {tidy = "Tidied up", left = "Left edges lined up", centre = "Centres lined up", right = "Right edges lined up",
+            top = "Tops lined up", middle = "Middles lined up", bottom = "Bottoms lined up", across = "Spaced evenly across",
+            down = "Spaced evenly down", width = "Made the same width", height = "Made the same height"}
+        Vml("SetStatusText", (done[how] or "Aligned") .. ": Ctrl+Z to undo")
+    else
+        Vml("SetStatusText", "Select two or more (draw a box round them, or Ctrl+click) to line them up")
+    end
 end

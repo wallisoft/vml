@@ -603,6 +603,81 @@ Parent=SurfaceMenu
 Text=Edit Script...
 OnClick=EditScript
 
+@MenuItem CtxAlign
+Parent=SurfaceMenu
+Text=Align
+
+@MenuItem CtxAlignTidy
+Parent=CtxAlign
+Text=Tidy up (a neat column or row)
+OnClick=AlignGroup(tidy)
+
+@MenuItem CtxAlignSep1
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignLeft
+Parent=CtxAlign
+Text=Left edges
+OnClick=AlignGroup(left)
+
+@MenuItem CtxAlignCentre
+Parent=CtxAlign
+Text=Centres
+OnClick=AlignGroup(centre)
+
+@MenuItem CtxAlignRight
+Parent=CtxAlign
+Text=Right edges
+OnClick=AlignGroup(right)
+
+@MenuItem CtxAlignSep2
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignTop
+Parent=CtxAlign
+Text=Tops
+OnClick=AlignGroup(top)
+
+@MenuItem CtxAlignMiddle
+Parent=CtxAlign
+Text=Middles
+OnClick=AlignGroup(middle)
+
+@MenuItem CtxAlignBottom
+Parent=CtxAlign
+Text=Bottoms
+OnClick=AlignGroup(bottom)
+
+@MenuItem CtxAlignSep3
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignAcross
+Parent=CtxAlign
+Text=Space evenly across
+OnClick=AlignGroup(across)
+
+@MenuItem CtxAlignDown
+Parent=CtxAlign
+Text=Space evenly down
+OnClick=AlignGroup(down)
+
+@MenuItem CtxAlignSep4
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignWidth
+Parent=CtxAlign
+Text=Same width
+OnClick=AlignGroup(width)
+
+@MenuItem CtxAlignHeight
+Parent=CtxAlign
+Text=Same height
+OnClick=AlignGroup(height)
+
 @MenuItem CtxCut
 Parent=SurfaceMenu
 Text=Cut

@@ -100,6 +100,32 @@ check("Delete takes the whole group", [n for n in ("Button2", "CheckBox2", "Text
 run("EditUndo")
 check("and Undo brings it all back", [n for n in ("Button2", "CheckBox2", "TextBox2") if eng.find(n) is not None], ["Button2", "CheckBox2", "TextBox2"])
 
+# ---- Align: a scattered group lined up, still selected, one Undo away
+for i, (x, y) in enumerate(((40, 30), (130, 95), (70, 170))):
+    eng.cmd_SetProperty(["Button1", "TextBox1", "CheckBox1"][i], "Canvas.Left", str(x))
+    eng.cmd_SetProperty(["Button1", "TextBox1", "CheckBox1"][i], "Canvas.Top", str(y))
+settle(0.1)
+eng.cmd_SetProperty("Surface", "SelectedAll", "Button1,TextBox1,CheckBox1")
+eng._surface("Surface").widget.emit("OnChanged", {"selected_control": "Button1"}); settle(0.1)
+before = {n: (eng.find(n).props["Canvas.Left"], eng.find(n).props["Canvas.Top"]) for n in ("Button1", "TextBox1", "CheckBox1")}
+geo = lambda n: eng.find(n).host.geometry()
+run("CtxAlignTidy")
+order = sorted(("Button1", "TextBox1", "CheckBox1"), key=lambda n: geo(n).top())
+check("Tidy makes a column: left edges in line", len({geo(n).left() for n in order}), 1)
+check("with even gaps", {geo(b).top() - geo(a).bottom() - 1 for a, b in zip(order, order[1:])}, {8})
+check("still selected, box and all", (sorted(eng.cmd_GetProperty("Surface", "SelectedAll").split(",")), ov.group_box() is not None),
+      (["Button1", "CheckBox1", "TextBox1"], True))
+run("EditUndo")
+check("one Undo puts them back where they were", {n: (eng.find(n).props["Canvas.Left"], eng.find(n).props["Canvas.Top"]) for n in before}, before)
+run("CtxAlignRight")
+check("Right edges", len({geo(n).right() for n in before}), 1)
+run("EditUndo"); run("CtxAlignAcross")
+xs = sorted(before, key=lambda n: geo(n).left())
+gaps = [geo(b).left() - geo(a).right() for a, b in zip(xs, xs[1:])]
+check("Space evenly across", max(gaps) - min(gaps) <= 1, True)
+run("CtxAlignWidth")
+check("Same width as the first", len({geo(n).width() for n in before}), 1)
+
 # ---- the form's own events, and the Script Editor on the Tools menu
 check("the form's events", [e["name"] for e in json.loads(eng.cmd_GetControlEvents("Surface"))],
       ["OnOpened", "OnClosing", "OnResized", "OnActivated", "OnKeyDown", "OnKeyUp"])
