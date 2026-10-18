@@ -137,7 +137,10 @@ end
 function OpenTool(...)
     local t = TOOLS[tonumber((...)) or 0]
     if not t then return end
-    if Vml("RunApp", t.path) == "true" then
+    -- what's open here goes with it (VML_PROJECT): Bob opens on it, say
+    local info, current = Vml("ProjectInfo"), Vml("GetSetting", "current_file")
+    if info ~= "" then current = (require("dkjson").decode(info) or {}).file or current end
+    if Vml("RunApp", t.path, current or "") == "true" then
         Vml("SetStatusText", "Started " .. t.name)
     else
         Vml("InfoDialog", "Couldn't start " .. t.name .. ":\n" .. t.path, "Tools")

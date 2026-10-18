@@ -3594,13 +3594,16 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         root.mkdir(parents=True, exist_ok=True)
         return str(root)
 
-    def cmd_RunApp(self, path):
-        """Start a form or project as an app of its own, in its own process: it carries on if this one closes."""
+    def cmd_RunApp(self, path, project=""):
+        """Start a form or project as an app of its own, in its own process: it carries on if this one closes.
+        project: the project (or form) the designer has open, for a tool to work on: it finds it in VML_PROJECT."""
         p = Path(os.path.expanduser(str(path)))
         if not p.exists():
             return ""
         argv = [sys.executable, str(p)] if FROZEN else [sys.executable, "-m", "vml", str(p)]
         env = dict(os.environ)
+        if project:
+            env["VML_PROJECT"] = str(project)
         if not FROZEN:                                       # (from the source: it needs to find the vml package)
             env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent) + os.pathsep + env.get("PYTHONPATH", "")
         try:

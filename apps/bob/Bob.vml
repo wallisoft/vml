@@ -24,7 +24,7 @@
 
 @Window Bob
 Title=Bob build tool
-Version=2.9
+Version=3.0
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
 About=Bob builds your Visualised projects, here and on any machine you can reach over SSH. https://bob.vml.onl
@@ -404,9 +404,28 @@ Vml("SetProperty", "tmrStart", "IsEnabled", "false")
 Vml("SetSetting", "bob_gh_state", "")
 Vml("SetSetting", "bob_gh_busy", "")
 Vml("SetSetting", "bob_stopping", "")
+local json = require("dkjson")
 local repo = Vml("RunScript", "Repo")
 local list = Vml("Shell", Vml("RunScript", "Bob", "--projects") .. " 2>/dev/null") or ""
-local projects = require("dkjson").decode(list) or {}
+local projects = json.decode(list) or {}
+-- the projects you've built before (wherever they are), and the one the designer has open (VML_PROJECT): first
+local have = {}
+for _, p in ipairs(projects) do have[p.config] = true end
+local recent = json.decode(Vml("GetPreference", "bob_recent", "[]")) or {}
+local current = os.getenv("VML_PROJECT") or ""
+local opened = ""
+if current ~= "" and current:find("%.vml") then
+    opened = (Vml("Shell", Vml("RunScript", "Bob", '--new "' .. current .. '"') .. " 2>/dev/null") or ""):gsub("%s+$", "")
+    if not opened:find("%.vml$") then opened = "" end            -- (its recipe: found beside it, or made with sensible builds)
+end
+for _, cfg in ipairs(opened ~= "" and {opened, table.unpack(recent)} or recent) do
+    if not have[cfg] and Vml("Shell", '[ -f "' .. cfg .. '" ] && echo y') ~= "" then
+        local one = json.decode(Vml("Shell", Vml("RunScript", "Bob", '--config "' .. cfg .. '" --list') .. " 2>/dev/null") or "") or {}
+        if one.name then table.insert(projects, 1, {name = one.name, config = cfg, version = one.version or ""}) have[cfg] = true end
+    end
+end
+if opened ~= "" then Vml("SetPreference", "bob_project", opened) end
+list = json.encode(projects)
 if #projects == 0 then
     Vml("SetProperty", "lblWhat", "Text", "no projects at " .. (repo:gsub("^" .. (os.getenv("HOME") or "~"), "~")))
     Vml("SetProperty", "StatusBar", "Text", "No recipes found in " .. repo .. " (or no tools/bob/run.py): Set up… to say where the repo is")
@@ -519,6 +538,11 @@ local project = (json.decode(Vml("GetSetting", "bob_projects")) or {})[which]
 if not project then return end
 Vml("SetPreference", "bob_project", project.config)
 Vml("SetSetting", "bob_config", project.config)
+do                                                     -- (kept, so a project from anywhere stays on the list)
+    local recent, keep = json.decode(Vml("GetPreference", "bob_recent", "[]")) or {}, {project.config}
+    for _, c in ipairs(recent) do if c ~= project.config and #keep < 8 then keep[#keep + 1] = c end end
+    Vml("SetPreference", "bob_recent", json.encode(keep))
+end
 local info = json.decode(Vml("Shell", Vml("RunScript", "Bob", '--config "' .. project.config .. '" --list') .. " 2>&1") or "") or {}
 -- what was there for the last project goes
 for i = 1, tonumber(Vml("GetSetting", "bob_n")) or 0 do
@@ -532,7 +556,7 @@ Vml("SetSetting", "bob_name", info.name or project.name)
 Vml("SetProperty", "btnProject", "Content", (info.name or project.name) .. "  ▾")
 Vml("SetProperty", "lblWhat", "Text", (info.name or project.name) .. " " .. (info.version or "") .. "  ·  " ..
     (#builds == 0 and "no builds in its recipe" or (#builds .. " build" .. (#builds == 1 and "" or "s"))) .. "  ·  " ..
-    (Vml("RunScript", "Repo"):gsub("^" .. (os.getenv("HOME") or "~"), "~")))
+    ((project.config:match("^(.*)[/\\]") or project.config):gsub("^" .. (os.getenv("HOME") or "~"), "~")))   -- (where it is)
 local gap, total = 16, 740
 local w = math.floor((total - gap * (#builds - 1)) / math.max(1, #builds))
 local install = false
@@ -963,7 +987,8 @@ local since = tonumber(Vml("GetSetting", "bob_gh_busy")) or 0
 if since > 0 and os.time() - since < 90 then return end        -- (still asking; after 90s it's stuck: ask again)
 Vml("SetSetting", "bob_gh_busy", tostring(os.time()))
 Vml("SetProperty", "txtGhRaw", "Text", "")
-local repo = Vml("RunScript", "Repo")
+local cfg = Vml("GetSetting", "bob_config")                  -- (the project's own repo: gh finds it from its folder)
+local repo = cfg ~= "" and (cfg:match("^(.*)[/\\]") or cfg) or Vml("RunScript", "Repo")
 local pid = Vml("RunProcess", 'cd "' .. repo .. '" && gh run list --limit 8 --json databaseId,status,conclusion,workflowName,headBranch,createdAt,displayTitle --template \'{{range .}}{{.databaseId}}|{{.status}}|{{.conclusion}}|{{.workflowName}}|{{.headBranch}}|{{timeago .createdAt}}|{{.displayTitle}}{{"\\n"}}{{end}}\' 2>&1',
     "txtGhRaw", "GhListed")
 if not pid or pid == "" then
