@@ -24,7 +24,7 @@
 
 @Window Bob
 Title=Bob
-Version=2.6
+Version=2.7
 AppBar=true
 Terms=https://tiny-web.uk/terms.php
 About=Bob builds your Visualised projects, here and on any machine you can reach over SSH. https://bob.vml.onl
@@ -203,7 +203,7 @@ Header=GitHub
 Parent=pGitHub
 Canvas.Left=8
 Canvas.Top=8
-Width=722
+Width=642
 Height=224
 AcceptsReturn=true
 IsReadOnly=true
@@ -211,6 +211,36 @@ FontFamily=monospace
 FontSize=11
 Anchor=Top,Bottom,Left,Right
 Text=Asking GitHub…
+
+@Button btnGhCopy
+Parent=pGitHub
+Canvas.Left=658
+Canvas.Top=8
+Width=72
+Height=30
+Content=Copy
+Anchor=Top,Right
+OnClick=CopyLog(0)
+
+@Button btnGhSave
+Parent=pGitHub
+Canvas.Left=658
+Canvas.Top=46
+Width=72
+Height=30
+Content=Save…
+Anchor=Top,Right
+OnClick=SaveLog(0)
+
+@Button btnGhOpen
+Parent=pGitHub
+Canvas.Left=658
+Canvas.Top=84
+Width=72
+Height=30
+Content=Open
+Anchor=Top,Right
+OnClick=OpenLog(0)
 
 # what gh and ssh say, before it's set out (not shown)
 @TextBox txtGhRaw
@@ -651,11 +681,11 @@ Interpreter=lua
 <<LUA
 -- A build's whole log on the clipboard, to paste anywhere
 local i = tostring((...))
-local text = Vml("Shell", 'cat "' .. Vml("GetSetting", "bob_log_" .. i) .. '" 2>/dev/null') or ""
+local text = i == "0" and Vml("GetProperty", "txtGitHub", "Text") or Vml("Shell", 'cat "' .. Vml("GetSetting", "bob_log_" .. i) .. '" 2>/dev/null') or ""
 if text == "" then Vml("SetProperty", "StatusBar", "Text", "No log yet: build it first") return end
 Vml("ClipboardSet", text)
 local _, n = text:gsub("\n", "")
-Vml("SetProperty", "StatusBar", "Text", Vml("GetSetting", "bob_bname_" .. i) .. " log copied: " .. (n + 1) .. " lines")
+Vml("SetProperty", "StatusBar", "Text", (i == "0" and "GitHub" or Vml("GetSetting", "bob_bname_" .. i)) .. " log copied: " .. (n + 1) .. " lines")
 LUA
 
 @Script SaveLog
@@ -663,9 +693,9 @@ Interpreter=lua
 <<LUA
 -- Keep a build's log: asks where
 local i = tostring((...))
-local text = Vml("Shell", 'cat "' .. Vml("GetSetting", "bob_log_" .. i) .. '" 2>/dev/null') or ""
+local text = i == "0" and Vml("GetProperty", "txtGitHub", "Text") or Vml("Shell", 'cat "' .. Vml("GetSetting", "bob_log_" .. i) .. '" 2>/dev/null') or ""
 if text == "" then Vml("SetProperty", "StatusBar", "Text", "No log yet: build it first") return end
-local name = (Vml("GetSetting", "bob_name") .. "-" .. Vml("GetSetting", "bob_bname_" .. i)):gsub("[^%w%-]", "") .. "-" .. os.date("%Y%m%d-%H%M") .. ".log"
+local name = (Vml("GetSetting", "bob_name") .. "-" .. (i == "0" and "GitHub" or Vml("GetSetting", "bob_bname_" .. i))):gsub("[^%w%-]", "") .. "-" .. os.date("%Y%m%d-%H%M") .. ".log"
 local where = Vml("SaveFile", name, text) or ""
 if where ~= "" then Vml("SetProperty", "StatusBar", "Text", "Log saved: " .. (where:gsub("^" .. (os.getenv("HOME") or "~"), "~"))) end
 LUA
@@ -675,6 +705,10 @@ Interpreter=lua
 <<LUA
 -- A build's log in the text editor
 local i = tostring((...))
+if i == "0" then                                   -- the GitHub tab: the repo's Actions page in the browser
+    Vml("Shell", 'cd "' .. Vml("RunScript", "Repo") .. '" && (u=$(gh repo view --json url -q .url 2>/dev/null); [ -n "$u" ] && xdg-open "$u/actions" >/dev/null 2>&1 &)')
+    return
+end
 Vml("Shell", 'f="' .. Vml("GetSetting", "bob_log_" .. i) .. '"; [ -s "$f" ] && (xdg-open "$f" >/dev/null 2>&1 &)')
 LUA
 

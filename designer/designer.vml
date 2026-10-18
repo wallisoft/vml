@@ -11,6 +11,7 @@
 Title=Visualised
 Width=1180
 Height=760
+WindowState=Auto
 OnOpened=DesignerInit
 OnClosing=DesignerClosing
 

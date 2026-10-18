@@ -355,7 +355,17 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
-        w.show()
+        state = (node.props.get("WindowState") or "").lower()
+        if state == "auto":                                  # maximised on an HD screen or smaller, its own size on a bigger one
+            from PySide6.QtGui import QGuiApplication
+            scr = w.screen() or QGuiApplication.primaryScreen()
+            state = "maximized" if scr and scr.availableGeometry().width() <= 1920 else ""
+        if state in ("maximized", "maximised"):
+            w.showMaximized()
+        elif state == "fullscreen":
+            w.showFullScreen()
+        else:
+            w.show()
         if node.props.get("Resizable", "true").lower() == "false":
             w.setFixedSize(w.size())
         self.windows.append(node)

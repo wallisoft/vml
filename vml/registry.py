@@ -1292,6 +1292,7 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                   Prop("UpdateApk", "text", "Common"),                           # and of its phone app (an .apk's address)
                   Prop("LinkPass", "text", "Behaviour"),                         # put in by Visualised Pro when it saves an app that uses Link: see vml/link.py
                   Prop("PhoneFit", "choice", "Behaviour", options=("Fit", "None")),
+                  Prop("WindowState", "choice", "Behaviour", options=("Normal", "Maximized", "Auto", "FullScreen")),  # how it opens on a computer: Auto is maximised on an HD screen or smaller
                   Prop("WebFit", "choice", "Behaviour", options=("Window", "Fill")),  # as a web page with room to spare: a window in the middle at its own size, or fill the page  # as a web page on a phone: scale to the screen's width, or leave alone
                   Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window
                   Prop("BorderThickness", "thickness", "Appearance", apply=window_edge),

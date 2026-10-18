@@ -82,6 +82,7 @@ DESCRIBE = {
     "HorizontalScrollBarVisibility": "When the sideways scroll bar shows.", "VerticalScrollBarVisibility": "When the up-and-down scroll bar shows.",
     "Thickness": "How wide the bar is, in pixels.",
     "Modal": "Opened as a dialog: the rest of the app waits until it closes.",
+    "WindowState": "How it opens on a computer: Normal (its own size), Maximized, FullScreen, or Auto: maximised on an HD screen (1920 wide) or smaller, its own size on a bigger one.",
     "PhoneFit": "On a phone: Fit scales the form to the screen's width; None leaves it at its own size.",
     "Background": "Its background colour.", "Foreground": "Its text colour.", "BorderBrush": "Its edge's colour.",
     "Class": "The names of shared @Style styles it takes, space-separated.", "Style": "CSS for this control alone.",

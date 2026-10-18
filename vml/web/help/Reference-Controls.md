@@ -877,6 +877,7 @@ Has the properties [every control](#every-control) has.
 | `Modal` | true/false | Opened as a dialog: the rest of the app waits until it closes. Default `false`. |
 | `PhoneFit` | choice (Fit, None) | On a phone: Fit scales the form to the screen's width; None leaves it at its own size. |
 | `Resizable` | true/false | Applied by the engine when shown. Default `true`. |
+| `WindowState` | choice (Normal, Maximized, Auto, FullScreen) | How it opens on a computer: Normal (its own size), Maximized, FullScreen, or Auto: maximised on an HD screen (1920 wide) or smaller, its own size on a bigger one. |
 | `WebFit` | choice (Window, Fill) | As a web page on a phone: scale to the screen's width, or leave alone. |
 | `About` | text | A line or two for its About box. |
 | `AndroidKey` | text | Which signing key it was last exported with: put in by the export. |
