@@ -51,8 +51,8 @@ import java.util.List;
  *   access", which the user turns on once in Settings. The phone's apps' private folders stay private: Android
  *   gives those to no app.
  *
- * Only someone with the password gets in (user "phone"; the password is made here, shown in the app, and kept until
- * the user asks for a new one). The server's key is made on the phone the first time and kept, so a computer can
+ * Only computers paired with the phone get in: the computer's Mountie shows a QR code holding its public key, the
+ * phone scans it, and from then on that computer mounts the phone with its key (user "phone"). No passwords. The server's key is made on the phone the first time and kept, so a computer can
  * tell it's the same phone next time.
  */
 public class PhoneShare extends Service {
@@ -116,7 +116,7 @@ public class PhoneShare extends Service {
             o.put("addresses", new JSONArray(ips));
             o.put("port", PORT);
             o.put("user", USER);
-            o.put("password", password(c));
+            o.put("computers", new JSONArray(computers(c).keySet()));
             o.put("fingerprint", prefs(c).getString("fingerprint", ""));
             o.put("name", phoneName());
             o.put("root", root().getPath());
@@ -160,8 +160,10 @@ public class PhoneShare extends Service {
             keys.setAlgorithm("EC");
             keys.setKeySize(256);
             s.setKeyPairProvider(keys);
-            final String pass = password(this);
-            s.setPasswordAuthenticator((user, given, session) -> USER.equals(user) && pass.equals(given));
+            final Context ctx = this;
+            s.setPasswordAuthenticator(null);                    // no passwords: only computers paired by QR code
+            s.setKeyboardInteractiveAuthenticator(null);
+            s.setPublickeyAuthenticator((user, key, session) -> USER.equals(user) && paired(ctx, key));
             s.setFileSystemFactory(new VirtualFileSystemFactory(root().toPath()));
             s.setSubsystemFactories(Collections.singletonList(new SftpSubsystemFactory()));
             s.start();
@@ -210,7 +212,7 @@ public class PhoneShare extends Service {
         Notification note = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setContentTitle("This phone is shared")
-                .setContentText((ips.isEmpty() ? "on your Wi-Fi" : ips.get(0) + ", port " + PORT) + ". Tap to stop or see the password.")
+                .setContentText((ips.isEmpty() ? "on your Wi-Fi" : ips.get(0) + ", port " + PORT) + ", to your paired computers. Tap to stop.")
                 .setContentIntent(PendingIntent.getActivity(this, 3, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
                 .setOngoing(true)
                 .build();
@@ -306,7 +308,73 @@ public class PhoneShare extends Service {
         advertised = null;
     }
 
-    // ---- the password and the key
+    // ---- paired computers: each one's public key, from the QR code its Mountie showed
+
+    /** {name: base64 of the key's SSH blob} */
+    static java.util.Map<String, String> computers(Context c) {
+        java.util.Map<String, String> out = new java.util.TreeMap<>();
+        try {
+            JSONObject o = new JSONObject(prefs(c).getString("computers", "{}"));
+            for (java.util.Iterator<String> it = o.keys(); it.hasNext(); ) {
+                String k = it.next();
+                out.put(k, o.getString(k));
+            }
+        } catch (JSONException ignored) {
+        }
+        return out;
+    }
+
+    private static void keep(Context c, java.util.Map<String, String> all) {
+        prefs(c).edit().putString("computers", new JSONObject(all).toString()).apply();
+    }
+
+    /** A code scanned off a computer's Mountie: "mountie:<name> <base64 key>". "" when paired, otherwise why not. */
+    static String pair(Context c, String code) {
+        String s = code == null ? "" : code.trim();
+        if (!s.startsWith("mountie:")) {
+            return "That isn't a Mountie pairing code (Mountie on the computer: Phone, Pair a phone).";
+        }
+        s = s.substring(8);
+        int sp = s.lastIndexOf(' ');
+        if (sp <= 0) {
+            return "That pairing code is incomplete: try scanning it again.";
+        }
+        String name = s.substring(0, sp).trim(), blob = s.substring(sp + 1).trim();
+        try {
+            keyOf(blob);
+        } catch (Exception e) {
+            return "That pairing code's key couldn't be read (" + e.getMessage() + ").";
+        }
+        java.util.Map<String, String> all = computers(c);
+        all.put(name.isEmpty() ? "A computer" : name, blob);
+        keep(c, all);
+        return "";
+    }
+
+    static void forget(Context c, String name) {
+        java.util.Map<String, String> all = computers(c);
+        all.remove(name);
+        keep(c, all);
+    }
+
+    private static java.security.PublicKey keyOf(String blob) throws Exception {
+        byte[] raw = android.util.Base64.decode(blob, android.util.Base64.DEFAULT);
+        return new org.apache.sshd.common.util.buffer.ByteArrayBuffer(raw).getRawPublicKey();
+    }
+
+    private static boolean paired(Context c, java.security.PublicKey offered) {
+        for (String blob : computers(c).values()) {
+            try {
+                if (org.apache.sshd.common.config.keys.KeyUtils.compareKeys(keyOf(blob), offered)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+    // ---- the password (no longer asked for: kept so an older Mountie page still gets an answer) and the key
 
     private static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);

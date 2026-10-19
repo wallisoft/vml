@@ -151,11 +151,20 @@ Width=432
 Height=160
 OnDoubleClick=PhoneAdd
 
+@Image imgPair
+Parent=pPhone
+Canvas.Left=136
+Canvas.Top=96
+Width=180
+Height=180
+Stretch=Uniform
+IsVisible=false
+
 @Button btnPhoneAdd
 Parent=pPhone
 Canvas.Left=10
 Canvas.Top=282
-Width=212
+Width=140
 Height=40
 Background=#127A68
 Foreground=#FFFFFF
@@ -164,12 +173,21 @@ OnClick=PhoneAdd
 
 @Button btnPhoneFind
 Parent=pPhone
-Canvas.Left=230
+Canvas.Left=156
 Canvas.Top=282
-Width=212
+Width=140
 Height=40
 Content=Look again
 OnClick=PhoneFind
+
+@Button btnPhonePair
+Parent=pPhone
+Canvas.Left=302
+Canvas.Top=282
+Width=140
+Height=40
+Content=Pair a phone
+OnClick=PhonePairShow
 
 @Button btnShare
 Parent=pPhone
@@ -184,15 +202,33 @@ Content=Share this phone
 IsVisible=false
 OnClick=PhoneToggle
 
-@Button btnSharePass
+@Button btnSharePair
 Parent=pPhone
 Canvas.Left=10
 Canvas.Top=312
 Width=432
 Height=40
-Content=New password
+Content=Pair a computer (scan its code)
 IsVisible=false
-OnClick=PhoneNewPass
+OnClick=PhonePair
+
+@ListBox lstComputers
+Parent=pPhone
+Canvas.Left=10
+Canvas.Top=362
+Width=320
+Height=100
+IsVisible=false
+
+@Button btnForget
+Parent=pPhone
+Canvas.Left=338
+Canvas.Top=362
+Width=104
+Height=40
+Content=Forget
+IsVisible=false
+OnClick=PhoneForget
 
 # --- the drives ---------------------------------------------------------------
 
@@ -690,8 +726,8 @@ if can.android then
     Vml("SetProperty", p, "IsVisible", "false")
   end
   Vml("SetProperty", "pPhone", "Header", "Share")
-  Show({ "lstPhones", "btnPhoneAdd", "btnPhoneFind" }, false)
-  Show({ "btnShare" }, true)
+  Show({ "lstPhones", "btnPhoneAdd", "btnPhoneFind", "btnPhonePair" }, false)
+  Show({ "btnShare", "btnSharePair", "lstComputers", "btnForget" }, true)
   Vml("SetProperty", "lblPhone", "Height", "230")
 elseif can.windows and not can.winfsp then
   Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
@@ -919,10 +955,28 @@ Interpreter=lua
 Phone.On(args)
 LUA
 
-@Script PhoneNewPass
+@Script PhonePairShow
 Interpreter=lua
 <<LUA
-Phone.NewPass()
+Phone.PairShow()
+LUA
+
+@Script PhonePair
+Interpreter=lua
+<<LUA
+Phone.Pair()
+LUA
+
+@Script PhonePaired
+Interpreter=lua
+<<LUA
+Phone.Paired(args)
+LUA
+
+@Script PhoneForget
+Interpreter=lua
+<<LUA
+Phone.Forget()
 LUA
 
 @Script ShowLog

@@ -95,6 +95,18 @@ final class Device {
         return PhoneShare.newPassword(activity);
     }
 
+    /** Pair a computer from the code its Mountie showed (scanned): "" when paired, otherwise why not. */
+    @JavascriptInterface
+    public String phoneSharePair(String code) {
+        return PhoneShare.pair(activity, code);
+    }
+
+    /** Forget a paired computer: it can't get in any more. */
+    @JavascriptInterface
+    public void phoneShareForget(String name) {
+        PhoneShare.forget(activity, name);
+    }
+
     /**
      * A folder on an SSH server, in the phone's Files app (and every app's "open file"), as the drive's JSON says
      * (vml/sshdrive.py has what it holds). The page hears vmlFromPhone("sshdrive", name, state + "|" + detail):

@@ -1004,6 +1004,28 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
                             "user": g["txt"].get("user", "phone")} for g in got if g["txt"].get("app") == "mountie"
                            or g["name"].startswith("Mountie: ")])
 
+    def cmd_PhonePairCode(self):
+        """Pairing a phone with this computer (Mountie's Phone tab): this computer's own key for phones, made the first
+        time (ECDSA P-256, which a phone's own crypto has), and the code the phone scans. JSON {code, key}: code is
+        "mountie:<computer> <public key>", key the private key's file, for the drive to log in with."""
+        import socket
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        path = Path.home() / ".vml" / "mountie" / "phone_ecdsa"
+        if not path.is_file():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            key = ec.generate_private_key(ec.SECP256R1())
+            path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+                                               serialization.NoEncryption()))
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+        key = serialization.load_ssh_private_key(path.read_bytes(), None)
+        blob = key.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).split()[1]
+        name = re.sub(r"[^\w .-]", "", socket.gethostname() or "computer")[:24] or "computer"
+        return json.dumps({"code": f"mountie:{name} {blob.decode()}", "key": str(path)})
+
     def cmd_PhoneShareStatus(self):
         """Sharing a phone's storage is a phone's (the phone app's PhoneShare): on a computer, not here."""
         return json.dumps({"phone": False, "on": False})

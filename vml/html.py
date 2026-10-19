@@ -1439,6 +1439,11 @@ const commands = {
     const s = JSON.parse(DEV.phoneShareStatus()); s.phone = true; return JSON.stringify(s);
   },
   // A new password for sharing this phone: returns it (a computer with the old one has to be told the new one).
+  PhonePairCode() { return ""; },    // (a computer's: the code a phone scans to pair with it)
+  // Pair this phone with a computer, from the code its Mountie showed (scanned): "" when paired, or why not.
+  PhoneSharePair(code = "") { return DEV && DEV.phoneSharePair ? DEV.phoneSharePair(String(code)) : "Pairing works in the phone app."; },
+  // Forget a paired computer: it can't get in any more.
+  PhoneShareForget(name = "") { if (DEV && DEV.phoneShareForget) DEV.phoneShareForget(String(name)); return ""; },
   PhonesNearby() { return "[]"; },   // (a computer finds phones: Mountie's Phone tab on the desktop)
   PhoneSharePassword() { return DEV && DEV.phoneSharePassword ? DEV.phoneSharePassword() : ""; },
   DiskList() { return "[]"; },
