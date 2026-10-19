@@ -23,7 +23,10 @@ import android.provider.Settings;
 
 import org.apache.sshd.common.NamedFactory;
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
+import org.apache.sshd.common.cipher.BuiltinCiphers;
 import org.apache.sshd.common.kex.BuiltinDHFactories;
+import org.apache.sshd.common.mac.BuiltinMacs;
+import org.apache.sshd.common.signature.BuiltinSignatures;
 import org.apache.sshd.server.ServerBuilder;
 import org.apache.sshd.common.util.OsUtils;
 import org.apache.sshd.common.util.io.PathUtils;
@@ -149,12 +152,18 @@ public class PhoneShare extends Service {
             System.setProperty("user.home", home.getPath());
 
             SshServer s = SshServer.setUpDefaultServer();
-            if (s.getKeyExchangeFactories() == null || s.getKeyExchangeFactories().isEmpty()) {
-                // (belt and braces: the elliptic-curve exchanges every ssh client offers, which Conscrypt has)
-                s.setKeyExchangeFactories(NamedFactory.setUpTransformedFactories(false,
-                        Arrays.asList(BuiltinDHFactories.ecdhp256, BuiltinDHFactories.ecdhp384, BuiltinDHFactories.ecdhp521),
-                        ServerBuilder.DH2KEX));
-            }
+            // Only what the phone's own crypto (Conscrypt) surely has, and every ssh client (OpenSSH's sshfs, paramiko)
+            // offers: SSHD's own "is it supported" checks pass curve25519 and ChaCha20 on some phones that can't do
+            // them, and the connection then fails with "no such algorithm".
+            s.setKeyExchangeFactories(NamedFactory.setUpTransformedFactories(false,
+                    Arrays.asList(BuiltinDHFactories.ecdhp256, BuiltinDHFactories.ecdhp384, BuiltinDHFactories.ecdhp521),
+                    ServerBuilder.DH2KEX));
+            s.setCipherFactories(new java.util.ArrayList<>(Arrays.asList(BuiltinCiphers.aes128ctr, BuiltinCiphers.aes192ctr,
+                    BuiltinCiphers.aes256ctr, BuiltinCiphers.aes128gcm, BuiltinCiphers.aes256gcm)));
+            s.setMacFactories(new java.util.ArrayList<>(Arrays.asList(BuiltinMacs.hmacsha256etm, BuiltinMacs.hmacsha512etm,
+                    BuiltinMacs.hmacsha256, BuiltinMacs.hmacsha512)));
+            s.setSignatureFactories(new java.util.ArrayList<>(Arrays.asList(BuiltinSignatures.nistp256, BuiltinSignatures.nistp384,
+                    BuiltinSignatures.nistp521, BuiltinSignatures.rsaSHA256, BuiltinSignatures.rsaSHA512)));
             s.setPort(PORT);
             SimpleGeneratorHostKeyProvider keys = new SimpleGeneratorHostKeyProvider(new File(home, "phoneshare-hostkey.ser").toPath());
             keys.setAlgorithm("EC");
