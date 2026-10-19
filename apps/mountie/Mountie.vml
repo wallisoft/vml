@@ -13,6 +13,8 @@
 #              DownloadFiles, showing just the PDFs, say. A real drive, so
 #              every app's Open box sees it that way too.
 #   RAM        a RAM disk, of the size you say; can keep what's on it.
+#   Phone      phones sharing themselves on the Wi-Fi, added as drives; on a
+#              phone, Share this phone: its storage as a drive on your computers.
 #
 #   Lives in the tray, mounts what you ask by itself, can start with the
 #   computer. Everything is kept on this device only.
@@ -120,6 +122,75 @@ SameAs=pIso
 Parent=tabs
 Header=RAM
 SameAs=pIso
+
+@TabPage pPhone
+Parent=tabs
+Header=Phone
+
+# --- the Phone tab: on a computer, phones sharing themselves; on a phone, Share this phone (phone.lua) ---
+
+@TextBlock lblPhone
+Parent=pPhone
+Canvas.Left=10
+Canvas.Top=12
+Width=432
+Height=96
+TextWrapping=Wrap
+FontSize=13
+Foreground=#374151
+Text=
+
+@ListBox lstPhones
+Parent=pPhone
+AlternatingRows=true
+Canvas.Left=10
+Canvas.Top=112
+Width=432
+Height=160
+OnDoubleClick=PhoneAdd
+
+@Button btnPhoneAdd
+Parent=pPhone
+Canvas.Left=10
+Canvas.Top=282
+Width=212
+Height=40
+Background=#127A68
+Foreground=#FFFFFF
+Content=Add as a drive
+OnClick=PhoneAdd
+
+@Button btnPhoneFind
+Parent=pPhone
+Canvas.Left=230
+Canvas.Top=282
+Width=212
+Height=40
+Content=Look again
+OnClick=PhoneFind
+
+@Button btnShare
+Parent=pPhone
+Canvas.Left=10
+Canvas.Top=250
+Width=432
+Height=52
+Background=#127A68
+Foreground=#FFFFFF
+FontSize=16
+Content=Share this phone
+IsVisible=false
+OnClick=PhoneToggle
+
+@Button btnSharePass
+Parent=pPhone
+Canvas.Left=10
+Canvas.Top=312
+Width=432
+Height=40
+Content=New password
+IsVisible=false
+OnClick=PhoneNewPass
 
 # --- the drives ---------------------------------------------------------------
 
@@ -613,7 +684,13 @@ if can.android then
   end
   Vml("SetProperty", "txtName", "Width", "432")
   Say("Connected drives are in the Files app (under Browse), and in every app's \"open file\".")
-  Show(TABS, false)                                                -- a phone has SSH drives only
+  for _, p in ipairs({ "pIso", "pVhd", "pPart", "pFold", "pRam" }) do           -- a phone: SSH drives, and sharing itself
+    Vml("SetProperty", p, "IsVisible", "false")
+  end
+  Vml("SetProperty", "pPhone", "Header", "Share")
+  Show({ "lstPhones", "btnPhoneAdd", "btnPhoneFind" }, false)
+  Show({ "btnShare" }, true)
+  Vml("SetProperty", "lblPhone", "Height", "230")
 elseif can.windows and not can.winfsp then
   Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
 end
@@ -631,8 +708,9 @@ LUA
 @Script TabPicked
 Interpreter=lua
 <<LUA
-local names = { "Ssh", "Iso", "Vhd", "Part", "Fold", "Ram" }
-ShowTab(names[(tonumber(Vml("GetProperty", "tabs", "SelectedIndex")) or 0) + 1] or "Ssh")
+local names = { "Ssh", "Iso", "Vhd", "Part", "Fold", "Ram", "Phone" }
+local t = names[(tonumber(Vml("GetProperty", "tabs", "SelectedIndex")) or 0) + 1] or "Ssh"
+if t == "Phone" then Phone.Show() else ShowTab(t) end
 LUA
 
 @Script Closing
@@ -813,6 +891,36 @@ LUA
 Interpreter=lua
 <<LUA
 Disk.DiskShows(args)
+LUA
+
+@Script PhoneFind
+Interpreter=lua
+<<LUA
+Phone.Find()
+LUA
+
+@Script PhoneAdd
+Interpreter=lua
+<<LUA
+Phone.Add()
+LUA
+
+@Script PhoneToggle
+Interpreter=lua
+<<LUA
+Phone.Toggle()
+LUA
+
+@Script OnPhoneShare
+Interpreter=lua
+<<LUA
+Phone.On(args)
+LUA
+
+@Script PhoneNewPass
+Interpreter=lua
+<<LUA
+Phone.NewPass()
 LUA
 
 @Script ShowLog

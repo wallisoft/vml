@@ -20,3 +20,11 @@
 -dontwarn com.sun.jna.**
 -dontwarn org.newsclub.net.unix.**
 -dontwarn org.ietf.jgss.**
+
+# Apache SSHD (PhoneShare's SFTP server) finds its ciphers, key exchanges, MACs and services by name.
+-keep class org.apache.sshd.** { *; }
+-dontwarn org.apache.sshd.**
+-dontwarn javax.management.**
+-dontwarn java.lang.management.**
+-dontwarn org.apache.tomcat.**
+-dontwarn net.i2p.crypto.eddsa.**

@@ -371,7 +371,8 @@ class Page:
             from .tabs import strip_geometry
             pages = [k for k in kids if self.by_id[k][2] == "TabPage"]
             sel = max(0, min(int(num(p.get("SelectedIndex"), 0)), len(pages) - 1)) if pages else 0
-            heads = "".join(f'<button type="button"{" class=on" if i == sel else ""}>'
+            heads = "".join(f'<button type="button"{" class=on" if i == sel else ""}'
+                            f'{" style=display:none" if str(self.props.get(k, {}).get("IsVisible", "true")).lower() == "false" else ""}>'
                             f'{esc(self.props.get(k, {}).get("Header") or self.by_id[k][3])}</button>' for i, k in enumerate(pages))
             place, b, band, page = strip_geometry(p, num(p.get("Width"), 320), num(p.get("Height"), 220))
             at = lambda r: [f"left:{int(r[0] - b)}px", f"top:{int(r[1] - b)}px", f"width:{int(r[2])}px", f"height:{int(r[3])}px"]
@@ -1101,6 +1102,13 @@ const commands = {
     else if (prop === "FontSize") e.style.fontSize = value + "px";
     else if (prop === "FontWeight") e.style.fontWeight = String({"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600, "Bold": 700, "ExtraBold": 800, "Black": 900}[value] || value || 400);
     else if (prop === "FontFamily") e.style.fontFamily = value;
+    else if (prop === "IsVisible" && e.matches(".vtabp")) {             // a page shown or not: its tab with it
+      const t = e.parentNode, k = [...t.querySelectorAll(":scope > .vtabp")].indexOf(e);
+      const head = t.querySelectorAll(":scope > .vtabh > button")[k];
+      if (head) head.style.display = truthy(value) ? "" : "none";
+      e.dataset.hidden = truthy(value) ? "" : "1";
+      e.style.display = truthy(value) && String(k) === t.dataset.sel ? "" : "none";
+    }
     else if (prop === "IsVisible") e.style.display = truthy(value) ? "" : "none";
     else if (prop === "IsEnabled") { const t = e.matches("label.cb") ? e.querySelector("input") : e; truthy(value) ? t.removeAttribute("disabled") : t.setAttribute("disabled", ""); }
     else if (prop === "IsChecked") e.querySelector("input").checked = truthy(value);
@@ -1164,6 +1172,7 @@ const commands = {
     if (prop === "Source") return e.getAttribute("src") || "";
     if (prop === "SelectedIndex") return String(e.selectedIndex);
     if (prop === "SelectedItem") return e.selectedIndex >= 0 ? e.options[e.selectedIndex].text : "";
+    if (prop === "IsVisible" && e.matches(".vtabp")) return e.dataset.hidden === "1" ? "false" : "true";
     if (prop === "IsVisible") return e.style.display === "none" ? "false" : "true";
     if (prop === "IsEnabled") return (e.matches("label.cb") ? e.querySelector("input") : e).hasAttribute("disabled") ? "false" : "true";
     if (prop === "Width") return String(e.offsetWidth);
@@ -1410,6 +1419,28 @@ const commands = {
     else if (handler) setTimeout(() => run(handler, [name, "error", "SSH drives need the computer app, or the phone app.", ""]), 0);
     return "";
   },
+  // This phone's storage as a drive on your computers (Mountie's "Share this phone"): on "1" starts a small SFTP
+  // server (user "phone", the password PhoneShareStatus shows), "0" stops it. handler gets ("on", status JSON),
+  // ("off", ""), ("error", why) or ("files", "") when the phone's Settings opened at All files access, to turn on
+  // first. In the Visualised app on a phone, or an app exported for Android.
+  PhoneShare(on = "1", handler = "") {
+    if (handler) onPhoneShare = String(handler);
+    if (!(DEV && DEV.phoneShare)) {
+      if (handler) setTimeout(() => run(handler, ["error", "Sharing a phone works in the phone app."]), 0);
+      return "";
+    }
+    const said = DEV.phoneShare(String(on) === "0" || String(on).toLowerCase() === "false" ? "0" : "1");
+    if (said === "files" && handler) setTimeout(() => run(handler, ["files", ""]), 0);
+    return said;
+  },
+  // {on, files, address, addresses, port, user, password, fingerprint, name, phone} as JSON; phone false off a phone.
+  PhoneShareStatus() {
+    if (!(DEV && DEV.phoneShareStatus)) return JSON.stringify({ phone: false, on: false });
+    const s = JSON.parse(DEV.phoneShareStatus()); s.phone = true; return JSON.stringify(s);
+  },
+  // A new password for sharing this phone: returns it (a computer with the old one has to be told the new one).
+  PhonesNearby() { return "[]"; },   // (a computer finds phones: Mountie's Phone tab on the desktop)
+  PhoneSharePassword() { return DEV && DEV.phoneSharePassword ? DEV.phoneSharePassword() : ""; },
   DiskList() { return "[]"; },
   DiskInfo(path = "") { return "{}"; },
   FolderPreview(path = "") { return "{\"error\":\"Not in a browser\"}"; },
@@ -1759,7 +1790,7 @@ const commands = {
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
-let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false, onSshDrive = "", onSshTest = "";
+let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false, onSshDrive = "", onSshTest = "", onPhoneShare = "";
 // Visualised's own push service (OnPush with no firebase of the app's own; PushSend). The Firebase values are the
 // public ones every app carries; sending is done by tiny-web, never by the app.
 const PUSH_RELAY = "https://tiny-web.uk/api/push.php";
@@ -1809,6 +1840,7 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
     const p = b.split("|"), ok = p[0] === "ok";
     run(onSshTest, [a, ok ? "ok" : "error", ok ? p.slice(2).join("|") : p.slice(1).join("|"), ok ? p[1] : ""]);
   }
+  if (what === "phoneshare" && onPhoneShare) run(onPhoneShare, [a, b]);
   if (what === "sshdrive" && onSshDrive) { const i = b.indexOf("|"); run(onSshDrive, [a, i < 0 ? b : b.slice(0, i), i < 0 ? "" : b.slice(i + 1)]); }
   if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:") || what.startsWith("contact:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];

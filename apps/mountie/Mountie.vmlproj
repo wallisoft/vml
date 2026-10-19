@@ -7,3 +7,4 @@ Form=Log.vml
 Module=common.lua
 Module=ssh.lua
 Module=disks.lua
+Module=phone.lua

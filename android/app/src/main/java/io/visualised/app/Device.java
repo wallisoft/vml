@@ -61,6 +61,38 @@ final class Device {
         this.activity = activity;
         this.texts = new Texts(activity);
         SshDrives.listener = activity::tell;
+        PhoneShare.listener = activity::tell;
+    }
+
+    /**
+     * Share this phone's storage with your computers (Mountie mounts it like any SSH folder): on "1", off "0".
+     * Returns "files" when All files access has to be turned on first (the phone's Settings open at its switch),
+     * otherwise "". The page hears vmlFromPhone("phoneshare", "on" | "off" | "error", status JSON or why).
+     */
+    @JavascriptInterface
+    public String phoneShare(String on) {
+        if ("0".equals(on)) {
+            PhoneShare.stop(activity);
+            return "";
+        }
+        if (!PhoneShare.canSeeFiles()) {
+            PhoneShare.askForFiles(activity);
+            return "files";
+        }
+        PhoneShare.start(activity);
+        return "";
+    }
+
+    /** Where sharing stands, as JSON: on, files, address, port, user, password, fingerprint, name. */
+    @JavascriptInterface
+    public String phoneShareStatus() {
+        return PhoneShare.status(activity);
+    }
+
+    /** A new password for sharing this phone (returns it). */
+    @JavascriptInterface
+    public String phoneSharePassword() {
+        return PhoneShare.newPassword(activity);
     }
 
     /**

@@ -77,6 +77,11 @@ class TabStripWidget(QWidget):
     def pages(self):
         return [c for c in self.node.children if c.type.name == "TabPage"]
 
+    @staticmethod
+    def hidden(page):
+        """A page with IsVisible=false has no tab (an app shows only the tabs that make sense where it's running)."""
+        return str(page.props.get("IsVisible", "true")).lower() == "false"
+
     def headers(self):
         return [str(c.props.get("Header") or c.name) for c in self.pages()]
 
@@ -108,7 +113,7 @@ class TabStripWidget(QWidget):
         shown = self.showing()
         for pg in self.pages():
             pg.host.setGeometry(*page)
-            pg.host.setVisible(pg is shown)
+            pg.host.setVisible(pg is shown and not self.hidden(pg))
 
     def tab_at(self, pos):
         for k, r in enumerate(self.rects):
@@ -143,7 +148,11 @@ class TabStripWidget(QWidget):
         gap = 2 if folder else 0
         self.rects = []
         x, y = bx + 4, by + 6
+        pages = self.pages()
         for k, text in enumerate(self.headers()):
+            if k < len(pages) and self.hidden(pages[k]):
+                self.rects.append(QRect())                      # (no tab: the indexes stay the pages')
+                continue
             if place in ("Top", "Bottom"):
                 w = fm.horizontalAdvance(text) + 28
                 r = QRect(x, by, w, HEADER - 1) if place == "Top" else QRect(x, by + 1, w, HEADER - 1)
@@ -287,10 +296,18 @@ def _header(n, v):
         n.parent.widget.update()
 
 
+def _page_shown(n, v):
+    n.props["IsVisible"] = str(v)
+    if n.parent is not None and n.parent.type.name == "TabStrip":
+        n.parent.widget.lay_out()
+        n.parent.widget.update()
+
+
 register(ControlType("TabPage", lambda n: TabPageWidget(n), container=True, add_child=canvas_add, place_child=canvas_place,
                      remove_child=canvas_remove, category="Containers", events=dict(POINTER_EVENTS)),
-         COMMON, ATTACHED,
+         [p for p in COMMON if p.name != "IsVisible"], ATTACHED,
          [Prop("Header", "text", "Common", apply=_header),
+          Prop("IsVisible", "bool", "Common", default="true", apply=_page_shown),                # false: no tab at all
           Prop("SameAs", "text", "Common", apply=lambda n, v: n.parent is not None and n.parent.type.name == "TabStrip"
                and n.parent.widget.lay_out())])                       # another page's name: this tab shows that page
 

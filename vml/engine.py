@@ -992,6 +992,25 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         except Exception as exc:
             log(f"font: {exc}")
 
+    def cmd_PhonesNearby(self, seconds="2"):
+        """Phones sharing themselves on this network (Mountie's Phone tab): JSON [{name, host, port, user}]."""
+        from . import mdns
+        try:
+            got = mdns.browse("_sftp-ssh._tcp", float(seconds or 2))
+        except OSError as exc:
+            log(f"PhonesNearby: {exc}")
+            got = []
+        return json.dumps([{"name": g["name"].replace("Mountie: ", "", 1), "host": g["host"], "port": g["port"],
+                            "user": g["txt"].get("user", "phone")} for g in got if g["txt"].get("app") == "mountie"
+                           or g["name"].startswith("Mountie: ")])
+
+    def cmd_PhoneShareStatus(self):
+        """Sharing a phone's storage is a phone's (the phone app's PhoneShare): on a computer, not here."""
+        return json.dumps({"phone": False, "on": False})
+
+    def cmd_PhoneShare(self, on="1", handler=""):
+        return "Sharing a phone works in the phone app."
+
     def cmd_GetLanguages(self):
         """The script languages, for the script editor: all five, each saying what it still needs on this computer
         when it isn't ready (a script can be written either way; it runs once its language is there)."""

@@ -67,7 +67,7 @@ android {
 
     packaging {
         // the libraries' own Java metadata (JSch and Bouncy Castle both carry it), of no use on a phone
-        resources { excludes += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/versions/**/OSGI-INF/**", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "org/bouncycastle/**"] }
+        resources { excludes += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/versions/**/OSGI-INF/**", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "org/bouncycastle/**", "META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*"] }
     }
 
     lint {
@@ -80,5 +80,8 @@ dependencies {
     implementation "com.google.zxing:core:3.5.3"      // reads QR codes; plain Java, nothing else comes with it
     implementation "com.github.mwiede:jsch:0.2.20"    // SFTP, for SshMount's drives in the Files app (plain Java)
     implementation "org.bouncycastle:bcprov-jdk18on:1.78.1"   // only its Ed25519/X25519, which a phone's Java lacks (R8 keeps just those)
+    implementation "org.apache.sshd:sshd-core:2.12.1"   // an SFTP server, to share the phone with your computers (PhoneShare)
+    implementation "org.apache.sshd:sshd-sftp:2.12.1"
+    implementation "org.slf4j:slf4j-nop:1.7.36"         // (SSHD logs through SLF4J: quietly, on a phone)
     pushImplementation "com.google.firebase:firebase-messaging:24.1.0"   // the push template only
 }
