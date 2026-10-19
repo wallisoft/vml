@@ -157,6 +157,12 @@ def main():
         raise SystemExit(eng.run())
     if not a.vml:
         a.vml = str(Path(__file__).resolve().parent.parent / "designer" / "designer.vml")
+    if not Path(a.vml).is_file():                           # a form that isn't there: say so, and where one of that name is
+        here = Path(__file__).resolve().parent.parent
+        name = Path(a.vml).name
+        near = sorted(str(p) for p in here.glob(f"apps/**/{name}"))[:3] if name else []
+        hint = ("\n  Did you mean: " + "\n                ".join(near)) if near else ""
+        raise SystemExit(f"Visualised: there's no {a.vml} (looking from {Path.cwd()}).{hint}")
     eng = Engine(a.db)
     if a.vml.lower().endswith(".vmlproj"):                  # a project: its modules and databases, then its start-up form
         start = eng.open_project(a.vml)
