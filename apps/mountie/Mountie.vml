@@ -228,6 +228,17 @@ Width=320
 Height=100
 IsVisible=false
 
+@CheckBox chkAsk
+Parent=pPhone
+Canvas.Left=10
+Canvas.Top=470
+Width=432
+Height=28
+Content=Ask on this phone before a computer opens it
+IsChecked=true
+IsVisible=false
+OnClick=PhoneAsk
+
 @Button btnForget
 Parent=pPhone
 Canvas.Left=338
@@ -735,7 +746,7 @@ if can.android then
   end
   Vml("SetProperty", "pPhone", "Header", "Share")
   Show({ "lstPhones", "btnPhoneAdd", "btnPhoneFind", "btnPhonePair", "txtPhoneAddr" }, false)
-  Show({ "btnShare", "btnSharePair", "lstComputers", "btnForget" }, true)
+  Show({ "btnShare", "btnSharePair", "lstComputers", "btnForget", "chkAsk" }, true)
   Vml("SetProperty", "lblPhone", "Height", "230")
 elseif can.windows and not can.winfsp then
   Say("Drives use Windows' own WebDAV client. For faster drives with no 50 MB file limit, install WinFsp (free, winfsp.dev) and restart this app.")
@@ -979,6 +990,12 @@ LUA
 Interpreter=lua
 <<LUA
 Phone.Paired(args)
+LUA
+
+@Script PhoneAsk
+Interpreter=lua
+<<LUA
+Phone.Ask()
 LUA
 
 @Script PhoneForget

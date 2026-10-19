@@ -295,7 +295,7 @@ class SftpRemote(BaseRemote):
 
             ssh.set_missing_host_key_policy(Pin())
             kw = dict(hostname=d["host"], port=int(d["port"] or 22), username=d["user"] or None, timeout=15,
-                      banner_timeout=15, auth_timeout=20, allow_agent=False, look_for_keys=False)
+                      banner_timeout=15, auth_timeout=75, allow_agent=False, look_for_keys=False)
             auth = d.get("auth") or "agent"
             if auth == "password":
                 kw["password"] = d["password"]
@@ -1192,7 +1192,7 @@ class SshfsDrive:
         for o in opts:                                           # one -o each; a comma inside a value is escaped for FUSE
             cmd += ["-o", o.replace("\\", "\\\\").replace(",", "\\,")]
         try:
-            r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=40,
+            r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=80,
                                start_new_session=True)          # (no terminal for ssh to ask anything on)
         except subprocess.TimeoutExpired:
             self._forget()

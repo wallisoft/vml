@@ -1448,6 +1448,8 @@ const commands = {
     const s = JSON.parse(DEV.phoneShareStatus()); s.phone = true; return JSON.stringify(s);
   },
   // A new password for sharing this phone: returns it (a computer with the old one has to be told the new one).
+  // Ask on this phone before a paired computer opens it: "1" (as it starts) or "0".
+  PhoneShareAsk(on = "1") { if (DEV && DEV.phoneShareAsk) DEV.phoneShareAsk(String(on) === "0" || String(on).toLowerCase() === "false" ? "0" : "1"); return ""; },
   PhonePairCode() { return ""; },    // (a computer's: the code a phone scans to pair with it)
   // Pair this phone with a computer, from the code its Mountie showed (scanned): "" when paired, or why not.
   PhoneSharePair(code = "") { return DEV && DEV.phoneSharePair ? DEV.phoneSharePair(String(code)) : "Pairing works in the phone app."; },

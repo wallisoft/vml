@@ -96,6 +96,28 @@ class _Stay(urllib.request.HTTPRedirectHandler):
         return None                                      # (the redirect itself is the answer: it names the tag)
 
 
+def github_newest(repo, asset):
+    """The newest release that has this computer's installer, pre-releases too (Bob's fix releases are pre-releases,
+    made from local builds, with no clean build on GitHub): (version, tag), or ("", "") if GitHub can't be asked."""
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases?per_page=20",
+                                     headers={"User-Agent": "Visualised", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            releases = json.load(r)
+    except Exception:
+        return "", ""
+    best, tag = "", ""
+    for rel in releases:
+        if rel.get("draft"):
+            continue
+        if asset and not any(a.get("name") == asset for a in rel.get("assets") or []):
+            continue                                     # (a release without this computer's installer: not for us)
+        v = str(rel.get("tag_name", "")).lstrip("vV")
+        if v and (not best or newer(v, best)):
+            best, tag = v, str(rel.get("tag_name", ""))
+    return best, tag
+
+
 def github_latest(repo, asset):
     """The newest release's tag (without a leading v), from where releases/latest/download/ASSET points; failing that,
     GitHub's API. "" if neither says."""
@@ -237,8 +259,11 @@ class AppBar(QWidget):
                     out["newer"] = newer(out["latest"], self.version)
                 elif github_repo(url):
                     repo = github_repo(url)
-                    out = {"latest": github_latest(repo, github_asset(self.node.name)),
-                           "url": f"https://github.com/{repo}/releases/latest", "repo": repo}
+                    latest, tag = github_newest(repo, github_asset(self.node.name))
+                    if not latest:                       # (GitHub's API unreachable or rate-limited: the latest stable)
+                        latest, tag = github_latest(repo, github_asset(self.node.name)), ""
+                    out = {"latest": latest, "tag": tag, "repo": repo,
+                           "url": f"https://github.com/{repo}/releases/tag/{tag}" if tag else f"https://github.com/{repo}/releases/latest"}
                     out["newer"] = newer(out["latest"], self.version)
                 else:
                     text = _get(url, 32768, rng=True).decode("utf-8", "replace")
@@ -390,7 +415,9 @@ class AppBar(QWidget):
             return f"This {self.title} runs from its source code: update it with git."
         if not asset:
             return f"There's no {self.title} installer for this computer in its releases."
-        url = f"https://github.com/{repo}/releases/latest/download/{asset}"
+        tag = self.info.get("tag") or ""
+        url = f"https://github.com/{repo}/releases/download/{tag}/{asset}" if tag else \
+            f"https://github.com/{repo}/releases/latest/download/{asset}"
         folder = tempfile.mkdtemp(prefix="vml-update-")
         path = os.path.join(folder, asset)
         with open(path, "wb") as f:
@@ -399,7 +426,8 @@ class AppBar(QWidget):
             subprocess.Popen([path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], close_fds=True)
             QApplication.quit()
             return ""
-        r = subprocess.run(["bash", path], capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)
+        r = subprocess.run(["bash", path], capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL,
+                           env=dict(os.environ, RELEASE_TAG=tag))      # (the installer fetches that release's files)
         if r.returncode != 0:
             return (r.stdout + r.stderr)[-600:]
         self.engine.log_line(f"{self.title} updated to {self.latest} from {repo}")

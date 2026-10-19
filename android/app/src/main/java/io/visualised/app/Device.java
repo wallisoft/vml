@@ -101,6 +101,12 @@ final class Device {
         return PhoneShare.pair(activity, code);
     }
 
+    /** Ask on the phone before a paired computer opens it: "1" on (as it starts), "0" off. */
+    @JavascriptInterface
+    public void phoneShareAsk(String on) {
+        PhoneShare.setAskFirst(activity, !"0".equals(on));
+    }
+
     /** Forget a paired computer: it can't get in any more. */
     @JavascriptInterface
     public void phoneShareForget(String name) {

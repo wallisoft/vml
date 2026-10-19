@@ -14,8 +14,8 @@ function Phone.Show()
   Say("")
   if Can.android then
     Vml("SetProperty", "chkBoot", "IsVisible", "false")
-    Vml("SetControlPosition", "lblStatus", "24", "604")     -- (under the list of paired computers)
-    Vml("SetProperty", "lblStatus", "Height", "54")
+    Vml("SetControlPosition", "lblStatus", "24", "626")     -- (under the list of paired computers and Ask first)
+    Vml("SetProperty", "lblStatus", "Height", "34")
     Phone.Refresh()
   else
     Phone.PairHide()
@@ -96,6 +96,7 @@ function Phone.Refresh()
   set("btnShare", "Content", s.on and "Stop sharing" or "Share this phone")
   set("btnShare", "Background", s.on and "#B91C1C" or "#127A68")
   set("lstComputers", "Items", table.concat(pcs, ","))
+  set("chkAsk", "IsChecked", s.ask == false and "false" or "true")
   Show({ "btnForget" }, #pcs > 0)
   local paired = #pcs == 0 and "No computers paired yet: Pair a computer, and scan the code its Mountie shows (Phone tab, Pair a phone)."
       or ("Paired: " .. table.concat(pcs, ", ") .. ". Only these get in.")
@@ -126,6 +127,10 @@ function Phone.On(a)
     return
   end
   if state == "error" then LogAdd("Sharing this phone: " .. detail, true) end
+  if state == "asking" then Say(detail .. " wants to open this phone: Allow or Not now, in the notice.")
+  elseif state == "allowed" then Say(detail .. " is in.")
+  elseif state == "refused" then Say(detail .. " wasn't let in.")
+  elseif state == "off" and detail ~= "" then Say(detail) end
   Phone.Refresh()
 end
 
@@ -151,4 +156,10 @@ function Phone.Forget()
   if name == "" or name == "Cancel" then return end
   Vml("PhoneShareForget", name)
   Phone.Refresh()
+end
+
+function Phone.Ask()
+  local on = Vml("GetProperty", "chkAsk", "IsChecked") == "true"
+  Vml("PhoneShareAsk", on and "1" or "0")
+  Say(on and "Computers wait for your Allow on this phone." or "Paired computers come straight in now (no asking).")
 end

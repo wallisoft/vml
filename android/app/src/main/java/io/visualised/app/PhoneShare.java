@@ -77,6 +77,16 @@ public class PhoneShare extends Service {
 
     static volatile SshServer server;
     static volatile String error = "";
+    private static final String ASK_CHANNEL = "phoneshare_ask";
+    private static final org.apache.sshd.common.AttributeRepository.AttributeKey<String> WHO =
+            new org.apache.sshd.common.AttributeRepository.AttributeKey<>();
+    private static final java.util.Map<Integer, Object[]> asking = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.Map<String, Long> allowedUntil = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicInteger asks = new java.util.concurrent.atomic.AtomicInteger(9100);
+    private static final long IDLE_STOP = 30 * 60 * 1000L, ALLOW_FOR = 10 * 60 * 1000L;
+    private volatile long lastBusy = System.currentTimeMillis();
+    private android.os.Handler ticks;
+    private ConnectivityManager.NetworkCallback wifiWatch;
     static volatile SshDrives.Listener listener;
     private static NsdManager.RegistrationListener advertised;
 
@@ -118,13 +128,27 @@ public class PhoneShare extends Service {
         return p;
     }
 
-    /** {on, error, files, address, addresses[], port, user, password, fingerprint, name, root} */
+    /** Ask on the phone before a computer opens it (on unless the user turns it off). */
+    static boolean askFirst(Context c) {
+        return prefs(c).getBoolean("ask", true);
+    }
+
+    static void setAskFirst(Context c, boolean on) {
+        prefs(c).edit().putBoolean("ask", on).apply();
+        if (!on) {
+            allowedUntil.clear();
+        }
+    }
+
+    /** {on, error, files, ask, address, addresses[], port, user, computers[], fingerprint, name, root, browsing[]} */
     static String status(Context c) {
         JSONObject o = new JSONObject();
         try {
             o.put("on", server != null && server.isStarted());
             o.put("error", error);
             o.put("files", canSeeFiles());
+            o.put("ask", askFirst(c));
+            o.put("browsing", new JSONArray(browsing()));
             List<String> ips = addresses(c);
             o.put("address", ips.isEmpty() ? "" : ips.get(0));
             o.put("addresses", new JSONArray(ips));
@@ -143,6 +167,19 @@ public class PhoneShare extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        String action = intent == null ? null : intent.getAction();
+        if ("stop".equals(action)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        if ("allow".equals(action) || "deny".equals(action)) {
+            Object[] wait = asking.get(intent.getIntExtra("id", 0));
+            if (wait != null) {
+                ((boolean[]) wait[1])[0] = "allow".equals(action);
+                ((java.util.concurrent.CountDownLatch) wait[0]).countDown();
+            }
+            return START_STICKY;
+        }
         showNotice();
         if (server == null) {
             new Thread(this::serve, "phoneshare").start();
@@ -182,7 +219,32 @@ public class PhoneShare extends Service {
             final Context ctx = this;
             s.setPasswordAuthenticator(null);                    // no passwords: only computers paired by QR code
             s.setKeyboardInteractiveAuthenticator(null);
-            s.setPublickeyAuthenticator((user, key, session) -> USER.equals(user) && paired(ctx, key));
+            s.setPublickeyAuthenticator((user, key, session) -> {
+                if (!USER.equals(user)) {
+                    return false;
+                }
+                String who = pairedName(ctx, key);
+                if (who == null) {
+                    return false;                                // not a paired computer: never asked about
+                }
+                if (who.equals(session.getAttribute(WHO))) {
+                    return true;                                 // (this connection was allowed already)
+                }
+                if (!allowed(who)) {
+                    return false;
+                }
+                session.setAttribute(WHO, who);
+                lastBusy = System.currentTimeMillis();
+                showNotice();
+                return true;
+            });
+            s.addSessionListener(new org.apache.sshd.common.session.SessionListener() {
+                @Override
+                public void sessionClosed(org.apache.sshd.common.session.Session gone) {
+                    lastBusy = System.currentTimeMillis();
+                    showNotice();
+                }
+            });
             s.setFileSystemFactory(new VirtualFileSystemFactory(root().toPath()));
             s.setSubsystemFactories(Collections.singletonList(new SftpSubsystemFactory()));
             s.start();
@@ -193,6 +255,7 @@ public class PhoneShare extends Service {
                 break;
             }
             advertise(this);
+            guard();
             tell("on", status(this));
         } catch (Throwable e) {
             error = String.valueOf(e.getMessage() == null ? e : e.getMessage());
@@ -203,6 +266,19 @@ public class PhoneShare extends Service {
 
     @Override
     public void onDestroy() {
+        if (ticks != null) {
+            ticks.removeCallbacksAndMessages(null);
+        }
+        if (wifiWatch != null) {
+            try {
+                getSystemService(ConnectivityManager.class).unregisterNetworkCallback(wifiWatch);
+            } catch (Exception ignored) {
+            }
+        }
+        for (Object[] wait : asking.values()) {                  // anyone still waiting to be let in: not now
+            ((java.util.concurrent.CountDownLatch) wait[0]).countDown();
+        }
+        allowedUntil.clear();
         SshServer s = server;
         server = null;
         unadvertise(this);
@@ -228,11 +304,18 @@ public class PhoneShare extends Service {
         }
         Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         List<String> ips = addresses(this);
+        List<String> who = browsing();
+        String title = who.isEmpty() ? "This phone is shared" : String.join(" and ", who) + (who.size() == 1 ? " is" : " are") + " browsing your phone";
+        String text = who.isEmpty()
+                ? (ips.isEmpty() ? "On your Wi-Fi" : "On your Wi-Fi (" + ips.get(0) + ")") + ", to your paired computers" + (askFirst(this) ? ", asking you first." : ".")
+                : "Stop, and they're out at once.";
         Notification note = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
-                .setContentTitle("This phone is shared")
-                .setContentText((ips.isEmpty() ? "on your Wi-Fi" : ips.get(0) + ", port " + PORT) + ", to your paired computers. Tap to stop.")
+                .setContentTitle(title)
+                .setContentText(text)
                 .setContentIntent(PendingIntent.getActivity(this, 3, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
+                .addAction(new Notification.Action.Builder(null, "Stop sharing",
+                        PendingIntent.getService(this, 4, new Intent(this, PhoneShare.class).setAction("stop"), PendingIntent.FLAG_IMMUTABLE)).build())
                 .setOngoing(true)
                 .build();
         if (Build.VERSION.SDK_INT >= 34) {
@@ -240,6 +323,127 @@ public class PhoneShare extends Service {
         } else {
             startForeground(9003, note);
         }
+    }
+
+    /** The computers connected now, by name. */
+    static List<String> browsing() {
+        List<String> out = new java.util.ArrayList<>();
+        SshServer s = server;
+        if (s == null) {
+            return out;
+        }
+        for (org.apache.sshd.common.session.Session session : s.getActiveSessions()) {
+            String who = session.getAttribute(WHO);
+            if (who != null && !out.contains(who)) {
+                out.add(who);
+            }
+        }
+        return out;
+    }
+
+    /** May this paired computer come in? With Ask first on: the phone asks (a notice with Allow and Not now), and
+     *  waits up to a minute; no answer is no. Once allowed, the same computer is let in again for ten minutes. */
+    private boolean allowed(String who) {
+        if (!askFirst(this)) {
+            return true;
+        }
+        Long until = allowedUntil.get(who);
+        if (until != null && until > System.currentTimeMillis()) {
+            return true;
+        }
+        int id = asks.incrementAndGet();
+        java.util.concurrent.CountDownLatch answered = new java.util.concurrent.CountDownLatch(1);
+        boolean[] yes = {false};
+        asking.put(id, new Object[]{answered, yes});
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null && manager.getNotificationChannel(ASK_CHANNEL) == null) {
+            manager.createNotificationChannel(new NotificationChannel(ASK_CHANNEL, "A computer asking to open this phone", NotificationManager.IMPORTANCE_HIGH));
+        }
+        Intent allow = new Intent(this, PhoneShare.class).setAction("allow").putExtra("id", id);
+        Intent deny = new Intent(this, PhoneShare.class).setAction("deny").putExtra("id", id);
+        Notification ask = new Notification.Builder(this, ASK_CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setContentTitle(who + " wants to open your phone")
+                .setContentText("Allow it to see this phone's files? Not answering is no.")
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setTimeoutAfter(60000)
+                .setAutoCancel(true)
+                .addAction(new Notification.Action.Builder(null, "Allow",
+                        PendingIntent.getService(this, id * 2, allow, PendingIntent.FLAG_IMMUTABLE)).build())
+                .addAction(new Notification.Action.Builder(null, "Not now",
+                        PendingIntent.getService(this, id * 2 + 1, deny, PendingIntent.FLAG_IMMUTABLE)).build())
+                .build();
+        if (manager != null) {
+            manager.notify(id, ask);
+        }
+        tell("asking", who);
+        try {
+            answered.await(60, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {
+        }
+        asking.remove(id);
+        if (manager != null) {
+            manager.cancel(id);
+        }
+        if (yes[0]) {
+            allowedUntil.put(who, System.currentTimeMillis() + ALLOW_FOR);
+        }
+        tell(yes[0] ? "allowed" : "refused", who);
+        return yes[0];
+    }
+
+    /** Sharing stops by itself: when the phone leaves the Wi-Fi it was shared on, and after half an hour with no
+     *  computer connected. */
+    private void guard() {
+        ticks = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable tick = new Runnable() {
+            @Override
+            public void run() {
+                if (browsing().isEmpty() && System.currentTimeMillis() - lastBusy > IDLE_STOP) {
+                    error = "";
+                    tell("off", "Stopped after half an hour with no computer connected.");
+                    stopSelf();
+                    return;
+                }
+                ticks.postDelayed(this, 60000);
+            }
+        };
+        ticks.postDelayed(tick, 60000);
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+        if (cm == null) {
+            return;
+        }
+        wifiWatch = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onLost(Network network) {
+                ticks.post(() -> {
+                    if (addresses(PhoneShare.this).isEmpty() || !onWifi(PhoneShare.this)) {
+                        tell("off", "Stopped: the phone left the Wi-Fi it was shared on.");
+                        stopSelf();
+                    }
+                });
+            }
+        };
+        try {
+            cm.registerNetworkCallback(new android.net.NetworkRequest.Builder()
+                    .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI).build(), wifiWatch);
+        } catch (Exception e) {
+            wifiWatch = null;
+        }
+    }
+
+    private static boolean onWifi(Context c) {
+        ConnectivityManager cm = c.getSystemService(ConnectivityManager.class);
+        if (cm == null) {
+            return false;
+        }
+        for (Network n : cm.getAllNetworks()) {
+            android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+            if (caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void tell(String state, String detail) {
@@ -406,16 +610,17 @@ public class PhoneShare extends Service {
         return false;
     }
 
-    private static boolean paired(Context c, java.security.PublicKey offered) {
-        for (String blob : computers(c).values()) {
+    /** The paired computer this key is, by name; null if it isn't one. */
+    private static String pairedName(Context c, java.security.PublicKey offered) {
+        for (java.util.Map.Entry<String, String> e : computers(c).entrySet()) {
             try {
-                if (same(keyOf(blob), offered)) {
-                    return true;
+                if (same(keyOf(e.getValue()), offered)) {
+                    return e.getKey();
                 }
             } catch (Exception ignored) {
             }
         }
-        return false;
+        return null;
     }
 
     // ---- the password (no longer asked for: kept so an older Mountie page still gets an answer) and the key
