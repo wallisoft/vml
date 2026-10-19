@@ -21,7 +21,10 @@ import android.os.Environment;
 import android.os.IBinder;
 import android.provider.Settings;
 
+import org.apache.sshd.common.NamedFactory;
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
+import org.apache.sshd.common.kex.BuiltinDHFactories;
+import org.apache.sshd.server.ServerBuilder;
 import org.apache.sshd.common.util.OsUtils;
 import org.apache.sshd.common.util.io.PathUtils;
 import org.apache.sshd.server.SshServer;
@@ -35,6 +38,7 @@ import java.io.File;
 import java.net.Inet4Address;
 import java.security.KeyPair;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -134,12 +138,23 @@ public class PhoneShare extends Service {
 
     private void serve() {
         try {
+            // Android has a cut-down provider of its own called "BC": SSHD's Bouncy Castle registrar picks it, finds no
+            // elliptic curves there, and ends up with no key exchanges at all ("KeyExchangeFactories not set"). The
+            // phone's own Conscrypt does everything an SSH server needs, so SSHD is told to use the plain JCE.
+            System.setProperty("org.apache.sshd.security.registrars", "none");
+            System.setProperty("org.apache.sshd.eccSupport", "true");
             OsUtils.setAndroid(Boolean.TRUE);
             File home = getFilesDir();
             PathUtils.setUserHomeFolderResolver(home::toPath);
             System.setProperty("user.home", home.getPath());
 
             SshServer s = SshServer.setUpDefaultServer();
+            if (s.getKeyExchangeFactories() == null || s.getKeyExchangeFactories().isEmpty()) {
+                // (belt and braces: the elliptic-curve exchanges every ssh client offers, which Conscrypt has)
+                s.setKeyExchangeFactories(NamedFactory.setUpTransformedFactories(false,
+                        Arrays.asList(BuiltinDHFactories.ecdhp256, BuiltinDHFactories.ecdhp384, BuiltinDHFactories.ecdhp521),
+                        ServerBuilder.DH2KEX));
+            }
             s.setPort(PORT);
             SimpleGeneratorHostKeyProvider keys = new SimpleGeneratorHostKeyProvider(new File(home, "phoneshare-hostkey.ser").toPath());
             keys.setAlgorithm("EC");
