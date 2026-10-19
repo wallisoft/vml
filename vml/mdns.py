@@ -155,3 +155,51 @@ def _browse(service="_sftp-ssh._tcp", seconds=2.0):
         label = full[:-(len(want) + 1)] if full.lower().endswith("." + want.lower()) else full
         out.append({"name": label, "host": addr.get(target) or sender, "port": port, "txt": txt.get(full, {})})
     return out
+
+
+def _local_networks():
+    """This computer's IPv4 addresses on its networks (not loopback), as the /24 each is in."""
+    ips = set()
+    for probe in ("192.168.1.1", "10.0.0.1", "172.16.0.1", "8.8.8.8"):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((probe, 9))                              # (no packet is sent: it picks the address it would use)
+            ips.add(s.getsockname()[0])
+            s.close()
+        except OSError:
+            pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    return sorted({ip.rsplit(".", 1)[0] for ip in ips if not ip.startswith(("127.", "169.254."))}), ips
+
+
+def scan_for_phones(port=2222, timeout=0.5):
+    """Phones sharing themselves, found by asking each address on this computer's networks (a /24 each) for port 2222
+    and reading its SSH greeting ("SSH-2.0-Mountie_<phone>"): for when the announcement isn't heard. About a second."""
+    from concurrent.futures import ThreadPoolExecutor
+    nets, mine = _local_networks()
+    hosts = [f"{n}.{i}" for n in nets for i in range(1, 255) if f"{n}.{i}" not in mine]
+
+    def ask(host):
+        try:
+            with socket.create_connection((host, port), timeout=timeout) as c:
+                c.settimeout(timeout * 2)
+                hello = c.recv(256).decode("ascii", "replace").strip()
+        except OSError:
+            return None
+        if not hello.startswith("SSH-"):
+            return None
+        soft = hello.split("-", 2)[2] if hello.count("-") >= 2 else ""
+        if soft.startswith("Mountie_"):
+            name = soft[8:].replace("_", " ").strip() or "Phone"
+        elif "APACHE-SSHD" in soft.upper():
+            name = f"Phone ({host})"                           # (an older Mountie on the phone: no name in its greeting)
+        else:
+            return None                                        # some other SSH server on 2222, not a phone
+        return {"name": name, "host": host, "port": port, "user": "phone"}
+
+    with ThreadPoolExecutor(max_workers=128) as pool:
+        return [r for r in pool.map(ask, hosts) if r]

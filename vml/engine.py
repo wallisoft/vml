@@ -1000,9 +1000,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         except OSError as exc:
             log(f"PhonesNearby: {exc}")
             got = []
-        return json.dumps([{"name": g["name"].replace("Mountie: ", "", 1), "host": g["host"], "port": g["port"],
-                            "user": g["txt"].get("user", "phone")} for g in got if g["txt"].get("app") == "mountie"
-                           or g["name"].startswith("Mountie: ")])
+        out = [{"name": g["name"].replace("Mountie: ", "", 1), "host": g["host"], "port": g["port"],
+                "user": g["txt"].get("user", "phone")} for g in got if g["txt"].get("app") == "mountie"
+               or g["name"].startswith("Mountie: ")]
+        if not out:                                         # not heard (Windows keeps the mDNS port to itself; some
+            out = mdns.scan_for_phones()                    # routers drop it): look for one on this network instead
+        return json.dumps(out)
 
     def cmd_PhonePairCode(self):
         """Pairing a phone with this computer (Mountie's Phone tab): this computer's own key for phones, made the first

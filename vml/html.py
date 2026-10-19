@@ -1196,6 +1196,15 @@ const commands = {
   ErrorDialog(msg, title) { alert(msg); return ""; },
   ConfirmDialog: (msg, title) => confirm(msg) ? "true" : "false",
   PromptDialog: (title = "", text = "", start = "") => prompt(text || title, start) ?? "",
+  // A question with your own answers (buttons: their captions with | between them). A page has only the browser's own
+  // boxes: two answers are OK/Cancel, more a numbered list to pick from. Returns the caption picked, or "".
+  ChoiceDialog(msg = "", title = "", buttons = "Yes|No|Cancel") {
+    const b = String(buttons).split("|").map(s => s.trim()).filter(Boolean);
+    if (b.length <= 2) return confirm(String(msg)) ? (b[0] || "OK") : (b[1] || "");
+    const got = prompt(String(msg) + "\n\n" + b.map((s, i) => `${i + 1}. ${s}`).join("\n") + "\n\nType its number:", "");
+    const n = parseInt(got, 10);
+    return n >= 1 && n <= b.length ? b[n - 1] : "";
+  },
   SetStatusText(t) { console.log("[status]", t); return ""; },
   ControlExists: name => el(name) ? "true" : "false",
   GetControlType: name => el(name)?.dataset.type ?? "",

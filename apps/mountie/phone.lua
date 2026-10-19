@@ -50,7 +50,7 @@ function Phone.PairShow()
   if not p.code then Say("Couldn't make this computer's key for phones: see the log.", true) return end
   Phone.pairing = true
   set("imgPair", "Source", Vml("QrCode", p.code, "5"))
-  Show({ "lstPhones" }, false)
+  Show({ "lstPhones", "txtPhoneAddr" }, false)
   Show({ "imgPair" }, true)
   set("btnPhonePair", "Content", "Done")
   set("lblPhone", "Text", "On the phone: Mountie, the Share tab, Pair a computer, and point it at this code. " ..
@@ -60,7 +60,7 @@ end
 function Phone.PairHide()
   Phone.pairing = false
   Show({ "imgPair" }, false)
-  Show({ "lstPhones" }, true)
+  Show({ "lstPhones", "txtPhoneAddr" }, true)
   set("btnPhonePair", "Content", "Pair a phone")
 end
 
@@ -96,7 +96,6 @@ function Phone.Refresh()
   set("btnShare", "Content", s.on and "Stop sharing" or "Share this phone")
   set("btnShare", "Background", s.on and "#B91C1C" or "#127A68")
   set("lstComputers", "Items", table.concat(pcs, ","))
-  if #pcs > 0 then set("lstComputers", "SelectedIndex", "0") end
   Show({ "btnForget" }, #pcs > 0)
   local paired = #pcs == 0 and "No computers paired yet: Pair a computer, and scan the code its Mountie shows (Phone tab, Pair a phone)."
       or ("Paired: " .. table.concat(pcs, ", ") .. ". Only these get in.")
@@ -143,11 +142,13 @@ function Phone.Paired(a)
 end
 
 function Phone.Forget()
-  local name = Vml("GetProperty", "lstComputers", "SelectedItem") or ""
-  if name == "" then return end
-  local yes = Vml("ConfirmDialog", "Forget " .. name .. "? It won't be able to get in until it's paired again.", "Forget a computer")
-  if yes == true or yes == "true" or yes == "True" then
-    Vml("PhoneShareForget", name)
-    Phone.Refresh()
-  end
+  -- which one: a button each (a phone turns a list into a pop-up picker, so a list's highlight can't be relied on)
+  local s = json.decode(Vml("PhoneShareStatus") or "") or {}
+  local pcs = s.computers or {}
+  if #pcs == 0 then return end
+  local name = Vml("ChoiceDialog", "Forget which computer? It won't get in again until it's paired again.", "Forget a computer",
+                   table.concat(pcs, "|") .. "|Cancel")
+  if name == "" or name == "Cancel" then return end
+  Vml("PhoneShareForget", name)
+  Phone.Refresh()
 end

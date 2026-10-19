@@ -170,6 +170,10 @@ public class PhoneShare extends Service {
                     BuiltinMacs.hmacsha256, BuiltinMacs.hmacsha512)));
             s.setSignatureFactories(new java.util.ArrayList<>(Arrays.asList(BuiltinSignatures.nistp256, BuiltinSignatures.nistp384,
                     BuiltinSignatures.nistp521, BuiltinSignatures.rsaSHA256, BuiltinSignatures.rsaSHA512)));
+            // its name in the SSH greeting ("SSH-2.0-Mountie_Samsung_SM-A065F"): a computer that finds it by looking
+            // on the network, not by its announcement, can still list it by name
+            org.apache.sshd.core.CoreModuleProperties.SERVER_IDENTIFICATION.set(s,
+                    "Mountie_" + phoneName().replaceAll("[^A-Za-z0-9.]+", "_"));
             s.setPort(PORT);
             SimpleGeneratorHostKeyProvider keys = new SimpleGeneratorHostKeyProvider(new File(home, "phoneshare-hostkey.ser").toPath());
             keys.setAlgorithm("EC");
