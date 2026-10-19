@@ -359,7 +359,9 @@ class AppBar(QWidget):
             problem = str(exc)
         finally:
             QApplication.restoreOverrideCursor()
-        if problem:
+        if problem and "update it with git" in problem:      # (from source: git, not a download page)
+            self.say(f"Update {self.title}", problem)
+        elif problem:
             self.say(f"Update {self.title}", f"It couldn't be updated here:\n\n{problem}\n\nThe download page will open instead.")
             self.engine.cmd_OpenUrl(self.info.get("url") or str(self.node.props.get("UpdateFrom") or ""))
 

@@ -1,6 +1,13 @@
 """VML engine for Qt: VML -> (Lua parser) -> SQLite -> Qt widgets, scripted in Lua, Bash and PowerShell."""
 __version__ = "1.6.4"
 
+import os as _os2
+import sys as _sys2
+if _sys2.platform.startswith("win") and not _os2.environ.get("QT_QPA_PLATFORM"):
+    # (Windows: ClearType text) Qt draws text with DirectWrite's greyscale smoothing, thin beside every other Windows
+    # app; its GDI engine draws it with ClearType, as Explorer and Notepad do. QT_QPA_PLATFORM set already wins.
+    _os2.environ["QT_QPA_PLATFORM"] = "windows:fontengine=gdi"
+
 import os as _os
 import sys as _sys
 if ("__compiled__" in globals() or getattr(_sys, "frozen", False)) and not _os.path.isfile(_sys.executable):
