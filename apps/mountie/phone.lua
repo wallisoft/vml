@@ -28,7 +28,7 @@ end
 function Phone.Find()
   set("lblPhone", "Text", "Looking for phones on this network…")
   set("lstPhones", "Items", "")
-  local got = json.decode(Vml("PhonesNearby", "2") or "") or {}
+  local got = json.decode(Vml("PhonesNearby", "1.5") or "") or {}
   Phone.found = got
   local rows = {}
   for _, p in ipairs(got) do rows[#rows + 1] = p.name .. "   (" .. p.host .. ")" end

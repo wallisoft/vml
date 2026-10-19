@@ -992,7 +992,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         except Exception as exc:
             log(f"font: {exc}")
 
-    def cmd_PhonesNearby(self, seconds="2"):
+    def cmd_PhonesNearby(self, seconds="1.5"):
         """Phones sharing themselves on this network (Mountie's Phone tab): JSON [{name, host, port, user}]."""
         from . import mdns
         try:
