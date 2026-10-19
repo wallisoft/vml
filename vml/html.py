@@ -589,6 +589,7 @@ class Page:
             .replace("%%DATA%%", json.dumps(data).replace("</", "<\\/")) \
             .replace("%%DKJSON%%", json.dumps(dkjson).replace("</", "<\\/")).replace("%%WASMOON%%", WASMOON) \
             .replace("%%SOURCE%%", esc(self.path.name)).replace("%%BAR%%", self.bar_colour) \
+            .replace("%%ACCENT%%", colour(wp.get("Accent") if str(wp.get("Accent") or "").lower() not in ("", "system") else "#4F46E5")) \
             .replace("%%APP%%", self.app_tags(wp)) \
             .replace("%%BUNDLE%%", (self.bundle() if offline else "") + (self.marked() if self.uses_markdown(wp) else ""))
 
@@ -640,6 +641,11 @@ TEMPLATE = r"""<!DOCTYPE html>
 <style>
   html, body { margin: 0; height: 100%; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
   body.phone { overflow-x: hidden; }
+  /* the app's own accent (Accent= on the window): selections, ticks and the chosen row, not the device's colour */
+  :root { --accent: %%ACCENT%%; }
+  input, progress { accent-color: var(--accent); }
+  select option:checked { background: var(--accent) linear-gradient(0deg, var(--accent), var(--accent)); color: #fff; }
+  ::selection { background: var(--accent); color: #fff; }
   body { font: 13px system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif; color: #111827; background: %%BG%%; }
   #vml_window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
   /* on a screen with room to spare the form is shown as a window: its own size, in the middle, with an edge */

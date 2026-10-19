@@ -1094,6 +1094,60 @@ def make_window(node):
     return w
 
 
+DEFAULT_ACCENT = "#4F46E5"     # Visualised's own: selections and highlights don't borrow the computer's accent colour
+
+
+def accent_palette(palette, value):
+    """A palette with this accent for selections, highlights, ticks and links (the text on it black or white)."""
+    from PySide6.QtGui import QColor, QPalette
+    c = QColor(str(value or "") or DEFAULT_ACCENT)
+    if not c.isValid():
+        c = QColor(DEFAULT_ACCENT)
+    ink = QColor("#FFFFFF") if c.lightnessF() < 0.62 else QColor("#111827")
+    for group in (QPalette.Active, QPalette.Inactive):
+        palette.setColor(group, QPalette.Highlight, c)
+        palette.setColor(group, QPalette.HighlightedText, ink)
+        palette.setColor(group, QPalette.Link, c)
+        if hasattr(QPalette, "Accent"):                  # (Qt 6.6 on: what Windows' own accent colour fills)
+            palette.setColor(group, QPalette.Accent, c)
+    return palette
+
+
+def high_contrast():
+    """Is Windows' high-contrast mode on? Then the computer's colours win, whatever an app asks for: people turn it
+    on because they need it."""
+    import sys
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+
+        class HIGHCONTRAST(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwFlags", ctypes.c_uint), ("lpszDefaultScheme", ctypes.c_wchar_p)]
+        hc = HIGHCONTRAST(ctypes.sizeof(HIGHCONTRAST), 0, None)
+        if ctypes.windll.user32.SystemParametersInfoW(0x0042, ctypes.sizeof(hc), ctypes.byref(hc), 0):   # SPI_GETHIGHCONTRAST
+            return bool(hc.dwFlags & 1)                  # HCF_HIGHCONTRASTON
+    except Exception:
+        pass
+    return False
+
+
+def window_accent(node, value):
+    """Accent=#127A68: the app's own colour for selected rows, ticked boxes and focus, on every computer alike.
+    Accent=System: the computer's own accent colour, to blend in with the desktop (on the web and phones, which have
+    none, Visualised's). The whole app takes it (menus and drop-downs are windows of their own). With Windows' high
+    contrast on, the computer's colours win."""
+    from PySide6.QtWidgets import QApplication
+    if str(getattr(node, "scope", "")).startswith("design:") or high_contrast():
+        return
+    app = QApplication.instance()
+    if str(value or "").strip().lower() == "system":
+        value = getattr(app, "_vml_system_accent", "") or DEFAULT_ACCENT
+    node.widget.setPalette(accent_palette(node.widget.palette(), value))
+    if app is not None:
+        app.setPalette(accent_palette(app.palette(), value))
+
+
 def window_edge(node, _value=None):
     p = node.props
     width = thickness(p["BorderThickness"])[0] if p.get("BorderThickness") not in (None, "") else 2   # (2 unless it says)
@@ -1294,6 +1348,7 @@ register(ControlType("Window", make_window, container=True, add_child=single_add
                   Prop("PhoneFit", "choice", "Behaviour", options=("Fit", "None")),
                   Prop("WindowState", "choice", "Behaviour", options=("Normal", "Maximized", "Auto", "FullScreen")),  # how it opens on a computer: Auto is maximised on an HD screen or smaller
                   Prop("WebFit", "choice", "Behaviour", options=("Window", "Fill")),  # as a web page with room to spare: a window in the middle at its own size, or fill the page  # as a web page on a phone: scale to the screen's width, or leave alone
+                  Prop("Accent", "colour", "Appearance", apply=window_accent),   # the app's colour for selections and highlights (not the computer's)
                   Prop("BorderBrush", "colour", "Appearance", apply=window_edge),    # an edge round the window
                   Prop("BorderThickness", "thickness", "Appearance", apply=window_edge),
                   # the title bar: ours (Own, the default: in the desktop's colours, with the edge round it too), the

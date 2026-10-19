@@ -25,6 +25,7 @@ Title=Mountie
 Version=1.3.1
 TitleBar=Own
 BorderBrush=#127A68
+Accent=#127A68
 Width=480
 Height=700
 Icon=mountie.png

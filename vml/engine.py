@@ -177,6 +177,13 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         if sys.platform.startswith("win") and not getattr(self.app, "_vml_font", False):
             self.app._vml_font = True
             self._windows_font()
+        if not getattr(self.app, "_vml_accent", False):     # selections in Visualised's colour, not the computer's
+            self.app._vml_accent = True                     # accent (a window's Accent= gives an app its own; System,
+            from .registry import accent_palette, high_contrast   # the computer's)
+            from PySide6.QtGui import QPalette
+            self.app._vml_system_accent = self.app.palette().color(QPalette.Highlight).name()
+            if not high_contrast():                         # (high contrast on: the computer's colours, always)
+                self.app.setPalette(accent_palette(self.app.palette(), ""))
         if SCROLLBARS not in (self.app.styleSheet() or ""):
             self.app.setStyleSheet((self.app.styleSheet() or "") + SCROLLBARS)
         if db_path is None:
@@ -978,11 +985,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         return "ready"
 
     def _windows_font(self):
-        """Windows' 9pt Segoe UI draws thin in Qt beside Ubuntu's: a touch heavier (Windows 11's own Segoe UI Variable,
-        at medium weight; Windows 10's Segoe UI, hinted fully). VML_FONT_WEIGHT (100-900) sets it, 400 as it was."""
+        """Windows' 9pt Segoe UI draws thin in Qt beside Ubuntu's: heavier (Windows 11's own Segoe UI Variable, at
+        semibold: drawn with ClearType it has Regular, Semibold and Bold, nothing between; Windows 10's Segoe UI,
+        hinted fully). VML_FONT_WEIGHT (100-900) sets it: 400 is Windows' regular."""
         from PySide6.QtGui import QFont, QFontDatabase
         try:
-            weight = int(os.environ.get("VML_FONT_WEIGHT") or 500)
+            weight = int(os.environ.get("VML_FONT_WEIGHT") or 600)
             f = QFont(self.app.font())
             if weight != 400 and "Segoe UI Variable Text" in QFontDatabase.families():
                 f.setFamily("Segoe UI Variable Text")
