@@ -39,7 +39,7 @@ function Phone.Find()
         " Add it as a drive. (Paired it yet? Pair a phone, once, first.)")
   else
     set("lblPhone", "Text", "No phones found. On the phone: Mountie, the Share tab, Share this phone (on the same Wi-Fi as " ..
-        "this computer). Then Look again. First time? Pair a phone.")
+        "this computer), then Look again. Or type the address its Share tab shows, below, and Add as a drive. First time? Pair a phone.")
   end
 end
 
@@ -67,7 +67,12 @@ end
 function Phone.Add()
   local i = tonumber(Vml("GetProperty", "lstPhones", "SelectedIndex")) or -1
   local p = Phone.found[i + 1]
-  if not p then Say("Pick a phone first (Look again if the list is empty).", true) return end
+  local typed = (Vml("GetProperty", "txtPhoneAddr", "Text") or ""):match("^%s*(.-)%s*$")
+  if typed ~= "" then                                    -- an address typed in: a phone the network didn't announce
+    local host, port = typed:match("^([^:]+):?(%d*)$")
+    p = { name = "Phone (" .. (host or typed) .. ")", host = host or typed, port = tonumber(port) or 2222, user = "phone" }
+  end
+  if not p then Say("Pick a phone, or type the address its Share tab shows.", true) return end
   local pair = json.decode(Vml("PhonePairCode") or "") or {}
   Phone.PairHide()
   Ssh.AddDrive({})
@@ -133,7 +138,7 @@ function Phone.Paired(a)
   local code, problem = a[1] or "", a[2] or ""
   if code == "" then if problem ~= "" then Say(problem, true) end return end
   local why = Vml("PhoneSharePair", code) or ""
-  if why ~= "" then Say(why, true) else Say("Paired: that computer can mount this phone now.") end
+  if why ~= "" then Say(why, true) else Say("") end
   Phone.Refresh()
 end
 

@@ -151,6 +151,14 @@ Width=432
 Height=160
 OnDoubleClick=PhoneAdd
 
+@TextBox txtPhoneAddr
+Parent=pPhone
+Canvas.Left=10
+Canvas.Top=330
+Width=286
+Height=34
+Watermark=Or the address the phone shows (192.168.1.50)
+
 @Image imgPair
 Parent=pPhone
 Canvas.Left=136
@@ -726,7 +734,7 @@ if can.android then
     Vml("SetProperty", p, "IsVisible", "false")
   end
   Vml("SetProperty", "pPhone", "Header", "Share")
-  Show({ "lstPhones", "btnPhoneAdd", "btnPhoneFind", "btnPhonePair" }, false)
+  Show({ "lstPhones", "btnPhoneAdd", "btnPhoneFind", "btnPhonePair", "txtPhoneAddr" }, false)
   Show({ "btnShare", "btnSharePair", "lstComputers", "btnForget" }, true)
   Vml("SetProperty", "lblPhone", "Height", "230")
 elseif can.windows and not can.winfsp then
