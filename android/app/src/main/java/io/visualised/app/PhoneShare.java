@@ -64,6 +64,17 @@ public class PhoneShare extends Service {
     private static final String CHANNEL = "phoneshare";
     private static final String PREFS = "phoneshare";
 
+    static {
+        // Android has a cut-down provider of its own called "BC". Seeing it, SSHD makes "BC" its default for everything
+        // and asks it for elliptic curves it hasn't got ("no such algorithm: EC for provider BC"; or no key exchanges
+        // at all). The phone's own Conscrypt has all an SSH server needs: SSHD is told to use the plain JCE, before
+        // any of it loads (pairing reads a key too, not only the server).
+        System.setProperty("org.apache.sshd.security.defaultProvider", "none");
+        System.setProperty("org.apache.sshd.registerBouncyCastle", "false");
+        System.setProperty("org.apache.sshd.security.registrars", "none");
+        System.setProperty("org.apache.sshd.eccSupport", "true");
+    }
+
     static volatile SshServer server;
     static volatile String error = "";
     static volatile SshDrives.Listener listener;
@@ -141,11 +152,6 @@ public class PhoneShare extends Service {
 
     private void serve() {
         try {
-            // Android has a cut-down provider of its own called "BC": SSHD's Bouncy Castle registrar picks it, finds no
-            // elliptic curves there, and ends up with no key exchanges at all ("KeyExchangeFactories not set"). The
-            // phone's own Conscrypt does everything an SSH server needs, so SSHD is told to use the plain JCE.
-            System.setProperty("org.apache.sshd.security.registrars", "none");
-            System.setProperty("org.apache.sshd.eccSupport", "true");
             OsUtils.setAndroid(Boolean.TRUE);
             File home = getFilesDir();
             PathUtils.setUserHomeFolderResolver(home::toPath);
@@ -366,15 +372,40 @@ public class PhoneShare extends Service {
         keep(c, all);
     }
 
+    /** An ecdsa-sha2-nistp256 key's SSH blob, read with the phone's own EC (string type, string curve, string point). */
     private static java.security.PublicKey keyOf(String blob) throws Exception {
-        byte[] raw = android.util.Base64.decode(blob, android.util.Base64.DEFAULT);
-        return new org.apache.sshd.common.util.buffer.ByteArrayBuffer(raw).getRawPublicKey();
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.wrap(android.util.Base64.decode(blob, android.util.Base64.DEFAULT));
+        String type = new String(field(b)), curve = new String(field(b));
+        byte[] q = field(b);
+        if (!"ecdsa-sha2-nistp256".equals(type) || !"nistp256".equals(curve) || q.length != 65 || q[0] != 4) {
+            throw new IllegalArgumentException("not a P-256 key");
+        }
+        java.security.AlgorithmParameters ap = java.security.AlgorithmParameters.getInstance("EC");
+        ap.init(new java.security.spec.ECGenParameterSpec("secp256r1"));
+        java.security.spec.ECParameterSpec spec = ap.getParameterSpec(java.security.spec.ECParameterSpec.class);
+        java.security.spec.ECPoint w = new java.security.spec.ECPoint(new java.math.BigInteger(1, java.util.Arrays.copyOfRange(q, 1, 33)),
+                new java.math.BigInteger(1, java.util.Arrays.copyOfRange(q, 33, 65)));
+        return java.security.KeyFactory.getInstance("EC").generatePublic(new java.security.spec.ECPublicKeySpec(w, spec));
+    }
+
+    private static byte[] field(java.nio.ByteBuffer b) {
+        byte[] f = new byte[b.getInt()];
+        b.get(f);
+        return f;
+    }
+
+    /** The same key? (compared by curve point: the offered key may come from another provider than ours) */
+    private static boolean same(java.security.PublicKey a, java.security.PublicKey b) {
+        if (a instanceof java.security.interfaces.ECPublicKey && b instanceof java.security.interfaces.ECPublicKey) {
+            return ((java.security.interfaces.ECPublicKey) a).getW().equals(((java.security.interfaces.ECPublicKey) b).getW());
+        }
+        return false;
     }
 
     private static boolean paired(Context c, java.security.PublicKey offered) {
         for (String blob : computers(c).values()) {
             try {
-                if (org.apache.sshd.common.config.keys.KeyUtils.compareKeys(keyOf(blob), offered)) {
+                if (same(keyOf(blob), offered)) {
                     return true;
                 }
             } catch (Exception ignored) {
