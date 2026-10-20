@@ -110,51 +110,25 @@ Text=…
 Parent=c
 Canvas.Left=330
 Canvas.Top=88
-Width=172
+Width=200
 Height=30
 FontWeight=Bold
 Foreground=#FFFFFF
 Background=#16A34A
 Content=…
 OnClick=LevelNext
-ToolTip=Click to change. look: read only; look and do: change things here; do and ask: anything, but what goes out or can't be undone needs your yes
-
-@Button btnLevelArrow
-Parent=c
-Canvas.Left=502
-Canvas.Top=88
-Width=28
-Height=30
-FontWeight=Bold
-Foreground=#FFFFFF
-Background=#16A34A
-Content=▾
-OnClick=LevelNext
-ToolTip=Click to change. look: read only; look and do: change things here; do and ask: anything, but what goes out or can't be undone needs your yes
+ToolTip=Click to change. look: read only; look and do: change things here without asking; do and ask: anything, but what goes out or can't be undone needs your yes
 
 @Button btnShell
 Parent=c
 Canvas.Left=540
 Canvas.Top=88
-Width=172
+Width=200
 Height=30
 FontWeight=Bold
 Foreground=#FFFFFF
 Background=#16A34A
 Content=…
-OnClick=ShellToggle
-ToolTip=Click to change. Off; on for this session (until this computer restarts); always on. Even when on, every command needs your yes
-
-@Button btnShellArrow
-Parent=c
-Canvas.Left=712
-Canvas.Top=88
-Width=28
-Height=30
-FontWeight=Bold
-Foreground=#FFFFFF
-Background=#16A34A
-Content=▾
 OnClick=ShellToggle
 ToolTip=Click to change. Off; on for this session (until this computer restarts); always on. Even when on, every command needs your yes
 

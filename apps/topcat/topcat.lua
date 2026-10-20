@@ -170,16 +170,15 @@ function TopCat.Toggle()
 end
 
 -- the shell: off unless you say (for this session, or always); even then, each command needs your yes
--- one colour per how much is allowed, the same on both buttons: green the least, amber more, red the most
-local GREEN, AMBER, RED = "#16A34A", "#D97706", "#DC2626"
-local SHELL_LOOK = { off = { "Shell: off", GREEN }, session = { "Shell: this session", AMBER },
+-- the colours: green, the least; orange, more (but still asks); red, things change without asking
+local GREEN, ORANGE, RED = "#16A34A", "#D97706", "#DC2626"
+local SHELL_LOOK = { off = { "Shell: off", GREEN }, session = { "Shell: this session", ORANGE },
                      always = { "Shell: always on", RED } }
-local LEVEL_LOOK = { look = { "Callers: look", GREEN }, ["do"] = { "Callers: look and do", AMBER },
-                     ask = { "Callers: do and ask", RED } }
+local LEVEL_LOOK = { look = { "Callers: look", GREEN }, ["do"] = { "Callers: look and do", RED },
+                     ask = { "Callers: do and ask", ORANGE } }
 local function paint(btn, s)
-  set(btn, "Content", s[1])
+  set(btn, "Content", s[1] .. "     ▾")
   set(btn, "Background", s[2])
-  set(btn .. "Arrow", "Background", s[2])
 end
 function TopCat.ShowLevel() paint("btnLevel", LEVEL_LOOK[TopCat.level or "ask"]) end
 
