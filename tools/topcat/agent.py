@@ -142,12 +142,27 @@ def post(c, action, body, timeout=40):
         return json.loads(r.read().decode("utf-8") or "{}")
 
 
+def boot_id():
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return ""
+
+
+def shell_allowed(c):
+    """Always, or for this session only (until the machine restarts), or not at all."""
+    s = c.get("shell")
+    if s is True or s == "always":
+        return True
+    return s == "session" and (os.name == "nt" or c.get("boot", "") == boot_id())
+
+
 def shell(c, job, args):
     """A command line, run as you. Off unless this machine allows it (TopCat's window: Allow a shell), needs the "ask"
     level, and needs the person's yes each time. Answers its exit code and the end of what it printed; background=true
     for something long (a job to follow, like a build)."""
-    if not c.get("shell"):
-        return {"error": "this machine doesn't allow a shell (TopCat's window: Allow a shell)"}
+    if not shell_allowed(c):
+        return {"error": "this machine doesn't allow a shell (TopCat's window: the Shell button)"}
     if c["level"] != "ask":
         return {"error": "a shell needs this machine's callers to be allowed \"do and ask\""}
     if not job.get("yes"):
@@ -180,7 +195,7 @@ def answer(c, job):
                 return appapi.job(args["job"]) if args.get("job") else appapi.jobs()
             if command == "hello":
                 return {"machine": c["machine"], "level": c["level"], "python": sys.version.split()[0],
-                        "repo": str(REPO), "apps": sorted(appapi.apps()), "shell": bool(c.get("shell")),
+                        "repo": str(REPO), "apps": sorted(appapi.apps()), "shell": shell_allowed(c),
                         "os": "windows" if os.name == "nt" else sys.platform}
             if command == "shell":
                 return shell(c, job, args)

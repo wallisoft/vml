@@ -29,7 +29,10 @@ function TopCat.Opened()
     set("lblState", "Text", "Not set up on this machine yet: tools/topcat/agent.py has the steps.")
   end
   set("chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
-  set("chkShell", "IsChecked", conf.shell and "true" or "false")
+  local boot = trim(sh("cat /proc/sys/kernel/random/boot_id 2>/dev/null"))
+  TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or
+                 ((conf.shell == "session" and conf.boot == boot) and "session" or "off")
+  TopCat.ShowShell()
   TopCat.level = ({ "look", "do", "ask" })[lv + 1]
   TopCat.Tick()
   set("tmr", "IsEnabled", "true")
@@ -166,14 +169,26 @@ function TopCat.Toggle()
   TopCat.Tick()
 end
 
--- the shell: off unless you say; even then, each command needs your yes
+-- the shell: off unless you say (for this session, or always); even then, each command needs your yes
+local SHELL_LOOK = { off = { "Shell: off", "#16A34A" }, session = { "Shell: on, this session", "#DC2626" },
+                     always = { "Shell: always on", "#991B1B" } }
+function TopCat.ShowShell()
+  local s = SHELL_LOOK[TopCat.shell or "off"]
+  set("btnShell", "Content", s[1])
+  set("btnShell", "Background", s[2])
+end
+
 function TopCat.Shell()
-  local on = get("chkShell", "IsChecked") == "true"
+  TopCat.shell = ({ off = "session", session = "always", always = "off" })[TopCat.shell or "off"]
+  local value = ({ off = "false", session = '"session"', always = '"always"' })[TopCat.shell]
+  local boot = trim(sh("cat /proc/sys/kernel/random/boot_id 2>/dev/null"))
   local f = HOME .. "/.config/topcat/agent.json"
-  sh("python3 -c 'import json,sys;p=sys.argv[1];c=json.load(open(p));c[\"shell\"]=sys.argv[2]==\"1\";json.dump(c,open(p,\"w\"))' " ..
-     f .. " " .. (on and "1" or "0") .. " 2>/dev/null && systemctl --user is-active -q topcat-agent && systemctl --user restart topcat-agent")
-  set("StatusBar", "Text", on and "A shell is allowed: callers may run command lines here, each one only with your yes." or
-      "No shell: callers can only ask this machine's apps.")
+  sh("python3 -c 'import json,sys;p=sys.argv[1];c=json.load(open(p));c[\"shell\"]=json.loads(sys.argv[2]);c[\"boot\"]=sys.argv[3];json.dump(c,open(p,\"w\"))' " ..
+     f .. " '" .. value .. "' '" .. boot .. "' 2>/dev/null && systemctl --user is-active -q topcat-agent && systemctl --user restart topcat-agent")
+  TopCat.ShowShell()
+  set("StatusBar", "Text", ({ off = "No shell: callers can only ask this machine's apps.",
+    session = "Shell on until this computer restarts: each command still needs your yes.",
+    always = "Shell always on: each command still needs your yes. Click again to turn it off." })[TopCat.shell])
 end
 
 function TopCat.Level()

@@ -134,14 +134,17 @@ Height=22
 FontWeight=Bold
 Text=Who asked what
 
-@CheckBox chkShell
+@Button btnShell
 Parent=c
-Canvas.Left=460
-Canvas.Top=124
-Width=280
+Canvas.Left=500
+Canvas.Top=122
+Width=240
 Height=26
-Content=Allow a shell (only with your yes)
-ToolTip=Callers may run command lines here, as you: each one needs your yes, and Callers may must be 'do and ask'
+FontWeight=Bold
+Foreground=#FFFFFF
+Background=#16A34A
+Content=Shell: off
+ToolTip=Click to change. Off; on for this session (until this computer restarts); always on. Even when on, every command needs your yes
 OnClick=ShellToggle
 
 @DataGrid grdLog
