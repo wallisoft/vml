@@ -1,0 +1,22 @@
+# Mountie's Microsoft Store listing: tools/store/listing.py fills Partner Center's Store listing page from this.
+# Keys are the fields' labels as Partner Center shows them (listing.py survey lists them); a | b fills one box each.
+@Listing Mountie
+Language=English (United Kingdom)
+Short description=Your drives, all in one place: SSH servers, disk images, RAM drives and your phone, as ordinary drives.
+Description=<<END
+Mountie puts the storage you use every day where you expect it: as drives in File Explorer.
+
+• SSH and SFTP servers: your web server, a Raspberry Pi, a NAS, mounted as a drive letter and back again in a click. Passwords, keys and ssh-agent all work.
+• Disk images: open ISO and VHD files as drives, without burning or unpacking anything.
+• RAM drives and folders: a lightning-fast scratch drive, or any folder given a letter of its own.
+• Your phone: with Mountie on your Android phone, share its photos, downloads and documents over Wi-Fi and open them here as a drive. Pairing is a QR code, and the phone asks before letting a computer in.
+
+Mountie lives in the tray, remembers your drives, and can mount them for you when you sign in. It's made by Wallisoft, a small British developer, with Visualised.
+END
+Product features=Mount SSH and SFTP servers as drive letters | Open ISO and VHD disk images as drives | RAM drives and folder drives | Share your Android phone's storage over Wi-Fi | Pair a phone with a QR code, no passwords | Lives in the tray and mounts at sign-in
+Search terms=ssh drive | sftp mount | iso mount | vhd | phone files
+Copyright and trademark info=© 2026 Wallisoft
+Privacy policy URL=https://tiny-web.uk/privacy.php
+Website=https://mountie.eur.bz
+Support contact info=hello@tiny-web.uk
+# Screenshots=shot1.png | shot2.png          (put them beside this file)

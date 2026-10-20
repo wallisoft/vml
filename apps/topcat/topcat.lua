@@ -32,6 +32,9 @@ function TopCat.Opened()
   TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or
                  ((conf.shell == "session" and conf.boot == boot) and "session" or "off")
   TopCat.ShowShell()
+  if conf.token and trim(sh("systemctl --user is-active topcat-agent 2>/dev/null")) ~= "active" then
+    sh("systemctl --user enable --now topcat-agent 2>&1")     -- (opening TopCat lets it in; untick to shut it out)
+  end
   TopCat.Tick()
   set("tmr", "IsEnabled", "true")
   if Vml("LaunchedAtBoot") == "true" and TopCat.inTray then Vml("HideForm", "TopCat") end
@@ -167,25 +170,24 @@ function TopCat.Toggle()
 end
 
 -- the shell: off unless you say (for this session, or always); even then, each command needs your yes
-local SHELL_LOOK = { off = { "Shell: off ▾", "#16A34A" }, session = { "Shell: this session ▾", "#DC2626" },
-                     always = { "Shell: always on ▾", "#991B1B" } }
-local LEVEL_LOOK = { look = { "Callers: look ▾", "#16A34A" }, ["do"] = { "Callers: look and do ▾", "#16A34A" },
-                     ask = { "Callers: do and ask ▾", "#DC2626" } }
-function TopCat.ShowLevel()
-  local s = LEVEL_LOOK[TopCat.level or "ask"]
-  set("btnLevel", "Content", s[1])
-  set("btnLevel", "Background", s[2])
+-- one colour per how much is allowed, the same on both buttons: green the least, amber more, red the most
+local GREEN, AMBER, RED = "#16A34A", "#D97706", "#DC2626"
+local SHELL_LOOK = { off = { "Shell: off", GREEN }, session = { "Shell: this session", AMBER },
+                     always = { "Shell: always on", RED } }
+local LEVEL_LOOK = { look = { "Callers: look", GREEN }, ["do"] = { "Callers: look and do", AMBER },
+                     ask = { "Callers: do and ask", RED } }
+local function paint(btn, s)
+  set(btn, "Content", s[1])
+  set(btn, "Background", s[2])
+  set(btn .. "Arrow", "Background", s[2])
 end
+function TopCat.ShowLevel() paint("btnLevel", LEVEL_LOOK[TopCat.level or "ask"]) end
 
 function TopCat.LevelNext()
   TopCat.level = ({ look = "do", ["do"] = "ask", ask = "look" })[TopCat.level or "ask"]
   TopCat.Level()
 end
-function TopCat.ShowShell()
-  local s = SHELL_LOOK[TopCat.shell or "off"]
-  set("btnShell", "Content", s[1])
-  set("btnShell", "Background", s[2])
-end
+function TopCat.ShowShell() paint("btnShell", SHELL_LOOK[TopCat.shell or "off"]) end
 
 function TopCat.Shell()
   TopCat.shell = ({ off = "session", session = "always", always = "off" })[TopCat.shell or "off"]
