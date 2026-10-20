@@ -22,9 +22,8 @@ end
 function TopCat.Opened()
   local conf = json.decode(sh("cat ~/.config/topcat/agent.json 2>/dev/null")) or {}
   local lv = ({ look = 0, ["do"] = 1, ask = 2 })[conf.level or "ask"] or 2
-  TopCat.opening = true
-  set("cboLevel", "SelectedIndex", tostring(lv))
-  TopCat.opening = false
+  TopCat.level = ({ "look", "do", "ask" })[lv + 1]
+  TopCat.ShowLevel()
   if not conf.token then
     set("lblState", "Text", "Not set up on this machine yet: tools/topcat/agent.py has the steps.")
   end
@@ -33,7 +32,6 @@ function TopCat.Opened()
   TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or
                  ((conf.shell == "session" and conf.boot == boot) and "session" or "off")
   TopCat.ShowShell()
-  TopCat.level = ({ "look", "do", "ask" })[lv + 1]
   TopCat.Tick()
   set("tmr", "IsEnabled", "true")
   if Vml("LaunchedAtBoot") == "true" and TopCat.inTray then Vml("HideForm", "TopCat") end
@@ -62,7 +60,7 @@ function TopCat.Tray(args)
   elseif what:sub(1, 12) == "Callers may>" then
     for i, l in ipairs(LEVELS) do
       if what:match(l[2] .. "%s*$") then
-        set("cboLevel", "SelectedIndex", tostring(i - 1))
+        TopCat.level = l[1]
         TopCat.Level()
       end
     end
@@ -95,8 +93,7 @@ function TopCat.Tick()
   end
   set("dot", "Background", on and "#16A34A" or (running and "#F59E0B" or "#9CA3AF"))
   if on then
-    set("lblState", "Text", "Connected: " .. (st.machine or "?") .. " answers " .. ((st.hub or ""):match("//([^/]+)") or "the hub") ..
-        ", up to \"" .. (st.level or "ask") .. "\" (ask: only with your yes).")
+    set("lblState", "Text", "Connected as " .. (st.machine or "?") .. " to " .. ((st.hub or ""):match("//([^/]+)") or "the hub"))
   elseif running then
     set("lblState", "Text", "Trying to reach the hub" .. ((st.why or "") ~= "" and (": " .. st.why) or "…"))
   else
@@ -170,8 +167,20 @@ function TopCat.Toggle()
 end
 
 -- the shell: off unless you say (for this session, or always); even then, each command needs your yes
-local SHELL_LOOK = { off = { "Shell: off", "#16A34A" }, session = { "Shell: on, this session", "#DC2626" },
-                     always = { "Shell: always on", "#991B1B" } }
+local SHELL_LOOK = { off = { "Shell: off ▾", "#16A34A" }, session = { "Shell: this session ▾", "#DC2626" },
+                     always = { "Shell: always on ▾", "#991B1B" } }
+local LEVEL_LOOK = { look = { "Callers: look ▾", "#16A34A" }, ["do"] = { "Callers: look and do ▾", "#16A34A" },
+                     ask = { "Callers: do and ask ▾", "#DC2626" } }
+function TopCat.ShowLevel()
+  local s = LEVEL_LOOK[TopCat.level or "ask"]
+  set("btnLevel", "Content", s[1])
+  set("btnLevel", "Background", s[2])
+end
+
+function TopCat.LevelNext()
+  TopCat.level = ({ look = "do", ["do"] = "ask", ask = "look" })[TopCat.level or "ask"]
+  TopCat.Level()
+end
 function TopCat.ShowShell()
   local s = SHELL_LOOK[TopCat.shell or "off"]
   set("btnShell", "Content", s[1])
@@ -192,9 +201,8 @@ function TopCat.Shell()
 end
 
 function TopCat.Level()
-  if TopCat.opening then return end
-  local lv = ({ "look", "do", "ask" })[(tonumber(get("cboLevel", "SelectedIndex")) or 2) + 1] or "ask"
-  TopCat.level = lv
+  local lv = TopCat.level or "ask"
+  TopCat.ShowLevel()
   TopCat.TrayUpdate()
   local f = HOME .. "/.config/topcat/agent.json"
   sh("python3 -c 'import json,sys;p=sys.argv[1];c=json.load(open(p));c[\"level\"]=sys.argv[2];json.dump(c,open(p,\"w\"))' " ..

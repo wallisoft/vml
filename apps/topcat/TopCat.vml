@@ -100,30 +100,39 @@ Background=#9CA3AF
 @TextBlock lblState
 Parent=c
 Canvas.Left=42
-Canvas.Top=92
-Width=470
-Height=24
+Canvas.Top=88
+Width=278
+Height=32
+TextWrapping=Wrap
+FontSize=12
 Foreground=#374151
 Text=…
 
-@TextBlock lblLevel
+@Button btnLevel
 Parent=c
-Canvas.Left=510
-Canvas.Top=92
-Width=90
-Height=24
-Foreground=#6B7280
-Text=Callers may
+Canvas.Left=330
+Canvas.Top=88
+Width=200
+Height=28
+FontWeight=Bold
+Foreground=#FFFFFF
+Background=#16A34A
+Content=Callers: look ▾
+OnClick=LevelNext
+ToolTip=Click to change. look: read only; look and do: change things here; do and ask: anything, but what goes out or can't be undone needs your yes
 
-@ComboBox cboLevel
+@Button btnShell
 Parent=c
-Canvas.Left=600
-Canvas.Top=86
-Width=140
-Height=32
-Items=look,look and do,do and ask
-SelectionChanged=Level
-ToolTip=look: read only. do: change things here. ask: anything, but what goes out or can't be undone needs your yes
+Canvas.Left=540
+Canvas.Top=88
+Width=200
+Height=28
+FontWeight=Bold
+Foreground=#FFFFFF
+Background=#16A34A
+Content=Shell: off ▾
+OnClick=ShellToggle
+ToolTip=Click to change. Off; on for this session (until this computer restarts); always on. Even when on, every command needs your yes
 
 @TextBlock lblAsked
 Parent=c
@@ -133,19 +142,6 @@ Width=300
 Height=22
 FontWeight=Bold
 Text=Who asked what
-
-@Button btnShell
-Parent=c
-Canvas.Left=500
-Canvas.Top=122
-Width=240
-Height=26
-FontWeight=Bold
-Foreground=#FFFFFF
-Background=#16A34A
-Content=Shell: off
-ToolTip=Click to change. Off; on for this session (until this computer restarts); always on. Even when on, every command needs your yes
-OnClick=ShellToggle
 
 @DataGrid grdLog
 Parent=c
@@ -217,10 +213,10 @@ Interpreter=lua
 TopCat.Toggle()
 LUA
 
-@Script Level
+@Script LevelNext
 Interpreter=lua
 <<LUA
-TopCat.Level()
+TopCat.LevelNext()
 LUA
 
 @Script Boot
