@@ -8,7 +8,8 @@ browser's), so no password is ever in a file or a script. It fills in fields and
 Save or Submit yourself.
 
     python3 tools/store/listing.py login                    open Partner Center: sign in, then close the window
-    python3 tools/store/listing.py survey URL               every field on that page (label, kind), to
+    python3 tools/store/listing.py survey URL [--fields]    every field on that page (label, kind), and its links and
+                                                            buttons (not with --fields), to
                                                             ~/.cache/storelisting/survey-*.json: what fill can fill
     python3 tools/store/listing.py fill LISTING URL         that page's fields, from a listing file
     python3 tools/store/listing.py check LISTING            the listing file's fields, and anything too long
@@ -112,14 +113,26 @@ def survey(page, url):
             out.push({label: label(el), kind: el.tagName.toLowerCase() + (el.type ? ':' + el.type : ''),
                       value: (el.value || '').slice(0, 60)});
         }
+        const seen = new Set();
+        for (const el of document.querySelectorAll('a[href], button, [role="button"], [role="link"]')) {
+            if (!el.offsetParent) continue;
+            const text = (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
+            const href = el.href || '';
+            if (!text || seen.has(text + href)) continue;
+            seen.add(text + href);
+            out.push({label: text.slice(0, 80), kind: el.tagName === 'A' ? 'link' : 'button', value: href});
+        }
         return out;
     }""")
     HOME.mkdir(parents=True, exist_ok=True)
     out = HOME / f"survey-{time.strftime('%Y%m%d-%H%M%S')}.json"
     out.write_text(json.dumps({"url": page.url, "title": page.title(), "fields": found}, indent=1), encoding="utf-8")
-    print(f"{len(found)} fields on '{page.title()}' -> {out}")
+    fields = [f for f in found if f["kind"] not in ("link", "button")]
+    print(f"{len(fields)} fields, {len(found) - len(fields)} links and buttons on '{page.title()}' -> {out}")
     for f in found:
-        print(f"  {f['kind']:<16} {f['label'][:70]}" + (f"   (now: {f['value']})" if f['value'] else ""))
+        if f["kind"] in ("link", "button") and "--fields" in sys.argv:
+            continue
+        print(f"  {f['kind']:<16} {f['label'][:70]}" + (f"   ({f['value']})" if f['value'] else ""))
 
 
 def fill(page, path, url):
