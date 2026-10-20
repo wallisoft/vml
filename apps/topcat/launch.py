@@ -31,13 +31,19 @@ def agent_py():
     return find("topcat/agent.py", "../../tools/topcat/agent.py")
 
 
+def app_exe():
+    # the binary the OS launched us as (compiled: TopCat/TopCat.exe) — NOT sys.executable, which Nuitka can report as a
+    # bundled "python". This is what the window and the service call with --agent to be the agent.
+    return os.path.realpath(sys.argv[0])
+
+
 def run_agent(args):
     """Be the agent: run the bundled (or repo) agent.py with this interpreter, telling it which exe we are."""
     agent = agent_py()
     if not agent:
         raise SystemExit("TopCat: the agent files are missing. Reinstall TopCat.")
     os.environ["TOPCAT_FROZEN"] = "1" if COMPILED else ""
-    os.environ["TOPCAT_EXE"] = sys.executable
+    os.environ["TOPCAT_EXE"] = app_exe()
     sys.argv = [str(agent)] + list(args)
     runpy.run_path(str(agent), run_name="__main__")
 
@@ -52,7 +58,7 @@ def seed_conf():
         conf = {}
     before = dict(conf)
     if COMPILED:
-        conf.setdefault("python", sys.executable)
+        conf.setdefault("python", app_exe())
         conf.setdefault("agent", "--agent")
     else:
         conf.setdefault("python", sys.executable)
