@@ -1744,7 +1744,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             exe = shutil.which("pwsh") or shutil.which("powershell")
             argv = [exe, "-NoProfile", "-Command", command] if exe else None
         else:
-            argv = shlex.split(command)
+            argv = shlex.split(command, posix=(os.name != "nt"))   # keep Windows path backslashes intact
         if not argv:
             log("RunProcess: no shell available")
             return ""

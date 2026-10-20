@@ -46,7 +46,22 @@ def conf():
     c.setdefault("hub", "https://api.tiny-web.uk/topcat.php")
     c.setdefault("machine", socket.gethostname().split(".")[0].lower())
     c.setdefault("level", "ask")
+    changed = False
+    if c.get("shell") == "session" and not c.get("boot"):       # the window said "this session": record which one
+        c["boot"], changed = boot_id(), True
+    for k, v in (("python", sys.executable), ("agent", str(Path(__file__).resolve()))):
+        if c.get(k) != v:                                       # so TopCat's window knows how to call us to switch
+            c[k], changed = v, True
+    if changed:
+        save_conf(c)
     return c
+
+
+def save_conf(c):
+    try:
+        CONF.write_text(json.dumps(c, indent=1), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def state(c, on, why=""):
@@ -143,6 +158,11 @@ def post(c, action, body, timeout=40):
 
 
 def boot_id():
+    """Which time this computer was started: changes with every restart (for "shell on, this session")."""
+    if os.name == "nt":
+        import ctypes
+        up = ctypes.windll.kernel32.GetTickCount64() / 1000
+        return "win-" + str(int((time.time() - up) // 120))   # (to two minutes: the clock and the count drift)
     try:
         return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
     except OSError:
@@ -154,7 +174,7 @@ def shell_allowed(c):
     s = c.get("shell")
     if s is True or s == "always":
         return True
-    return s == "session" and (os.name == "nt" or c.get("boot", "") == boot_id())
+    return s == "session" and c.get("boot", "") == boot_id()
 
 
 def shell(c, job, args):
@@ -278,7 +298,73 @@ def install():
     print("TopCat agent: running, and starts at every login (systemctl --user status topcat-agent)")
 
 
+def switch(what):
+    """on, off or restart: the systemd user service on Linux, the logon task on Windows. For TopCat's window."""
+    if os.name == "nt":
+        task = ["/TN", "TopCat agent"]
+        if what in ("off", "restart"):
+            subprocess.run(["schtasks", "/End"] + task, capture_output=True)
+        if what == "off":
+            subprocess.run(["schtasks", "/Change", "/DISABLE"] + task, capture_output=True)
+        else:
+            subprocess.run(["schtasks", "/Change", "/ENABLE"] + task, capture_output=True)
+            subprocess.run(["schtasks", "/Run"] + task, capture_output=True)
+    else:
+        cmd = {"on": ["enable", "--now"], "off": ["disable", "--now"], "restart": ["restart"]}[what]
+        subprocess.run(["systemctl", "--user"] + cmd + ["topcat-agent.service"], capture_output=True)
+    print(f"TopCat agent: {what}")
+
+
+def set_value(key, value):
+    """The window's way to change one setting (shell, level) and restart the agent so it takes effect."""
+    c = conf()
+    if key == "shell":
+        c["shell"] = {"off": False, "session": "session", "always": "always"}.get(value, False)
+        c["boot"] = boot_id() if c["shell"] == "session" else ""
+    elif key == "level":
+        c["level"] = value if value in ("look", "do", "ask") else "ask"
+    save_conf(c)
+    if c.get("token"):
+        switch("restart")
+    print(f"{key}: {value}")
+
+
+def follow(jid):
+    """A background job's lines, as they come, until it ends: for TopCat's window (Linux and Windows alike)."""
+    jid = "".join(ch for ch in jid if ch.isalnum() or ch == "-")
+    log, done = appapi.JOBS / f"{jid}.log", appapi.JOBS / f"{jid}.exit"
+    at, shown = 0, 0
+    while True:
+        finished = done.exists()
+        try:
+            with log.open("r", encoding="utf-8", errors="replace") as f:
+                f.seek(at)
+                chunk = f.read()
+                at = f.tell()
+        except OSError:
+            chunk = ""
+        if chunk:
+            lines = chunk.splitlines()
+            if shown == 0 and len(lines) > 300:
+                lines = lines[-300:]
+            print("\n".join(lines), flush=True)
+            shown += len(lines)
+        if finished:
+            return 0
+        time.sleep(0.5)
+
+
 if __name__ == "__main__":
+    if "--follow" in sys.argv:
+        sys.exit(follow(sys.argv[sys.argv.index("--follow") + 1]))
+    if "--set" in sys.argv:
+        i = sys.argv.index("--set")
+        set_value(sys.argv[i + 1], sys.argv[i + 2])
+        sys.exit(0)
+    for w in ("on", "off", "restart"):
+        if f"--{w}" in sys.argv:
+            switch(w)
+            sys.exit(0)
     if "--install" in sys.argv:
         install()
     elif "--uninstall" in sys.argv and os.name == "nt":

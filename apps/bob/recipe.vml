@@ -5,9 +5,14 @@ Version=Bob.vml:Version
 Project=Bob.vml
 Icon=bob.png
 Company=Wallisoft
+Installer=../../packaging/bob/bob.iss
 
 @Build Linux
 Machine=here
+Kind=compiled
+
+@Build Windows
+Machine=a8
 Kind=compiled
 
 @Build QuickExport

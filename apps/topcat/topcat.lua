@@ -9,32 +9,35 @@ TopCat = { rows = {}, size = -1, job = nil, on = nil }
 local function set(n, p, v) Vml("SetProperty", n, p, v) end
 local function get(n, p) return Vml("GetProperty", n, p) or "" end
 local function trim(s) return ((s or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
-local function sh(cmd) return Vml("Shell", cmd) or "" end
 local function cell(s) return (tostring(s or ""):gsub("[|;\n]", " ")) end
-local HOME = os.getenv("HOME") or "~"
+local HOME = os.getenv("HOME") or os.getenv("USERPROFILE") or "."
+local CONF = HOME .. "/.config/topcat/agent.json"
 local CACHE = HOME .. "/.cache/topcat"
+local JOBS = HOME .. "/.cache/vml/jobs"
 
-function TopCat.Repo()
-  local pref = Vml("GetPreference", "topcat_repo", "")
-  return trim(sh('printf %s "${TOPCAT_REPO:-' .. (pref ~= "" and pref or "$HOME/projects/vml-github") .. '}"'))
+-- read a file ourselves (the same on Linux and Windows), or "" if it isn't there
+local function read(path) return Vml("FileRead", path) or "" end
+
+-- how to run the agent to switch it on/off/round, or follow a job: python + agent, from agent.json
+TopCat.conf = {}
+local function agent(args, into, after)
+  local py, a = TopCat.conf.python, TopCat.conf.agent
+  if not py or not a then return "" end
+  return Vml("RunProcess", '"' .. py .. '" "' .. a .. '" ' .. args, into or "", after or "", "none")
 end
 
 function TopCat.Opened()
-  local conf = json.decode(sh("cat ~/.config/topcat/agent.json 2>/dev/null")) or {}
-  local lv = ({ look = 0, ["do"] = 1, ask = 2 })[conf.level or "ask"] or 2
-  TopCat.level = ({ "look", "do", "ask" })[lv + 1]
+  local conf = json.decode(read(CONF)) or {}
+  TopCat.conf = conf
+  TopCat.level = (conf.level == "look" or conf.level == "do" or conf.level == "ask") and conf.level or "ask"
   TopCat.ShowLevel()
   if not conf.token then
     set("lblState", "Text", "Not set up on this machine yet: tools/topcat/agent.py has the steps.")
   end
   set("chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
-  local boot = trim(sh("cat /proc/sys/kernel/random/boot_id 2>/dev/null"))
-  TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or
-                 ((conf.shell == "session" and conf.boot == boot) and "session" or "off")
+  TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or (conf.shell == "session" and "session" or "off")
   TopCat.ShowShell()
-  if conf.token and trim(sh("systemctl --user is-active topcat-agent 2>/dev/null")) ~= "active" then
-    sh("systemctl --user enable --now topcat-agent 2>&1")     -- (opening TopCat lets it in; untick to shut it out)
-  end
+  if conf.token then agent("--on") end                        -- opening TopCat lets it in; untick to shut it out
   TopCat.Tick()
   set("tmr", "IsEnabled", "true")
   if Vml("LaunchedAtBoot") == "true" and TopCat.inTray then Vml("HideForm", "TopCat") end
@@ -76,16 +79,12 @@ function TopCat.Boot()
   if now == "on" or now == "off" then Vml("SetSetting", "at_boot", now) else set("StatusBar", "Text", now) end
 end
 
--- every second and a half: on or off, anything new, the followed job's lines
+-- every second and a half: on or off, anything new, the followed job's lines. The agent writes state.json each
+-- loop (within the last minute means it's running); we read it ourselves, so this is the same on every system.
 function TopCat.Tick()
-  local raw = sh('cd ' .. CACHE .. ' 2>/dev/null; printf \'{"state":%s,"active":"%s","size":%s}\' ' ..
-                 '"$(cat state.json 2>/dev/null || echo null)" "$(systemctl --user is-active topcat-agent 2>/dev/null)" ' ..
-                 '"$(stat -c %s log.jsonl 2>/dev/null || echo 0)"')
-  local s = json.decode(raw) or {}
-  local st = type(s.state) == "table" and s.state or {}
-  local running = s.active == "active"
-  local fresh = st.at and (os.time() - math.floor(st.at)) < 60
-  local on = running and fresh and st.on
+  local st = json.decode(read(CACHE .. "/state.json")) or {}
+  local running = st.at and (os.time() - math.floor(st.at)) < 60 and true or false
+  local on = running and st.on and true or false
   TopCat.machine = st.machine
   if TopCat.on ~= running then
     TopCat.on = running
@@ -102,19 +101,20 @@ function TopCat.Tick()
   else
     set("lblState", "Text", "Off: nobody can ask this machine anything.")
   end
-  local size = tonumber(s.size) or 0
-  if size ~= TopCat.size then
-    TopCat.size = size
-    TopCat.Log()
+  local log = read(CACHE .. "/log.jsonl")
+  if #log ~= TopCat.size then
+    TopCat.size = #log
+    TopCat.Log(log)
   end
 end
 
-function TopCat.Log()
+function TopCat.Log(log)
   local rows, items = {}, {}
-  for line in sh("tail -n 80 " .. CACHE .. "/log.jsonl 2>/dev/null"):gmatch("[^\n]+") do
+  for line in (log or ""):gmatch("[^\n]+") do
     local r = json.decode(line)
     if r then table.insert(rows, 1, r) end
   end
+  while #rows > 80 do table.remove(rows) end
   for _, r in ipairs(rows) do
     local args = {}
     for k, v in pairs(r.args or {}) do args[#args + 1] = k .. "=" .. tostring(v) end
@@ -144,16 +144,14 @@ function TopCat.Watch(job)
   set("lstJob", "Items", "")
   set("lblJob", "Text", "Job " .. id .. ": going…")
   set("lblJob", "Foreground", "#B45309")
-  local f = HOME .. "/.cache/vml/jobs/" .. id
-  -- its lines as they come, until it ends (then a second more, for the last of them)
-  TopCat.proc = Vml("RunProcess", "tail -n 300 -F " .. f .. ".log 2>/dev/null & T=$!; while [ ! -e " .. f ..
-                    ".exit ]; do sleep 1; done; sleep 1; kill $T", "lstJob", "TopCatJobDone")
+  -- the agent streams the job's lines, as they come, until it ends (the same on every system)
+  TopCat.proc = agent("--follow " .. id, "lstJob", "TopCatJobDone")
 end
 
 function TopCat.JobDone()
   local id = TopCat.job
   if not id then return end
-  local code = trim(sh("cat " .. HOME .. "/.cache/vml/jobs/" .. id .. ".exit 2>/dev/null"))
+  local code = trim(read(JOBS .. "/" .. id .. ".exit"))
   if code == "" then return end                         -- (stopped by picking another one)
   set("lblJob", "Text", "Job " .. id .. ": " .. (code == "0" and "finished, all good" or ("ended badly (exit " .. code .. ")")))
   set("lblJob", "Foreground", code == "0" and "#16A34A" or "#B91C1C")
@@ -163,7 +161,7 @@ end
 function TopCat.Toggle()
   if TopCat.quiet then return end
   local want = get("chkOn", "IsChecked") == "true"
-  sh("systemctl --user " .. (want and "enable --now" or "disable --now") .. " topcat-agent 2>&1")
+  agent(want and "--on" or "--off")
   set("StatusBar", "Text", want and "Letting TopCat in: the agent is starting." or "Shut out: the agent is stopped, and won't start at login.")
   TopCat.on = nil
   TopCat.Tick()
@@ -190,11 +188,7 @@ function TopCat.ShowShell() paint("btnShell", SHELL_LOOK[TopCat.shell or "off"])
 
 function TopCat.Shell()
   TopCat.shell = ({ off = "session", session = "always", always = "off" })[TopCat.shell or "off"]
-  local value = ({ off = "false", session = '"session"', always = '"always"' })[TopCat.shell]
-  local boot = trim(sh("cat /proc/sys/kernel/random/boot_id 2>/dev/null"))
-  local f = HOME .. "/.config/topcat/agent.json"
-  sh("python3 -c 'import json,sys;p=sys.argv[1];c=json.load(open(p));c[\"shell\"]=json.loads(sys.argv[2]);c[\"boot\"]=sys.argv[3];json.dump(c,open(p,\"w\"))' " ..
-     f .. " '" .. value .. "' '" .. boot .. "' 2>/dev/null && systemctl --user is-active -q topcat-agent && systemctl --user restart topcat-agent")
+  agent("--set shell " .. TopCat.shell)                       -- the agent writes it and restarts itself
   TopCat.ShowShell()
   set("StatusBar", "Text", ({ off = "No shell: callers can only ask this machine's apps.",
     session = "Shell on until this computer restarts: each command still needs your yes.",
@@ -205,9 +199,7 @@ function TopCat.Level()
   local lv = TopCat.level or "ask"
   TopCat.ShowLevel()
   TopCat.TrayUpdate()
-  local f = HOME .. "/.config/topcat/agent.json"
-  sh("python3 -c 'import json,sys;p=sys.argv[1];c=json.load(open(p));c[\"level\"]=sys.argv[2];json.dump(c,open(p,\"w\"))' " ..
-     f .. " " .. lv .. " 2>/dev/null && systemctl --user is-active -q topcat-agent && systemctl --user restart topcat-agent")
+  agent("--set level " .. lv)
   set("StatusBar", "Text", ({ look = "Look only: callers can read, never change anything.",
     ["do"] = "Look and do: callers can change things here, but nothing that goes out or can't be undone.",
     ask = "Everything, but anything that goes out or can't be undone needs your yes, each time." })[lv])
