@@ -29,6 +29,7 @@ function TopCat.Opened()
     set("lblState", "Text", "Not set up on this machine yet: tools/topcat/agent.py has the steps.")
   end
   set("chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
+  set("chkShell", "IsChecked", conf.shell and "true" or "false")
   TopCat.level = ({ "look", "do", "ask" })[lv + 1]
   TopCat.Tick()
   set("tmr", "IsEnabled", "true")
@@ -163,6 +164,16 @@ function TopCat.Toggle()
   set("StatusBar", "Text", want and "Letting TopCat in: the agent is starting." or "Shut out: the agent is stopped, and won't start at login.")
   TopCat.on = nil
   TopCat.Tick()
+end
+
+-- the shell: off unless you say; even then, each command needs your yes
+function TopCat.Shell()
+  local on = get("chkShell", "IsChecked") == "true"
+  local f = HOME .. "/.config/topcat/agent.json"
+  sh("python3 -c 'import json,sys;p=sys.argv[1];c=json.load(open(p));c[\"shell\"]=sys.argv[2]==\"1\";json.dump(c,open(p,\"w\"))' " ..
+     f .. " " .. (on and "1" or "0") .. " 2>/dev/null && systemctl --user is-active -q topcat-agent && systemctl --user restart topcat-agent")
+  set("StatusBar", "Text", on and "A shell is allowed: callers may run command lines here, each one only with your yes." or
+      "No shell: callers can only ask this machine's apps.")
 end
 
 function TopCat.Level()

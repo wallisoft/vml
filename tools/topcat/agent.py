@@ -64,6 +64,9 @@ def summary(result):
             return "refused: " + str(result["error"])[:160]
         if result.get("job"):
             return "started job " + result["job"]
+        if "exit" in result and "out" in result:
+            first = (result.get("out") or result.get("err") or "").strip().splitlines()[:1]
+            return f"exit {result['exit']}" + (f": {first[0][:120]}" if first else "")
         if result.get("said"):
             return str(result["said"])[:160]
         return ", ".join(list(result)[:6]) or "done"
@@ -123,6 +126,8 @@ def watch(job, jid):
 
 
 def level_of(job):
+    if job.get("app") == "topcat":
+        return "ask" if job.get("command") == "shell" else "look"
     try:
         return appapi.apps()[job.get("app", "")]["commands"][job.get("command", "")]["level"]
     except (KeyError, TypeError):
@@ -137,6 +142,33 @@ def post(c, action, body, timeout=40):
         return json.loads(r.read().decode("utf-8") or "{}")
 
 
+def shell(c, job, args):
+    """A command line, run as you. Off unless this machine allows it (TopCat's window: Allow a shell), needs the "ask"
+    level, and needs the person's yes each time. Answers its exit code and the end of what it printed; background=true
+    for something long (a job to follow, like a build)."""
+    if not c.get("shell"):
+        return {"error": "this machine doesn't allow a shell (TopCat's window: Allow a shell)"}
+    if c["level"] != "ask":
+        return {"error": "a shell needs this machine's callers to be allowed \"do and ask\""}
+    if not job.get("yes"):
+        return {"error": "a shell command needs the person's yes: show them the exact command first"}
+    cmd = str(args.get("command") or "").strip()
+    if not cmd:
+        return {"error": "shell needs a command"}
+    argv = ["powershell", "-NoProfile", "-Command", cmd] if os.name == "nt" else ["bash", "-lc", cmd]
+    cwd = os.path.expanduser(str(args.get("cwd") or "~"))
+    if args.get("background") in (True, "true", "1", 1, "yes"):
+        return appapi._start({"name": "shell", "cwd": cwd}, "shell", argv)
+    try:
+        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           stdin=subprocess.DEVNULL, timeout=max(1, min(int(args.get("timeout") or 120), 600)))
+    except subprocess.TimeoutExpired:
+        return {"error": "it took too long (timeout); for something long, background=true"}
+    out, err = p.stdout, p.stderr
+    return {"exit": p.returncode, "out": out[-6000:], "err": err[-2000:],
+            **({"cut": f"showing the last 6000 of {len(out)} characters"} if len(out) > 6000 else {})}
+
+
 def answer(c, job):
     """One request, answered by this machine's apps."""
     app, command, args = job.get("app", ""), job.get("command", ""), job.get("args") or {}
@@ -148,8 +180,11 @@ def answer(c, job):
                 return appapi.job(args["job"]) if args.get("job") else appapi.jobs()
             if command == "hello":
                 return {"machine": c["machine"], "level": c["level"], "python": sys.version.split()[0],
-                        "repo": str(REPO), "apps": sorted(appapi.apps())}
-            return {"error": f"the agent can be asked hello, apps or job, not {command!r}"}
+                        "repo": str(REPO), "apps": sorted(appapi.apps()), "shell": bool(c.get("shell")),
+                        "os": "windows" if os.name == "nt" else sys.platform}
+            if command == "shell":
+                return shell(c, job, args)
+            return {"error": f"the agent can be asked hello, apps, job or shell, not {command!r}"}
         return appapi.call(app, command, args, yes=bool(job.get("yes")), cap=c["level"])
     except appapi.ApiError as e:
         return {"error": str(e)}

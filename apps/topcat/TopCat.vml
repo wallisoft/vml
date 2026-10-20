@@ -134,6 +134,16 @@ Height=22
 FontWeight=Bold
 Text=Who asked what
 
+@CheckBox chkShell
+Parent=c
+Canvas.Left=460
+Canvas.Top=124
+Width=280
+Height=26
+Content=Allow a shell (only with your yes)
+ToolTip=Callers may run command lines here, as you: each one needs your yes, and Callers may must be 'do and ask'
+OnClick=ShellToggle
+
 @DataGrid grdLog
 Parent=c
 Canvas.Left=20
@@ -214,6 +224,12 @@ LUA
 Interpreter=lua
 <<LUA
 TopCat.Boot()
+LUA
+
+@Script ShellToggle
+Interpreter=lua
+<<LUA
+TopCat.Shell()
 LUA
 
 @Script TopCatTray
