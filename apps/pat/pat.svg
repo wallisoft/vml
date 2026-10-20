@@ -1,10 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="#FFF7ED"/>
-  <rect x="9" y="17" width="34" height="24" rx="3" fill="#FFFFFF" stroke="#B91C1C" stroke-width="3"/>
-  <path d="M10 19 L26 31 L42 19" fill="none" stroke="#B91C1C" stroke-width="3" stroke-linejoin="round"/>
-  <rect x="40" y="40" width="5" height="12" rx="1.5" fill="#F59E0B"/>
-  <rect x="47" y="34" width="5" height="18" rx="1.5" fill="#F59E0B"/>
-  <rect x="54" y="27" width="5" height="25" rx="1.5" fill="#B91C1C"/>
-  <path d="M9 50 H34" stroke="#B91C1C" stroke-width="3" stroke-linecap="round"/>
-  <path d="M14 45 H28" stroke="#FCA5A5" stroke-width="3" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8.8 11.8 103.5 103.5">
+  <!-- Pat: a postman's peaked cap, leaning in as Bob's and Mountie's hats do, a letter on its badge -->
+  <defs>
+    <linearGradient id="crown" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B5BDB"/><stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="peak" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#334155"/><stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(64 64) rotate(-16) translate(-64 -64)">
+    <!-- the peak -->
+    <path d="M28 78 C44 87 84 87 100 78 C106 89 93 100 64 100 C35 100 22 89 28 78 Z"
+          fill="url(#peak)" stroke="#020617" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M40 90 C52 94 76 94 88 90" fill="none" stroke="#94A3B8" stroke-width="2.4" stroke-linecap="round" opacity="0.7"/>
+    <!-- the band -->
+    <path d="M30 60 L98 60 L97 80 C82 86 46 86 31 80 Z" fill="#DC2626" stroke="#7F1D1D" stroke-width="2.6" stroke-linejoin="round"/>
+    <!-- the crown -->
+    <path d="M14 52 C14 38 40 28 66 28 C93 28 116 38 114 52 C112 61 96 63 64 63 C33 63 14 61 14 52 Z"
+          fill="url(#crown)" stroke="#172554" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M26 46 C32 38 46 33 60 32" fill="none" stroke="#C7D2FE" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+    <!-- the badge: a letter -->
+    <rect x="50" y="38" width="28" height="19" rx="3" fill="#FFFFFF" stroke="#172554" stroke-width="2.4"/>
+    <path d="M51.5 40 L64 49.5 L76.5 40" fill="none" stroke="#DC2626" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
 </svg>

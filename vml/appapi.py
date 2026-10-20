@@ -15,7 +15,8 @@ network) can drive every one of them. (vml/api.py is something else: the live li
                                                    text, integer, json (handed over as a file), a|b|c (one of them)
     Background=yes                                 slow (a build): it starts, and the answer is a job to follow
 
-    In Run, {product} is the value, quoted for the shell; {product?--flag} is "--flag VALUE", or nothing if left out.
+    In Run, {product} is the value (no shell is involved: a value is only ever a value); {product?--flag} is
+    "--flag VALUE", or nothing if left out. "python3" at the start of Run means the Python running this.
 
 From a terminal:
     vml api                                        every app, and what each can be asked
@@ -152,7 +153,16 @@ def _value(p, v, temps):
     return str(v)
 
 
+def _head(run):
+    """The app's Run, as a list: "python3 ..." runs with this same Python (on Windows there's often no python3)."""
+    argv = shlex.split(run, posix=True)
+    if argv and argv[0] in ("python3", "python", "py"):
+        argv[0] = sys.executable
+    return argv
+
+
 def command_line(app, cmd, args, temps):
+    """The command to run, as a list (no shell: nothing in a parameter can ever run as a command)."""
     unknown = set(args) - {p["name"] for p in cmd["params"]}
     if unknown:
         raise ApiError(f"{cmd['name']} doesn't take {', '.join(sorted(unknown))}")
@@ -164,13 +174,15 @@ def command_line(app, cmd, args, temps):
                 raise ApiError(f"{cmd['name']} needs {p['name']} ({p['about'] or p['type']})")
             continue
         vals[p["name"]] = _value(p, v, temps)
-
-    def fill(m):
-        name, flag = m.group(1), m.group(2)
-        if name not in vals:
-            return ""
-        return (shlex.quote(flag) + " " if flag else "") + shlex.quote(vals[name])
-    return (app["run"] + " " + re.sub(r"\{(\w+)(?:\?([^}]*))?\}", fill, cmd["run"])).strip()
+    argv = _head(app["run"])
+    for tok in shlex.split(cmd["run"], posix=True):
+        m = re.fullmatch(r"\{(\w+)(?:\?([^}]*))?\}", tok)
+        if m:                                             # {name} or {name?--flag}: the value (and its flag), or nothing
+            if m.group(1) in vals:
+                argv += ([m.group(2)] if m.group(2) else []) + [vals[m.group(1)]]
+        else:
+            argv.append(re.sub(r"\{(\w+)\}", lambda n: vals.get(n.group(1), ""), tok))
+    return argv
 
 
 def _answer(out):
@@ -202,11 +214,11 @@ def call(app_key, command, args=None, yes=False, cap=None):
                        f"then call it again with their yes")
     temps = []
     try:
-        line = command_line(app, cmd, dict(args or {}), temps)
+        argv = command_line(app, cmd, dict(args or {}), temps)
         if cmd["background"]:
-            return _start(app, command, line)
-        p = subprocess.run(line, shell=True, cwd=app["cwd"], capture_output=True, text=True, timeout=300,
-                           stdin=subprocess.DEVNULL)
+            return _start(app, command, argv)
+        p = subprocess.run(argv, cwd=app["cwd"], capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
+                           encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
         raise ApiError(f"{app['name']} {command} took more than five minutes")
     finally:
@@ -222,16 +234,26 @@ def call(app_key, command, args=None, yes=False, cap=None):
 
 # ---------------------------------------------------------------- background jobs (a build takes minutes)
 
-def _start(app, command, line):
+_WRAP = """import subprocess, sys
+log, done, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+with open(log, "w", encoding="utf-8") as f:
+    try:
+        code = subprocess.call(argv, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    except OSError as e:
+        f.write(str(e) + "\\n"); code = 127
+open(done, "w").write(str(code))
+"""
+
+
+def _start(app, command, argv):
     JOBS.mkdir(parents=True, exist_ok=True)
     jid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     log, done = JOBS / f"{jid}.log", JOBS / f"{jid}.exit"
-    (JOBS / f"{jid}.json").write_text(json.dumps({"job": jid, "app": app["name"], "command": command, "line": line,
-                                                  "started": time.time()}), encoding="utf-8")
-    wrapped = f"( {line} ) > {shlex.quote(str(log))} 2>&1; echo $? > {shlex.quote(str(done))}"
-    kw = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008}   # (it outlives us)
-    subprocess.Popen(["bash", "-c", wrapped], cwd=app["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, **kw)
+    (JOBS / f"{jid}.json").write_text(json.dumps({"job": jid, "app": app["name"], "command": command,
+                                                  "line": " ".join(argv), "started": time.time()}), encoding="utf-8")
+    kw = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008 | 0x00000200}  # (it outlives us)
+    subprocess.Popen([sys.executable, "-c", _WRAP, str(log), str(done)] + argv, cwd=app["cwd"], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
     return {"job": jid, "started": True, "follow": "ask for this job: still going, and its last lines"}
 
 

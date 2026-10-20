@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="13.6 6.7 113.4 113.4">
   <!-- Bob: a builder's hard hat, leaning in as Mountie's hat does, a green tick on its badge -->
   <defs>
     <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
@@ -8,7 +8,6 @@
       <stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#D97706"/>
     </linearGradient>
   </defs>
-  <ellipse cx="64" cy="110" rx="50" ry="6" fill="#000" opacity="0.13"/>
   <g transform="translate(64 64) rotate(-16) translate(-64 -64)">
     <!-- the brim -->
     <path d="M10 84 C10 76 20 74 30 74 L106 74 C116 74 122 78 120 84 C118 90 108 91 96 91 L26 91 C16 91 10 89 10 84 Z"
