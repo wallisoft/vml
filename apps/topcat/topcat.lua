@@ -10,7 +10,7 @@ local function set(n, p, v) Vml("SetProperty", n, p, v) end
 local function get(n, p) return Vml("GetProperty", n, p) or "" end
 local function trim(s) return ((s or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
 local function sh(cmd) return Vml("Shell", cmd) or "" end
-local function cell(s) return (tostring(s or ""):gsub("[|;,\n]", " ")) end
+local function cell(s) return (tostring(s or ""):gsub("[|;\n]", " ")) end
 local HOME = os.getenv("HOME") or "~"
 local CACHE = HOME .. "/.cache/topcat"
 
