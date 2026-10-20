@@ -15,8 +15,11 @@ local CONF = HOME .. "/.config/topcat/agent.json"
 local CACHE = HOME .. "/.cache/topcat"
 local JOBS = HOME .. "/.cache/vml/jobs"
 
--- read a file ourselves (the same on Linux and Windows), or "" if it isn't there
+local HUB_DEFAULT = "https://api.tiny-web.uk/topcat.php"
+
+-- read/write a file ourselves (the same on Linux and Windows)
 local function read(path) return Vml("FileRead", path) or "" end
+local function write(path, text) return Vml("FileWrite", path, text) end
 
 -- how to run the agent to switch it on/off/round, or follow a job: python + agent, from agent.json
 TopCat.conf = {}
@@ -26,13 +29,38 @@ local function agent(args, into, after)
   return Vml("RunProcess", '"' .. py .. '" "' .. a .. '" ' .. args, into or "", after or "", "none")
 end
 
+-- First run on this machine: ask for the hub, a name for this machine and its key, write them, and start the agent.
+-- No command line, no repo: the agent travels inside TopCat, and conf.python/agent already say how to call it.
+function TopCat.Setup()
+  local c = TopCat.conf
+  local host = (os.getenv("COMPUTERNAME") or trim(read("/etc/hostname")) or ""):lower()
+  local machine = Vml("PromptDialog", "Set up this machine", "A short name for this machine (callers use it):",
+                      c.machine ~= "" and c.machine or host, "")
+  if trim(machine) == "" then return false end
+  local token = Vml("PromptDialog", "Set up this machine",
+                    "This machine's key, from TopCat's hub (keep it secret):", "", "true")
+  if trim(token) == "" then return false end
+  local hub = Vml("PromptDialog", "Set up this machine", "TopCat hub address (leave as-is unless you host your own):",
+                  c.hub ~= "" and c.hub or HUB_DEFAULT, "")
+  if trim(hub) == "" then hub = HUB_DEFAULT end
+  c.machine, c.token, c.hub = trim(machine), trim(token), trim(hub)
+  c.level = TopCat.level or "ask"
+  if not write(CONF, json.encode(c, { indent = true })) then
+    set("StatusBar", "Text", "Couldn't save the settings (" .. CONF .. ").")
+    return false
+  end
+  agent("--install")                                          -- registers the agent to start at login, and starts it now
+  set("StatusBar", "Text", "Set up as " .. c.machine .. ": starting the agent…")
+  return true
+end
+
 function TopCat.Opened()
   local conf = json.decode(read(CONF)) or {}
   TopCat.conf = conf
   TopCat.level = (conf.level == "look" or conf.level == "do" or conf.level == "ask") and conf.level or "ask"
   TopCat.ShowLevel()
   if not conf.token then
-    set("lblState", "Text", "Not set up on this machine yet: tools/topcat/agent.py has the steps.")
+    set("lblState", "Text", "This machine isn't set up yet — tick \"Let TopCat in\" to begin.")
   end
   set("chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
   TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or (conf.shell == "session" and "session" or "off")
@@ -161,6 +189,17 @@ end
 function TopCat.Toggle()
   if TopCat.quiet then return end
   local want = get("chkOn", "IsChecked") == "true"
+  if want and not TopCat.conf.token then                       -- first time in: set this machine up, then it's on
+    if not TopCat.Setup() then
+      TopCat.quiet = true
+      set("chkOn", "IsChecked", "false")                       -- cancelled: leave it off
+      TopCat.quiet = false
+      return
+    end
+    TopCat.on = nil
+    TopCat.Tick()
+    return
+  end
   agent(want and "--on" or "--off")
   set("StatusBar", "Text", want and "Letting TopCat in: the agent is starting." or "Shut out: the agent is stopped, and won't start at login.")
   TopCat.on = nil

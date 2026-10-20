@@ -5,7 +5,10 @@ Version=TopCat.vml:Version
 Project=TopCat.vmlproj
 Icon=topcat.png
 Company=Wallisoft
+Launcher=launch.py
 Installer=../../packaging/topcat/topcat.iss
+# the agent travels inside the app, so a fresh machine needs nothing else: the exe is both window and agent
+Nuitka=--include-data-file=tools/topcat/agent.py=topcat/agent.py
 
 @Build Linux
 Machine=here

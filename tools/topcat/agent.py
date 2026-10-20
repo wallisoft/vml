@@ -31,6 +31,11 @@ CONF = Path(os.environ.get("TOPCAT_CONF") or Path.home() / ".config" / "topcat" 
 HERE = Path(os.environ.get("TOPCAT_CACHE") or Path.home() / ".cache" / "topcat")
 LOG, STATE = HERE / "log.jsonl", HERE / "state.json"          # what TopCat's window shows: who asked what, and are we on
 DEBUG = os.environ.get("TOPCAT_DEBUG")
+# When TopCat is a compiled app, its launcher runs us with --agent (so there's no separate Python or repo to install).
+# It tells us so, and which exe it is, here; the window calls that same exe with --agent to switch us on and off.
+FROZEN = os.environ.get("TOPCAT_FROZEN") == "1"
+EXE = os.environ.get("TOPCAT_EXE") or sys.executable
+AGENT_CALL = (EXE, "--agent") if FROZEN else (sys.executable, str(Path(__file__).resolve()))
 
 
 def say(*a):
@@ -49,7 +54,7 @@ def conf():
     changed = False
     if c.get("shell") == "session" and not c.get("boot"):       # the window said "this session": record which one
         c["boot"], changed = boot_id(), True
-    for k, v in (("python", sys.executable), ("agent", str(Path(__file__).resolve()))):
+    for k, v in (("python", AGENT_CALL[0]), ("agent", AGENT_CALL[1])):
         if c.get(k) != v:                                       # so TopCat's window knows how to call us to switch
             c[k], changed = v, True
     if changed:
@@ -279,9 +284,12 @@ WantedBy=default.target
 
 def install():
     conf()                                                    # (settings first)
+    exe, arg = AGENT_CALL                                     # how to start us: the TopCat exe --agent, or python agent.py
     if os.name == "nt":                                       # Windows: a task at logon, with no console window
-        pyw = Path(sys.executable).with_name("pythonw.exe")
-        run = f'"{pyw if pyw.exists() else sys.executable}" "{Path(__file__).resolve()}"'
+        if not FROZEN:                                        # (the compiled exe is already windowless; dev needs pythonw)
+            pyw = Path(exe).with_name("pythonw.exe")
+            exe = str(pyw) if pyw.exists() else exe
+        run = f'"{exe}" "{arg}"'
         made = subprocess.run(["schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", "TopCat agent", "/TR", run]).returncode == 0
         if not made:                                          # (not allowed a logon task: the Startup folder, and a
             startup = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
@@ -292,7 +300,7 @@ def install():
         return
     unit = Path.home() / ".config" / "systemd" / "user" / "topcat-agent.service"
     unit.parent.mkdir(parents=True, exist_ok=True)
-    unit.write_text(UNIT.format(python=sys.executable, me=Path(__file__).resolve()), encoding="utf-8")
+    unit.write_text(UNIT.format(python=exe, me=arg), encoding="utf-8")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
     subprocess.run(["systemctl", "--user", "enable", "--now", "topcat-agent.service"], check=False)
     print("TopCat agent: running, and starts at every login (systemctl --user status topcat-agent)")
