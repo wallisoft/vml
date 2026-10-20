@@ -61,6 +61,9 @@ def main():
         licence.save_prefs(prefs)
         print("saved: publish_site (vml.onl) will use it")
         return
+    if sys.argv[1:2] == ["api"]:                                    # vml api [APP COMMAND ...]: ask an app (vml/appapi.py)
+        from .appapi import main as api_main
+        raise SystemExit(api_main(sys.argv[2:]))
     if sys.argv[1:2] == ["mcp"]:                                    # Visualised for an AI assistant (vml/mcp.py)
         from .mcp import serve as serve_mcp
         serve_mcp()

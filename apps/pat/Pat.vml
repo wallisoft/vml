@@ -1,0 +1,654 @@
+#!/usr/bin/env vml
+# ============================================================================
+#   Pat: the driver and the accountant for your news. Tell him about a
+#   product, and the channels you post on (Mastodon, Bluesky, dev.to, a
+#   Facebook Page; and Quora, Reddit, Hacker News, LinkedIn and X, where you
+#   post yourself), and he drafts a post for each, shaped for it. Nothing
+#   goes out until you've changed it as you like and approved it. Then he
+#   keeps the books: what each post earned, per channel and per product.
+#
+#   The books: ~/.vml/pat/pat.db (SQLite: yours, plain tables). The talking
+#   to the platforms: tools/pat/pat.py, in the repo (PAT_REPO, or the
+#   pat_repo preference; ~/projects/vml-github unless you say).
+#
+#   Made with Visualised.
+# ============================================================================
+
+@Window Pat
+Title=Pat
+Version=1.0
+AppBar=true
+About=Pat posts your news, and keeps the books on what it earned.
+Icon=pat.png
+TitleBar=Own
+BorderBrush=#B91C1C
+BorderThickness=2
+Accent=#B91C1C
+Width=820
+Height=660
+MinWidth=820
+MinHeight=660
+OnOpened=Opened
+
+@Canvas c
+Parent=Pat
+Background=#F5F5F4
+
+@Canvas head
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=820
+Height=76
+Background=#B91C1C
+Anchor=Top,Left,Right
+
+@Image imgPat
+Parent=head
+Canvas.Left=16
+Canvas.Top=8
+Width=60
+Height=60
+Source=pat.svg
+
+@TextBlock lblPat
+Parent=head
+Canvas.Left=88
+Canvas.Top=8
+Width=200
+Height=36
+FontSize=26
+FontWeight=Bold
+Foreground=#FFFFFF
+Text=Pat
+
+@TextBlock lblWhat
+Parent=head
+Canvas.Left=88
+Canvas.Top=44
+Width=560
+Height=22
+Foreground=#FECACA
+Text=posts your news, and keeps the books on what it earned
+
+@TabStrip tabs
+Parent=c
+Canvas.Left=16
+Canvas.Top=90
+Width=788
+Height=522
+BorderThickness=1
+BorderBrush=#D6D3D1
+CornerRadius=8
+Background=#FFFFFF
+Accent=#B91C1C
+Anchor=Top,Bottom,Left,Right
+SelectionChanged=TabPicked
+
+@TabPage pPosts
+Parent=tabs
+Header=Posts
+
+@TabPage pBooks
+Parent=tabs
+Header=Books
+
+@TabPage pChannels
+Parent=tabs
+Header=Channels
+
+@TabPage pProducts
+Parent=tabs
+Header=Products
+
+@TextBlock lblProduct
+Parent=pPosts
+Canvas.Left=10
+Canvas.Top=16
+Width=64
+Height=24
+Text=Product
+
+@ComboBox cboProduct
+Parent=pPosts
+Canvas.Left=76
+Canvas.Top=10
+Width=240
+Height=34
+SelectionChanged=ProductChosen
+
+@Button btnDraft
+Parent=pPosts
+Canvas.Left=328
+Canvas.Top=10
+Width=220
+Height=34
+Background=#B91C1C
+Foreground=#FFFFFF
+FontWeight=Bold
+Content=Draft for every channel
+ToolTip=A first draft for each channel that's on, shaped for it: yours to change
+OnClick=Draft
+
+@DataGrid grdPosts
+Parent=pPosts
+Canvas.Left=10
+Canvas.Top=54
+Width=768
+Height=150
+SelectionChanged=PostPicked
+
+@TextBox txtTitle
+Parent=pPosts
+Canvas.Left=10
+Canvas.Top=214
+Width=768
+Height=32
+Watermark=Title (dev.to, Reddit, Hacker News)
+
+@TextBox txtText
+Parent=pPosts
+Canvas.Left=10
+Canvas.Top=252
+Width=768
+Height=118
+AcceptsReturn=true
+TextWrapping=Wrap
+TextChanged=Typed
+
+@TextBlock lblCount
+Parent=pPosts
+Canvas.Left=10
+Canvas.Top=380
+Width=120
+Height=24
+Foreground=#6B7280
+
+@Button btnRemovePost
+Parent=pPosts
+Canvas.Left=674
+Canvas.Top=376
+Width=98
+Height=34
+Content=Remove
+ToolTip=Take it out of the books
+OnClick=RemovePost
+IsEnabled=false
+
+@Button btnOpenPost
+Parent=pPosts
+Canvas.Left=570
+Canvas.Top=376
+Width=98
+Height=34
+Content=Open
+ToolTip=Open the post (or copy its words)
+OnClick=OpenPost
+IsEnabled=false
+
+@Button btnMark
+Parent=pPosts
+Canvas.Left=466
+Canvas.Top=376
+Width=98
+Height=34
+Content=Mark posted
+ToolTip=You've posted it yourself: say where
+OnClick=Mark
+IsEnabled=false
+
+@Button btnSend
+Parent=pPosts
+Canvas.Left=362
+Canvas.Top=376
+Width=98
+Height=34
+Content=Send
+ToolTip=Post it (or, where you post yourself: open the page, words on the clipboard)
+OnClick=Send
+IsEnabled=false
+FontWeight=Bold
+
+@Button btnApprove
+Parent=pPosts
+Canvas.Left=258
+Canvas.Top=376
+Width=98
+Height=34
+Content=Approve
+ToolTip=These words, as they are, can go out
+OnClick=Approve
+IsEnabled=false
+
+@Button btnSave
+Parent=pPosts
+Canvas.Left=154
+Canvas.Top=376
+Width=98
+Height=34
+Content=Save
+ToolTip=Keep these words
+OnClick=SavePost
+IsEnabled=false
+
+@TextBlock lblPost
+Parent=pPosts
+Canvas.Left=10
+Canvas.Top=418
+Width=768
+Height=40
+TextWrapping=Wrap
+Foreground=#374151
+
+@Button btnCount
+Parent=pBooks
+Canvas.Left=10
+Canvas.Top=10
+Width=140
+Height=34
+Background=#B91C1C
+Foreground=#FFFFFF
+FontWeight=Bold
+Content=Count now
+ToolTip=Ask each platform for each post's numbers
+OnClick=CountNow
+
+@TextBlock lblBooks
+Parent=pBooks
+Canvas.Left=162
+Canvas.Top=16
+Width=616
+Height=24
+Foreground=#6B7280
+
+@DataGrid grdByChannel
+Parent=pBooks
+Canvas.Left=10
+Canvas.Top=54
+Width=379
+Height=130
+
+@DataGrid grdByProduct
+Parent=pBooks
+Canvas.Left=399
+Canvas.Top=54
+Width=379
+Height=130
+
+@DataGrid grdBooks
+Parent=pBooks
+Canvas.Left=10
+Canvas.Top=194
+Width=768
+Height=260
+OnDoubleClick=OpenBooked
+ToolTip=Double-click: open the post
+
+@DataGrid grdChannels
+Parent=pChannels
+Canvas.Left=10
+Canvas.Top=10
+Width=768
+Height=170
+SelectionChanged=ChannelPicked
+
+@ComboBox cboKind
+Parent=pChannels
+Canvas.Left=10
+Canvas.Top=192
+Width=240
+Height=34
+SelectionChanged=KindPicked
+
+@TextBox txtChName
+Parent=pChannels
+Canvas.Left=260
+Canvas.Top=192
+Width=240
+Height=34
+Watermark=Its name here (Wallisoft on Mastodon)
+
+@CheckBox chkOn
+Parent=pChannels
+Canvas.Left=512
+Canvas.Top=198
+Width=260
+Height=24
+IsChecked=true
+Content=Draft for it
+
+@TextBox txtHandle
+Parent=pChannels
+Canvas.Left=10
+Canvas.Top=234
+Width=240
+Height=34
+Watermark=Who you are there (@wallisoft)
+
+@TextBox txtServer
+Parent=pChannels
+Canvas.Left=260
+Canvas.Top=234
+Width=240
+Height=34
+Watermark=Server (mastodon.social)
+
+@TextBox txtSecret
+Parent=pChannels
+Canvas.Left=512
+Canvas.Top=234
+Width=266
+Height=34
+IsPassword=true
+Watermark=Key, token or app password
+
+@TextBlock lblKindHelp
+Parent=pChannels
+Canvas.Left=10
+Canvas.Top=278
+Width=768
+Height=60
+TextWrapping=Wrap
+Foreground=#374151
+
+@Button btnChNew
+Parent=pChannels
+Canvas.Left=10
+Canvas.Top=346
+Width=100
+Height=34
+Content=New
+OnClick=NewChannel
+
+@Button btnChSave
+Parent=pChannels
+Canvas.Left=118
+Canvas.Top=346
+Width=100
+Height=34
+Background=#B91C1C
+Foreground=#FFFFFF
+FontWeight=Bold
+Content=Add
+OnClick=SaveChannel
+
+@Button btnChTest
+Parent=pChannels
+Canvas.Left=226
+Canvas.Top=346
+Width=100
+Height=34
+Content=Test
+IsEnabled=false
+ToolTip=Log in, and say who you are there
+OnClick=TestChannel
+
+@Button btnChRemove
+Parent=pChannels
+Canvas.Left=678
+Canvas.Top=346
+Width=100
+Height=34
+Content=Remove
+IsEnabled=false
+OnClick=RemoveChannel
+
+@TextBlock lblChNote
+Parent=pChannels
+Canvas.Left=10
+Canvas.Top=392
+Width=768
+Height=64
+TextWrapping=Wrap
+Foreground=#6B7280
+Text=Keys stay on this computer, in the books (readable by you alone). Where you post yourself, Pat drafts it, opens the page and puts the words on the clipboard: those communities want people, not bots, and say who made it (Pat's drafts do).
+
+@DataGrid grdProducts
+Parent=pProducts
+Canvas.Left=10
+Canvas.Top=10
+Width=768
+Height=140
+SelectionChanged=ProductPicked
+
+@TextBox txtPName
+Parent=pProducts
+Canvas.Left=10
+Canvas.Top=162
+Width=240
+Height=34
+Watermark=Name (Mountie)
+
+@TextBox txtLink
+Parent=pProducts
+Canvas.Left=260
+Canvas.Top=162
+Width=518
+Height=34
+Watermark=Its link (https://mountie.vml.onl)
+
+@TextBox txtHeadline
+Parent=pProducts
+Canvas.Left=10
+Canvas.Top=204
+Width=768
+Height=34
+Watermark=In a line (Your drives, all in one place)
+
+@TextBox txtDesc
+Parent=pProducts
+Canvas.Left=10
+Canvas.Top=246
+Width=768
+Height=110
+AcceptsReturn=true
+TextWrapping=Wrap
+Watermark=What it is and who it's for, in a few sentences: the drafts start from this
+
+@TextBox txtTags
+Parent=pProducts
+Canvas.Left=10
+Canvas.Top=364
+Width=768
+Height=34
+Watermark=Tags (linux, windows, opensource)
+
+@Button btnPNew
+Parent=pProducts
+Canvas.Left=10
+Canvas.Top=410
+Width=100
+Height=34
+Content=New
+OnClick=NewProduct
+
+@Button btnPSave
+Parent=pProducts
+Canvas.Left=118
+Canvas.Top=410
+Width=100
+Height=34
+Background=#B91C1C
+Foreground=#FFFFFF
+FontWeight=Bold
+Content=Add
+OnClick=SaveProduct
+
+@Button btnPRemove
+Parent=pProducts
+Canvas.Left=678
+Canvas.Top=410
+Width=100
+Height=34
+Content=Remove
+IsEnabled=false
+OnClick=RemoveProduct
+
+@TextBox txtOut
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=10
+Height=10
+IsVisible=false
+AcceptsReturn=true
+
+@StatusBar StatusBar
+Parent=c
+Canvas.Left=0
+Canvas.Top=626
+Width=820
+Height=32
+Background=#E7E5E4
+Anchor=Bottom,Left,Right
+Panels=Ready
+
+@Script Opened
+Interpreter=lua
+<<LUA
+Pat.Opened()
+LUA
+
+@Script TabPicked
+Interpreter=lua
+<<LUA
+Pat.Tab()
+LUA
+
+@Script ProductChosen
+Interpreter=lua
+<<LUA
+Pat.Posts()
+LUA
+
+@Script Draft
+Interpreter=lua
+<<LUA
+Pat.Draft()
+LUA
+
+@Script PostPicked
+Interpreter=lua
+<<LUA
+Pat.Picked()
+LUA
+
+@Script Typed
+Interpreter=lua
+<<LUA
+Pat.Typed()
+LUA
+
+@Script SavePost
+Interpreter=lua
+<<LUA
+Pat.Save()
+LUA
+
+@Script Approve
+Interpreter=lua
+<<LUA
+Pat.Approve()
+LUA
+
+@Script Send
+Interpreter=lua
+<<LUA
+Pat.Send()
+LUA
+
+@Script Mark
+Interpreter=lua
+<<LUA
+Pat.Mark()
+LUA
+
+@Script OpenPost
+Interpreter=lua
+<<LUA
+Pat.OpenPost()
+LUA
+
+@Script RemovePost
+Interpreter=lua
+<<LUA
+Pat.RemovePost()
+LUA
+
+@Script CountNow
+Interpreter=lua
+<<LUA
+Pat.CountNow()
+LUA
+
+@Script OpenBooked
+Interpreter=lua
+<<LUA
+Pat.OpenBooked()
+LUA
+
+@Script ChannelPicked
+Interpreter=lua
+<<LUA
+Pat.ChannelPicked()
+LUA
+
+@Script KindPicked
+Interpreter=lua
+<<LUA
+Pat.KindPicked()
+LUA
+
+@Script NewChannel
+Interpreter=lua
+<<LUA
+Pat.NewChannel()
+LUA
+
+@Script SaveChannel
+Interpreter=lua
+<<LUA
+Pat.SaveChannel()
+LUA
+
+@Script TestChannel
+Interpreter=lua
+<<LUA
+Pat.TestChannel()
+LUA
+
+@Script RemoveChannel
+Interpreter=lua
+<<LUA
+Pat.RemoveChannel()
+LUA
+
+@Script ProductPicked
+Interpreter=lua
+<<LUA
+Pat.ProductPicked()
+LUA
+
+@Script NewProduct
+Interpreter=lua
+<<LUA
+Pat.NewProduct()
+LUA
+
+@Script SaveProduct
+Interpreter=lua
+<<LUA
+Pat.SaveProduct()
+LUA
+
+@Script RemoveProduct
+Interpreter=lua
+<<LUA
+Pat.RemoveProduct()
+LUA
+
+@Script PatDone
+Interpreter=lua
+<<LUA
+Pat.Done()
+LUA

@@ -1,0 +1,78 @@
+# Pat's API: what another program (vml mcp, TopCat) may ask of him. See vml/appapi.py for the shape.
+@Api Pat
+Run=python3 tools/pat/pat.py
+About=Posts your news to your channels, and keeps the books on what each post earned
+
+@Command report
+Level=look
+About=The books: totals per channel and per product, and each posted post's latest numbers
+Run=report
+
+@Command posts
+Level=look
+About=The posts, newest first, with their words and status (or only those with one status)
+Param=status?:draft|approved|posted|assisted|failed:Only these
+Run=posts {status}
+
+@Command channels
+Level=look
+About=The channels (their keys left out)
+Run=channels
+
+@Command products
+Level=look
+About=The products Pat drafts from
+Run=products
+
+@Command kinds
+Level=look
+About=The kinds of channel Pat knows, what each needs, and which ones the person posts to by hand
+Run=kinds
+
+@Command test-channel
+Level=look
+About=Log in to a channel and say who it is there (changes nothing)
+Param=channel:integer:The channel's id
+Run=channel-test {channel}
+
+@Command count
+Level=do
+About=Ask each platform for each posted post's numbers now, and keep them in the books
+Run=stats
+
+@Command save-product
+Level=do
+About=Add or change a product: {id?, name, link, headline, description, tags}
+Param=product:json:The product
+Run=product-save {product}
+
+@Command draft
+Level=do
+About=A first draft for every channel that's on, from a product (drafts only: nothing goes out)
+Param=product:integer:The product's id
+Run=draft {product}
+
+@Command edit-post
+Level=do
+About=Change a post's words before it goes: {id, text, title?} (an approved one goes back to draft, to approve again)
+Param=post:json:The post's id and new words
+Run=post-save {post}
+
+@Command approve
+Level=ask
+About=Approve a post's words as they are, ready to send: the person's say-so
+Param=post:integer:The post's id
+Run=approve {post}
+
+@Command send
+Level=ask
+About=Post an approved post (or, where the person posts by hand, give the words and the page to post them on)
+Param=post:integer:The post's id
+Run=send {post}
+
+@Command mark-posted
+Level=do
+About=A post the person made by hand: where it is
+Param=post:integer:The post's id
+Param=url?:text:Its link
+Run=mark-posted {post} {url}

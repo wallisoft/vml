@@ -1,0 +1,35 @@
+# Bob's API: what another program (vml mcp, TopCat) may ask of him. See vml/appapi.py for the shape.
+@Api Bob
+Run=python3 -u tools/bob/run.py
+About=Builds Visualised projects here and on other machines over SSH: programs, setup files, Store packages, releases
+
+@Command projects
+Level=look
+About=Every project with a recipe in the repo (its recipe's path is what the other commands take)
+Run=--projects
+
+@Command builds
+Level=look
+About=A project's builds: their names, kinds and machines
+Param=recipe:text:The project's recipe.vml (from projects)
+Run=--config {recipe} --list
+
+@Command machines
+Level=look
+About=The machines Bob builds on
+Run=--machines
+
+@Command build
+Level=ask
+About=Run one of a project's builds (minutes: answers with a job to follow). Some builds publish (a GitHub release), so the person's yes first
+Param=recipe:text:The project's recipe.vml
+Param=build:text:The build's name (from builds)
+Background=yes
+Run=--config {recipe} --build {build}
+
+@Command stop
+Level=do
+About=Stop a build that's going
+Param=recipe:text:The project's recipe.vml
+Param=build:text:The build's name
+Run=--config {recipe} --build {build} --stop
