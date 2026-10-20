@@ -95,9 +95,24 @@ def signed_in(page):
     return "login.microsoftonline.com" not in page.url and "login.live.com" not in page.url
 
 
+def settle(page, seconds=40):
+    """Partner Center builds its pages after they load: wait until it has drawn something worth reading."""
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            n = page.evaluate("() => [...document.querySelectorAll('a[href], button, input, textarea')]"
+                              ".filter(e => e.offsetParent).length")
+        except Exception:
+            n = 0
+        if n > 8:
+            page.wait_for_timeout(1500)                       # (and a moment more for the rest of it)
+            return
+        page.wait_for_timeout(1000)
+
+
 def survey(page, url):
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_timeout(4000)
+    settle(page)
     if not signed_in(page):
         sys.exit("Not signed in: run  listing.py login  first, and sign in in the window it opens.")
     found = page.evaluate("""() => {
@@ -138,7 +153,7 @@ def survey(page, url):
 def fill(page, path, url):
     name, fields, folder = read_listing(path)
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_timeout(4000)
+    settle(page)
     if not signed_in(page):
         sys.exit("Not signed in: run  listing.py login  first, and sign in in the window it opens.")
     done, missed = 0, []
