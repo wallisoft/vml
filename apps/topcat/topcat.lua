@@ -65,7 +65,8 @@ function TopCat.Opened()
   set("chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
   TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or (conf.shell == "session" and "session" or "off")
   TopCat.ShowShell()
-  if conf.token then agent("--on") end                        -- opening TopCat lets it in; untick to shut it out
+  -- Opening no longer forces the agent on. Exit shuts it out (agent --off: stops it now and at login);
+  -- it stays out until you tick "Let TopCat in". The agent is a service of its own; here we only reflect its state.
   TopCat.Tick()
   set("tmr", "IsEnabled", "true")
   if Vml("LaunchedAtBoot") == "true" and TopCat.inTray then Vml("HideForm", "TopCat") end
@@ -87,7 +88,8 @@ function TopCat.Tray(args)
   if what == "open" or what == "Open TopCat" then
     Vml("ShowForm", "TopCat")
   elseif what == "Exit" then
-    Vml("Quit")
+    set("StatusBar", "Text", "Shutting TopCat out: stopping the agent…")
+    if (agent("--off", nil, "TopCatExitDone") or "") == "" then Vml("Quit") end   -- nothing to stop: just go
   elseif what:find("Let TopCat in", 1, true) then
     set("chkOn", "IsChecked", TopCat.on and "false" or "true")
     TopCat.Toggle()
@@ -99,6 +101,10 @@ function TopCat.Tray(args)
       end
     end
   end
+end
+
+function TopCat.ExitDone()
+  Vml("Quit")                                                 -- the agent is stopped; now close the window
 end
 
 function TopCat.Boot()
