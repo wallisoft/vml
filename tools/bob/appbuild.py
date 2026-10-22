@@ -293,6 +293,21 @@ def compiled(recipe, out):
         with tarfile.open(tgz, "w:gz") as t:
             t.add(stage, arcname=slug)
         print(f"    {tgz.name}", flush=True)
+        # Linux packages: a .deb (Debian/Ubuntu/Mint) and a no-FUSE AppImage (any other distro)
+        lp_icon = recipe.file(recipe.get("icon"))
+        lp_cmd = ["bash", str(Path(__file__).parent / "linux-package.sh"),
+                  "--bundle", str(dist), "--name", slug, "--app", name,
+                  "--version", version, "--exe", name, "--out", str(out),
+                  "--desc", recipe.get("description") or recipe.get("about") or f"{name} by Wallisoft"]
+        if lp_icon and lp_icon.is_file():
+            lp_cmd += ["--icon", str(lp_icon)]
+        if recipe.get("depends"):
+            lp_cmd += ["--depends", recipe.get("depends")]
+        if run(lp_cmd, log=build / f"{slug}-linuxpkg.log") == 0:
+            for p in sorted(out.glob("*.deb")) + sorted(out.glob("*.AppImage")):
+                print(f"    {p.name}", flush=True)
+        else:
+            print("    (couldn't build .deb/AppImage — see the log; the tar.gz is still here)", flush=True)
     for extra in recipe.per_os("extras"):
         src = recipe.file(extra)
         if src and src.is_file():
