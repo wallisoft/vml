@@ -115,6 +115,34 @@ end
 
 -- every second and a half: on or off, anything new, the followed job's lines. The agent writes state.json each
 -- loop (within the last minute means it's running); we read it ourselves, so this is the same on every system.
+function TopCat.Marks()
+  local function mark(btn, on)
+    set(btn, "Content", on and "✓" or "✗")
+    set(btn, "Foreground", on and "#16A34A" or "#DC2626")
+  end
+  mark("chkOnBtn", get("chkOn", "IsChecked") == "true")
+  mark("chkBootBtn", get("chkBoot", "IsChecked") == "true")
+end
+
+function TopCat.OnToggle()
+  set("chkOn", "IsChecked", TopCat.on and "false" or "true")
+  TopCat.Toggle()
+end
+
+function TopCat.OnBoot()
+  set("chkBoot", "IsChecked", get("chkBoot", "IsChecked") == "true" and "false" or "true")
+  TopCat.Boot()
+end
+
+function TopCat.Who(id)
+  for _, r in ipairs(TopCat.rows or {}) do
+    if r.job and tostring(r.job):gsub("[^%w%-]", "") == id then
+      return (r.caller ~= "" and r.caller or "someone")
+    end
+  end
+  return "?"
+end
+
 function TopCat.Tick()
   local st = json.decode(read(CACHE .. "/state.json")) or {}
   local running = st.at and (os.time() - math.floor(st.at)) < 60 and true or false
@@ -128,6 +156,7 @@ function TopCat.Tick()
     TopCat.quiet = false
   end
   set("dot", "Background", on and "#16A34A" or (running and "#F59E0B" or "#9CA3AF"))
+  TopCat.Marks()
   if on then
     set("lblState", "Text", "Connected as " .. (st.machine or "?") .. " to " .. ((st.hub or ""):match("//([^/]+)") or "the hub"))
   elseif running then
@@ -139,6 +168,14 @@ function TopCat.Tick()
   if #log ~= TopCat.size then
     TopCat.size = #log
     TopCat.Log(log)
+  end
+  if TopCat.proc and TopCat.autoscroll then          -- follow the tail, but only while the user is at it
+    pcall(function()
+      TopCat.quietScroll = true
+      set("lstJob", "SelectedIndex", "99999")
+      TopCat.lastIdx = tonumber(get("lstJob", "SelectedIndex"))
+      TopCat.quietScroll = false
+    end)
   end
 end
 
@@ -168,15 +205,25 @@ end
 
 function TopCat.Picked()
   local r = TopCat.rows[(tonumber(get("grdLog", "SelectedIndex")) or -1) + 1]
-  if r and r.job then TopCat.Watch(r.job) end
+  if r and (r.job or r.id) then TopCat.Watch(r.job or r.id) end
+end
+
+function TopCat.JobScroll()
+  -- user touched the log: stop autoscroll unless they are on the last line (then resume)
+  if TopCat.quietScroll then return end
+  local i = tonumber(get("lstJob", "SelectedIndex")) or -1
+  TopCat.autoscroll = (TopCat.lastIdx ~= nil and i >= TopCat.lastIdx)
 end
 
 function TopCat.Watch(job)
   local id = tostring(job):gsub("[^%w%-]", "")
   if TopCat.proc then Vml("CancelProcess", TopCat.proc) end
   TopCat.job = id
+  TopCat.autoscroll = true
+  TopCat.paused = false
+  set("btnPause", "Content", "Pause"); set("btnPause", "Background", "#D97706")
   set("lstJob", "Items", "")
-  set("lblJob", "Text", "Job " .. id .. ": going…")
+  set("lblJob", "Text", id .. "  ·  " .. TopCat.Who(id) .. "  ·  running…")
   set("lblJob", "Foreground", "#B45309")
   -- the agent streams the job's lines, as they come, until it ends (the same on every system)
   TopCat.proc = agent("--follow " .. id, "lstJob", "TopCatJobDone")
@@ -187,9 +234,58 @@ function TopCat.JobDone()
   if not id then return end
   local code = trim(read(JOBS .. "/" .. id .. ".exit"))
   if code == "" then return end                         -- (stopped by picking another one)
-  set("lblJob", "Text", "Job " .. id .. ": " .. (code == "0" and "finished, all good" or ("ended badly (exit " .. code .. ")")))
-  set("lblJob", "Foreground", code == "0" and "#16A34A" or "#B91C1C")
+  local label, colour
+  if code == "0" then
+    label, colour = "finished, all good", "#16A34A"
+  elseif code == "-15" or code == "-9" then
+    label, colour = "stopped", "#B45309"                -- you stopped it, so not a failure
+  else
+    label, colour = "failed (exit " .. code .. ")", "#B91C1C"
+  end
+  set("lblJob", "Text", id .. "  ·  " .. TopCat.Who(id) .. "  ·  " .. label)
+  set("lblJob", "Foreground", colour)
+  TopCat.paused = false
+  set("btnPause", "Content", "Pause"); set("btnPause", "Background", "#D97706")
   TopCat.proc = nil
+end
+
+-- the three buttons on the build row: pause/resume, stop, and delete. Each acts on the build being watched.
+local function busy(id)
+  if not id then set("StatusBar", "Text", "Pick a build above first."); return false end
+  if trim(read(JOBS .. "/" .. id .. ".exit")) ~= "" then
+    set("StatusBar", "Text", "That build has already finished."); return false
+  end
+  return true
+end
+
+function TopCat.JobPause()
+  local id = TopCat.job
+  if not busy(id) then return end
+  TopCat.paused = not TopCat.paused
+  agent((TopCat.paused and "--pause " or "--resume ") .. id)
+  set("btnPause", "Content", TopCat.paused and "Resume" or "Pause")
+  set("btnPause", "Background", TopCat.paused and "#2563EB" or "#D97706")
+  set("StatusBar", "Text", (TopCat.paused and "Paused " or "Resumed ") .. id .. ".")
+end
+
+function TopCat.JobKill()
+  local id = TopCat.job
+  if not busy(id) then return end
+  agent("--kill " .. id)                                -- the --follow stream ends as it stops; JobDone shows "stopped"
+  set("StatusBar", "Text", "Stopping " .. id .. "…")
+end
+
+function TopCat.JobDel()
+  local id = TopCat.job
+  if not id then set("StatusBar", "Text", "Pick a build above first."); return end
+  if TopCat.proc then Vml("CancelProcess", TopCat.proc); TopCat.proc = nil end
+  agent("--rm " .. id)                                  -- stops it if needed, removes its files, prunes it from the log
+  TopCat.job = nil
+  set("lstJob", "Items", "")
+  set("lblJob", "Text", "A build, as it goes (pick one above)")
+  set("lblJob", "Foreground", "#374151")
+  set("StatusBar", "Text", "Deleted " .. id .. ".")
+  TopCat.size = -1                                      -- force Tick to rebuild the list from the pruned log
 end
 
 function TopCat.Toggle()

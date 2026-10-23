@@ -249,11 +249,14 @@ def _start(app, command, argv):
     JOBS.mkdir(parents=True, exist_ok=True)
     jid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     log, done = JOBS / f"{jid}.log", JOBS / f"{jid}.exit"
+    # start_new_session (POSIX) / CREATE_NEW_PROCESS_GROUP (Windows) gives the job its own group, so it outlives us
+    # AND can be paused or stopped as a whole later (TopCat's window): the recorded pid is that group's leader.
+    kw = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008 | 0x00000200}
+    p = subprocess.Popen([sys.executable, "-c", _WRAP, str(log), str(done)] + argv, cwd=app["cwd"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
     (JOBS / f"{jid}.json").write_text(json.dumps({"job": jid, "app": app["name"], "command": command,
-                                                  "line": " ".join(argv), "started": time.time()}), encoding="utf-8")
-    kw = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008 | 0x00000200}  # (it outlives us)
-    subprocess.Popen([sys.executable, "-c", _WRAP, str(log), str(done)] + argv, cwd=app["cwd"], stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+                                                  "line": " ".join(argv), "started": time.time(),
+                                                  "pid": p.pid}), encoding="utf-8")
     return {"job": jid, "started": True, "follow": "ask for this job: still going, and its last lines"}
 
 
@@ -280,6 +283,103 @@ def jobs(n=20):
         except (ApiError, ValueError, OSError):
             pass
     return out
+
+
+def _meta(jid):
+    jid = re.sub(r"[^\w-]", "", str(jid))
+    f = JOBS / f"{jid}.json"
+    if not f.is_file():
+        raise ApiError(f"No job {jid}")
+    return jid, json.loads(f.read_text(encoding="utf-8"))
+
+
+def _alive(pid):
+    if not pid:
+        return False
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {int(pid)}", "/NH"],
+                                 capture_output=True, text=True).stdout
+            return str(int(pid)) in out
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def control(jid, action):
+    """Pause, resume, or stop a running background job as a whole (its process group). For TopCat's window.
+    'stop' leaves an exit file so the job reads as ended; pause/resume use SIGSTOP/SIGCONT (psutil on Windows)."""
+    import signal
+    jid, meta = _meta(jid)
+    pid = meta.get("pid")
+    done = JOBS / f"{jid}.exit"
+    if done.exists():
+        return {"job": jid, "action": action, "note": "it had already finished"}
+    if not pid:
+        return {"error": "this job has no recorded process (started by an older TopCat); can't signal it"}
+    pid = int(pid)
+    if action in ("stop", "kill"):
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        else:
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(os.getpgid(pid), sig)
+                except OSError:
+                    break
+                time.sleep(0.3)
+                if not _alive(pid):
+                    break
+        if not done.exists():
+            try:
+                done.write_text("-15")            # the window reads -15 / -9 as "stopped", not "failed"
+            except OSError:
+                pass
+        return {"job": jid, "stopped": True}
+    if action in ("pause", "resume"):
+        if os.name == "nt":
+            try:
+                import psutil
+            except ImportError:
+                return {"error": "pause/resume needs psutil on Windows (pip install psutil); stop and delete still work"}
+            try:
+                pr = psutil.Process(pid)
+                (pr.suspend if action == "pause" else pr.resume)()
+                for ch in pr.children(recursive=True):
+                    try:
+                        (ch.suspend if action == "pause" else ch.resume)()
+                    except psutil.Error:
+                        pass
+            except psutil.Error as e:
+                return {"error": f"couldn't {action}: {e}"}
+        else:
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGSTOP if action == "pause" else signal.SIGCONT)
+            except OSError as e:
+                return {"error": f"couldn't {action}: {e}"}
+        return {"job": jid, "paused": action == "pause"}
+    return {"error": f"unknown action {action!r} (stop, pause or resume)"}
+
+
+def remove(jid):
+    """Stop a job if it's still going, then forget it entirely (its three files)."""
+    jid, meta = _meta(jid)
+    if not (JOBS / f"{jid}.exit").exists() and meta.get("pid"):
+        try:
+            control(jid, "stop")
+        except ApiError:
+            pass
+    gone = []
+    for ext in ("json", "log", "exit"):
+        f = JOBS / f"{jid}.{ext}"
+        try:
+            if f.exists():
+                f.unlink()
+                gone.append(ext)
+        except OSError:
+            pass
+    return {"job": jid, "removed": gone}
 
 
 # ---------------------------------------------------------------- vml api ...

@@ -73,7 +73,7 @@ def state(c, on, why=""):
     try:
         HERE.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps({"on": on, "at": time.time(), "hub": c["hub"], "machine": c["machine"],
-                                     "level": c["level"], "why": why}), encoding="utf-8")
+                                     "level": c["level"], "why": why, "pid": os.getpid()}), encoding="utf-8")
     except OSError:
         pass
 
@@ -97,9 +97,22 @@ def summary(result):
 
 def record(job, result, level):
     """One line per request, for TopCat's window (and a desktop notice when it changes something)."""
+    rid = str(job.get("id") or "")
+    jref = result.get("job") if isinstance(result, dict) else None
+    if jref is None and rid and isinstance(result, dict):     # persist sync output so every row has a log
+        try:
+            appapi.JOBS.mkdir(parents=True, exist_ok=True)
+            body = result.get("out") or ""
+            if result.get("err"):   body += "\n--- stderr ---\n" + result["err"]
+            if result.get("error"): body = "ERROR: " + str(result["error"])
+            (appapi.JOBS / (rid + ".log")).write_text(body or "(no output)", encoding="utf-8")
+            (appapi.JOBS / (rid + ".exit")).write_text(str(result.get("exit", 0)))
+            jref = rid
+        except OSError:
+            pass
     line = {"at": time.time(), "id": job.get("id"), "caller": job.get("caller", ""), "app": job.get("app", ""),
             "command": job.get("command", ""), "args": job.get("args") or {}, "level": level,
-            "job": result.get("job") if isinstance(result, dict) else None, "said": summary(result)}
+            "job": jref, "said": summary(result)}
     try:
         HERE.mkdir(parents=True, exist_ok=True)
         with LOG.open("a", encoding="utf-8") as f:
@@ -306,6 +319,43 @@ def install():
     print("TopCat agent: running, and starts at every login (systemctl --user status topcat-agent)")
 
 
+def stop_running():
+    """Stop a running agent loop - the systemd service, or one started by hand in dev.
+    Prefer the pid the loop records in state.json; fall back to finding the loop by its
+    command line (excluding transient --flag invocations and ourselves)."""
+    import signal, glob
+    me = os.getpid()
+    try:
+        st = json.loads(STATE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        st = {}
+    killed = False
+    pid = st.get("pid")
+    if pid and int(pid) != me:
+        try:
+            os.kill(int(pid), signal.SIGTERM); killed = True
+        except OSError:
+            pass
+    if not killed and os.name != "nt":
+        flags = (b"--off", b"--on", b"--set", b"--follow", b"--install", b"--uninstall", b"--restart")
+        for d in glob.glob("/proc/[0-9]*/cmdline"):
+            try:
+                p = int(d.split("/")[2])
+                if p == me:
+                    continue
+                line = open(d, "rb").read()
+                if b"topcat/agent.py" in line and not any(f in line for f in flags):
+                    os.kill(p, signal.SIGTERM)
+            except (OSError, ValueError):
+                pass
+    try:
+        if st:
+            st["on"] = False; st["at"] = time.time(); st["why"] = "stopped by Exit"
+            STATE.write_text(json.dumps(st), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def switch(what):
     """on, off or restart: the systemd user service on Linux, the logon task on Windows. For TopCat's window."""
     if os.name == "nt":
@@ -320,6 +370,8 @@ def switch(what):
     else:
         cmd = {"on": ["enable", "--now"], "off": ["disable", "--now"], "restart": ["restart"]}[what]
         subprocess.run(["systemctl", "--user"] + cmd + ["topcat-agent.service"], capture_output=True)
+    if what == "off":
+        stop_running()
     print(f"TopCat agent: {what}")
 
 
@@ -368,6 +420,38 @@ if __name__ == "__main__":
     if "--set" in sys.argv:
         i = sys.argv.index("--set")
         set_value(sys.argv[i + 1], sys.argv[i + 2])
+        sys.exit(0)
+    for flag, act in (("--kill", "stop"), ("--pause", "pause"), ("--resume", "resume")):
+        if flag in sys.argv:                                  # TopCat's window: pause / resume / stop a build
+            jid = sys.argv[sys.argv.index(flag) + 1]
+            try:
+                print(json.dumps(appapi.control(jid, act)))
+            except appapi.ApiError as e:
+                print(json.dumps({"error": str(e)}))
+            sys.exit(0)
+    if "--rm" in sys.argv:                                     # TopCat's window: stop (if needed) and forget a build
+        jid = "".join(ch for ch in sys.argv[sys.argv.index("--rm") + 1] if ch.isalnum() or ch == "-")
+        try:
+            r = appapi.remove(jid)
+        except appapi.ApiError as e:
+            print(json.dumps({"error": str(e)}))
+            sys.exit(0)
+        try:                                                  # drop its lines from the window's log, so the row goes too
+            if LOG.exists():
+                keep = []
+                for ln in LOG.read_text(encoding="utf-8").splitlines():
+                    try:
+                        o = json.loads(ln)
+                    except ValueError:
+                        keep.append(ln)
+                        continue
+                    if str(o.get("job") or "") == jid or str(o.get("id") or "") in (jid, jid + "-done"):
+                        continue
+                    keep.append(ln)
+                LOG.write_text(("\n".join(keep) + "\n") if keep else "", encoding="utf-8")
+        except OSError:
+            pass
+        print(json.dumps(r))
         sys.exit(0)
     for w in ("on", "off", "restart"):
         if f"--{w}" in sys.argv:
