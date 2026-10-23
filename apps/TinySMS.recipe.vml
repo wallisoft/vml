@@ -1,0 +1,10 @@
+# TinySMS: what Bob builds. The phone app is a signed Android APK (no Android SDK needed) — the SMS node
+# that sends and receives on the phone's own SIM for the TinySMS gateway. One command; one app to hand over.
+
+@Recipe TinySMS
+Version=TinySMS.vml:Version
+
+@Build Android
+Machine=here
+Kind=apk
+Form=apps/TinySMS.vml

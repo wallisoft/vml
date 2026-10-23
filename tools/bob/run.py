@@ -518,9 +518,32 @@ exit 0
     step(f"Done in {s // 60}m {s % 60:02d}s: {out}")
 
 
+def build_apk(cfg_path, cfg, build, name, m):
+    """Kind=apk: a signed Android app built from the project's form (Form=), no Android SDK needed. Always here."""
+    root = project_root(cfg_path)
+    form = build.get("form") or (cfg.get("project") if str(cfg.get("project", "")).lower().endswith(".vml") else "")
+    if not form:
+        fail("an apk build needs Form=<a .vml form> in the recipe (Project= is a .vmlproj, not a form)")
+    out = out_dir(cfg, build)
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", cfg.get("name") or "app").strip("-") or "app"
+    apk = out / f"{slug}.apk"
+    step(f"{cfg.get('name')}: the Android app, from {form}")
+    code = sh([sys.executable, "-m", "vml", "apk", form, str(apk)], cwd=root)
+    if code != 0:
+        fail(f"the apk build ended with {code} (its output is above)")
+    if apk.is_file():
+        print(f"    {apk.stat().st_size / 1e6:6.1f} MB  {apk.name}", flush=True)
+    s = int(time.time() - STARTED)
+    step(f"Done in {s // 60}m {s % 60:02d}s: {out}")
+
+
 def run_build_now(cfg_path, cfg, build, install, name, m, kind):
     if kind == "command":
         return run_command(cfg_path, cfg, build, name, m)
+    if kind == "apk":
+        return build_apk(cfg_path, cfg, build, name, m)
     if kind == "script":
         cmd = build["run"].format(host=m.get("host") or "", install="" if install else "--no-install",
                                   version=version_of(cfg_path, cfg))

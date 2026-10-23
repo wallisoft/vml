@@ -149,7 +149,7 @@ def recipe_from_vml(text):
             continue
         q = b["props"]
         build = {"name": q.get("Text") or b["name"], "machine": q.get("Machine", "here"), "kind": q.get("Kind", "compiled")}
-        for k in ("Run", "Results", "Platform", "Tag", "Workflow", "Repo"):
+        for k in ("Run", "Results", "Platform", "Tag", "Workflow", "Repo", "Form"):
             if q.get(k):
                 build[k.lower()] = q[k]
             for o in OSES:                                   # Run.Windows, Results.Linux: for one OS only
