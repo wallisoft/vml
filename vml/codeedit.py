@@ -35,8 +35,11 @@ KEYWORDS = {
               "false finally float for foreach if in int interface internal is long namespace new null object out "
               "override private protected public readonly ref return sealed short static string struct switch this "
               "throw true try typeof uint ulong using var virtual void while",
+    "vb": "and as boolean byref byval call case dim do double each else elseif empty end exit false for function if "
+          "in integer is long loop mod new next not nothing null object or private public rem return select set "
+          "single step string sub then to true until variant wend while with xor",
 }
-COMMENT = {"lua": "--", "python": "#", "shell": "#", "csharp": "//"}
+COMMENT = {"lua": "--", "python": "#", "shell": "#", "csharp": "//", "vb": "'"}
 
 
 def code_font(size=0):
@@ -69,11 +72,15 @@ class Highlighter(QSyntaxHighlighter):
 
     def set_language(self, language):
         lang = (str(language or "lua").lower().replace("c#", "csharp").split() or ["lua"])[0]
-        lang = {"cs": "csharp", "bash": "shell", "sh": "shell", "powershell": "shell", "py": "python"}.get(lang, lang)
+        lang = {"cs": "csharp", "bash": "shell", "sh": "shell", "powershell": "shell", "py": "python",
+                "vbscript": "vb", "basic": "vb"}.get(lang, lang)
         self.lang = lang if lang in KEYWORDS else "lua"
         words = "|".join(KEYWORDS[self.lang].split())
+        kw_rx = QRegularExpression(r"\b(?:" + words + r")\b")
+        if self.lang == "vb":                                # VB is case-insensitive, so Dim == dim
+            kw_rx.setPatternOptions(QRegularExpression.CaseInsensitiveOption)
         self.rules = [
-            (QRegularExpression(r"\b(?:" + words + r")\b"), _fmt("#7C3AED", bold=True)),
+            (kw_rx, _fmt("#7C3AED", bold=True)),
             (QRegularExpression(r"\b\d+(?:\.\d+)?\b"), _fmt("#B45309")),
             (QRegularExpression(r"\bVml\b|\bargs\b|\bProject\b"), _fmt("#0369A1", bold=True)),
             (QRegularExpression(r"\b[A-Za-z_]\w*(?=\s*\()"), _fmt("#1D4ED8")),
@@ -347,7 +354,7 @@ register(ControlType("CodeEditor", lambda n: CodeEditorWidget(n),
                      events={"TextChanged": _events_text, "BreakpointsChanged": _events_breaks}),
          PLAIN, ATTACHED,
          [Prop("Text", "text", "Common", apply=_set_text, read=lambda n: n.widget.toPlainText()),
-          Prop("Language", "choice", "Common", options=("Lua", "Python", "Shell", "CSharp"), default="Lua",
+          Prop("Language", "choice", "Common", options=("Lua", "VB", "Python", "Shell", "CSharp"), default="Lua",
                apply=lambda n, v: n.widget.hl.set_language(v)),
           Prop("Breakpoints", "text", "Behaviour", apply=lambda n, v: n.widget.set_breaks(v),
                read=lambda n: n.widget.breaks_text()),

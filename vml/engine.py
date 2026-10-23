@@ -774,6 +774,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             return self.shell([bash, "-c", content, name, *map(str, args)], name, origin)
         if interp in ("csharp", "c#", "cs"):
             return self.run_csharp(content, args, name, origin)
+        if interp in ("vb", "vbscript", "basic"):
+            return self.run_vb(content, args, name, origin)
         if interp in ("python", "python3", "py"):
             py = self.python_exe()
             if not py:
@@ -798,7 +800,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
                 finally:
                     shutil.rmtree(folder, ignore_errors=True)
             return self.shell([exe, "-NoProfile", "-Command", content, *map(str, args)], name, origin)
-        log(f"{name}: '{interp}' scripts aren't supported by this engine (Lua, Bash and PowerShell are)")
+        log(f"{name}: '{interp}' scripts aren't supported by this engine (Lua, Bash, PowerShell, Python, C# and VB are)")
         return ""
 
     def run_python(self, py, code, args, label, origin=None):
@@ -813,6 +815,32 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         except Exception as exc:
             log(f"{label}: the Python worker didn't start ({exc}): running it on its own")
             return self.shell([py, "-c", PYTHON_PRELUDE + code, label, *map(str, args)], label, origin)
+        finally:
+            self._script_stack.pop()
+
+    def run_vb(self, code, args, label, origin=None):
+        """A classic-VB script (Interpreter=vb): lightweight, in-process, no .NET — the other
+        out-of-the-box language beside Lua. Its Vml() is the same bridge Lua uses, and an event
+        handler is just a Sub named for it. One VbEnv per form, so its Subs and module-level
+        variables persist across the form's scripts, the way a Lua module does. See vml/vbscript.py."""
+        from . import vbscript
+        envs = getattr(self, "_vb_envs", None)
+        if envs is None:
+            envs = self._vb_envs = {}
+        key = self.lua_key(script=label, origin=origin)
+        env = envs.get(key)
+        if env is None:
+            env = envs[key] = vbscript.VbEnv(host=self.vml, log=log)
+        self._script_stack.append(origin)
+        try:
+            r = env.run(code, list(args), label)
+            return "" if r is None else r
+        except vbscript.VbError as exc:
+            log(f"script error in {label}: {exc}")
+            return ""
+        except Exception as exc:
+            log(f"VB error in {label}: {exc}")
+            return ""
         finally:
             self._script_stack.pop()
 
@@ -1050,13 +1078,13 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         from . import csharp
         bash = self.bash_exe()
         has_bash = os.path.isfile(bash) if os.path.isabs(bash) else bool(shutil.which("bash")) and not sys.platform.startswith("win")
-        langs = ["Lua",
+        langs = ["Lua", "VB",
                  "Python" if self.python_exe() else "Python (needs installing)",
                  "C#" if csharp.available() else "C# (needs setting up)",
                  "Bash" if has_bash else "Bash (needs Git Bash)",
                  "PowerShell" if (shutil.which("pwsh") or shutil.which("powershell") or os.path.isfile(r"C:\Program Files\PowerShell\7\pwsh.exe")) else "PowerShell (needs PowerShell 7)"]
         if self.SHELL == "powershell":                       # (the computer's own shell first, after Lua)
-            langs.insert(1, langs.pop(4))
+            langs.insert(1, langs.pop(5))
         return json.dumps(langs)
 
     @staticmethod
@@ -2844,13 +2872,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             return "lua"
         if lang in ("c#", "csharp", "cs"):
             return "csharp"
+        if lang in ("vb", "vbscript", "basic"):
+            return "vb"
         if lang in ("python", "py"):
             return "python"
         return lang if lang in ("bash", "powershell") else self.SHELL
 
     @staticmethod
     def _lang_label(interp):
-        return {"lua": "Lua", "csharp": "C#", "python": "Python", "bash": "Bash", "sh": "Bash",
+        return {"lua": "Lua", "vb": "VB", "csharp": "C#", "python": "Python", "bash": "Bash", "sh": "Bash",
                 "powershell": "PowerShell", "pwsh": "PowerShell"}.get(interp, "Bash")
 
     def cmd_GetShellName(self):
