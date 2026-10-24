@@ -201,9 +201,16 @@ class Parser:
                 depth -= 1
             elif depth == 0 and t[0] == "op" and t[1] == "=":
                 target = toks[:j]
-                if not target or target[0][0] != "id":
-                    raise VbError(f"can't assign here: {src}")
-                return ("assign", target[0][1], parse_expr(toks[j + 1:]))
+                rhs = parse_expr(toks[j + 1:])
+                if len(target) >= 3 and target[0][0] == "id" and target[1] == ("op", ".") and target[-1][0] == "id":
+                    return ("memberset", target[0][1], target[-1][1], rhs)   # Name.Prop = value
+                if len(target) == 1 and target[0][0] == "id":
+                    return ("assign", target[0][1], rhs)
+                raise VbError(f"can't assign here: {src}")
+        # a control method, VB-style with no parens: List1.AddItem "x"  /  Text1.Clear
+        if len(toks) >= 3 and toks[0][0] == "id" and toks[1] == ("op", ".") and toks[2][0] == "id":
+            argnodes = [parse_expr(g) for g in split_args(toks[3:]) if g]
+            return ("membercallstmt", toks[0][1], toks[2][1], argnodes)
         # a bare call: Name arg1, arg2   or   Name(arg1, arg2)
         if toks and toks[0][0] == "id":
             if len(toks) > 1 and toks[1] == ("op", "(") and toks[-1] == ("op", ")"):
@@ -263,7 +270,14 @@ class Parser:
             elif t == ("op", ")"):
                 depth -= 1
             elif depth == 0 and t == ("op", "="):
-                return ("assign", toks[0][1], parse_expr(toks[j + 1:]))
+                target = toks[:j]
+                rhs = parse_expr(toks[j + 1:])
+                if len(target) >= 3 and target[0][0] == "id" and target[1] == ("op", ".") and target[-1][0] == "id":
+                    return ("memberset", target[0][1], target[-1][1], rhs)
+                return ("assign", toks[0][1], rhs)
+        if len(toks) >= 3 and toks[0][0] == "id" and toks[1] == ("op", ".") and toks[2][0] == "id":
+            argnodes = [parse_expr(g) for g in split_args(toks[3:]) if g]
+            return ("membercallstmt", toks[0][1], toks[2][1], argnodes)
         if len(toks) > 1 and toks[1] == ("op", "(") and toks[-1] == ("op", ")"):
             return ("callstmt", parse_call(toks))
         return ("callstmt", ("call", toks[0][1], split_args(toks[1:])))
@@ -490,7 +504,31 @@ class _Expr:
         if self.opval() == "not":
             self.i += 1
             return ("not", self.unary())
-        return self.atom()
+        return self.postfix()
+
+    def postfix(self):
+        node = self.atom()
+        while self.at() == ("op", "."):
+            self.i += 1
+            k, nm = self.at()
+            if k != "id":
+                raise VbError("expected a name after '.'")
+            self.i += 1
+            if self.at() == ("op", "("):
+                self.i += 1
+                args = []
+                if self.at() != ("op", ")"):
+                    args.append(self.parse(0))
+                    while self.at() == ("op", ","):
+                        self.i += 1
+                        args.append(self.parse(0))
+                if self.at() != ("op", ")"):
+                    raise VbError("missing ) after ." + nm)
+                self.i += 1
+                node = ("membercall", node, nm, args)
+            else:
+                node = ("member", node, nm)
+        return node
 
     def atom(self):
         kind, val = self.at()
@@ -573,6 +611,36 @@ def truth(v):
     return str(v) not in ("", "0", "False", "false")
 
 
+# ---- control object model: Name.Property <-> the Vml() bridge, so VB coders write txtName.Text ----
+PROP_ALIAS = {
+    "caption": "Text", "text": "Text", "value": "IsChecked", "checked": "IsChecked",
+    "enabled": "IsEnabled", "visible": "IsVisible",
+    "forecolor": "Foreground", "backcolor": "Background", "color": "Foreground",
+    "tooltiptext": "ToolTip", "tooltip": "ToolTip", "tag": "Tag", "name": "Name",
+    "width": "Width", "height": "Height", "left": "Canvas.Left", "top": "Canvas.Top",
+    "fontsize": "FontSize", "listindex": "SelectedIndex", "selectedindex": "SelectedIndex",
+    "list": "Items", "items": "Items",
+}
+BOOL_PROPS = {"IsChecked", "IsEnabled", "IsVisible"}
+
+
+def vml_prop(p):
+    p = str(p)
+    return PROP_ALIAS.get(p.lower(), (p[:1].upper() + p[1:]) if p else p)
+
+
+def to_vml(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return to_str(v)
+
+
+def coerce_get(raw, prop):
+    if vml_prop(prop) in BOOL_PROPS:
+        return str(raw).strip().lower() == "true"
+    return raw
+
+
 # ---------------------------------------------------------------- interpreter
 
 class Frame:
@@ -633,6 +701,13 @@ class VbEnv:
                 frame.dim(n)
         elif op == "assign":
             frame.set(s[1], self.eval(s[2], frame))
+        elif op == "memberset":
+            _, ctrl, prop, valx = s
+            if self.host:
+                self.host("SetProperty", ctrl, vml_prop(prop), to_vml(self.eval(valx, frame)))
+        elif op == "membercallstmt":
+            _, ctrl, method, argnodes = s
+            self.member_method(ctrl, method, [self.eval(a, frame) for a in argnodes])
         elif op == "callstmt":
             self.eval(s[1], frame)
         elif op == "if":
@@ -750,6 +825,15 @@ class VbEnv:
             else:
                 argvals = [self.eval(a, frame) for a in rawargs]
             return self.invoke(name, argvals, frame)
+        if t == "member":
+            _, base, prop = node
+            ctrl = base[1] if base[0] == "var" else to_str(self.eval(base, frame))
+            raw = self.host("GetProperty", ctrl, vml_prop(prop)) if self.host else ""
+            return coerce_get(raw, prop)
+        if t == "membercall":
+            _, base, method, args = node
+            ctrl = base[1] if base[0] == "var" else to_str(self.eval(base, frame))
+            return self.member_method(ctrl, method, [self.eval(a, frame) for a in args])
         raise VbError(f"can't evaluate {t}")
 
     def binop(self, op, a, b):
@@ -796,6 +880,21 @@ class VbEnv:
         if not args:
             return frame.get(name)
         raise VbError(f"unknown '{name}'")
+
+    def member_method(self, ctrl, method, argv):
+        """A control method call, e.g. List1.AddItem "x" or Text1.Clear. A small set for now."""
+        if not self.host:
+            return ""
+        m = method.lower()
+        if m == "additem":
+            cur = self.host("GetProperty", ctrl, "Items") or ""
+            item = to_str(argv[0]) if argv else ""
+            self.host("SetProperty", ctrl, "Items", (cur + ", " + item) if cur else item)
+            return ""
+        if m == "clear":
+            return self.host("SetProperty", ctrl, "Items", "")
+        self.log(f"[vb] {ctrl}.{method}() isn't supported yet")
+        return ""
 
 
 # ---------------------------------------------------------------- comparisons
