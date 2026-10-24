@@ -1241,6 +1241,14 @@ def set_items(node, value):
         w.setCurrentText(keep)
 
 
+def read_items(node):
+    """The live items as a comma-joined string, so GetProperty("Items") reflects what AddItem/the Items dialog did."""
+    w = node.widget
+    if isinstance(w, QComboBox):
+        return ", ".join(w.itemText(i) for i in range(w.count()))
+    return ", ".join(w.item(i).text() for i in range(w.count()))
+
+
 def set_item_list(node, items):
     """Fill a list or combo from a real list of strings (commas in an item are kept), keeping the selection if it can."""
     w = node.widget
@@ -1434,7 +1442,7 @@ DATA = [Prop("ItemsSource", "text", "Data", apply=_source),   # a query (or a sc
 
 register(ControlType("ComboBox", lambda n: QComboBox(), events={"SelectionChanged": on_signal("currentIndexChanged"), **KEY_EVENTS}),
          COMMON, ATTACHED, DATA,
-         [Prop("Items", "list", "Common", apply=set_items),
+         [Prop("Items", "list", "Common", apply=set_items, read=read_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentIndex()),
           Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item)])
 
@@ -1449,7 +1457,7 @@ register(ControlType("ListBox", lambda n: QListWidget(),
                      events={"SelectionChanged": on_signal("currentRowChanged"), "OnDoubleClick": on_signal("itemDoubleClicked"),
                              "OnContextMenu": on_context_menu, **KEY_EVENTS}),
          COMMON, ATTACHED, DATA,
-         [Prop("Items", "list", "Common", apply=set_items),
+         [Prop("Items", "list", "Common", apply=set_items, read=read_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentRow()),
           Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item),
           Prop("AlternatingRows", "bool", "Appearance", apply=set_alternating)])
@@ -2083,7 +2091,7 @@ class GridWidget(QTableWidget):
 
     def set_data(self, cols, rows):
         """cols: the headings; rows: a list of lists, one value per column."""
-        keep = self.selected_value()
+        keep = self.selected_keys()
         self.cols, self.data = [str(c) for c in cols], [["" if v is None else str(v) for v in r] for r in rows]
         self.blockSignals(True)
         self.clear()
@@ -2093,12 +2101,11 @@ class GridWidget(QTableWidget):
         for r, row in enumerate(self.data):
             for c in range(len(self.cols)):
                 self.setItem(r, c, QTableWidgetItem(row[c] if c < len(row) else ""))
-        back = next((r for r, row in enumerate(self.data) if keep and row and row[0] == keep), -1)
-        self.setCurrentCell(back, 0) if back >= 0 else self.setCurrentItem(None)
+        self.reselect(keep)
         self.blockSignals(False)
         if len(self.data) <= 500:
             self.resizeColumnsToContents()
-        if self.selected_value() != keep:
+        if self.selected_keys() != keep:
             self.itemSelectionChanged.emit()
 
     def set_headings(self, cols):
@@ -2116,6 +2123,40 @@ class GridWidget(QTableWidget):
         import json
         r = self.selected_row()
         return json.dumps(dict(zip(self.cols, self.data[r]))) if r >= 0 else ""
+
+    def set_selection_mode(self, mode):
+        m = str(mode).strip().lower()
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection if m in ("extended", "multiple", "multi")
+                              else QAbstractItemView.SingleSelection)
+
+    def selected_rows_list(self):
+        sm = self.selectionModel()
+        return sorted({ix.row() for ix in sm.selectedRows()}) if sm else []
+
+    def selected_indices(self):
+        return ",".join(str(r) for r in self.selected_rows_list())
+
+    def selected_keys(self):
+        return {self.data[r][0] for r in self.selected_rows_list() if 0 <= r < len(self.data) and self.data[r]}
+
+    def reselect(self, keys):
+        from PySide6.QtCore import QItemSelectionModel
+        sm = self.selectionModel()
+        if sm is None:
+            return
+        sm.clearSelection()
+        first = -1
+        if keys:
+            for r, row in enumerate(self.data):
+                if row and row[0] in keys:
+                    if first < 0:
+                        first = r
+                    sm.select(self.model().index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        self.setCurrentCell(first, 0) if first >= 0 else self.setCurrentItem(None)
+
+    def select_all_rows(self):
+        if self.selectionMode() != QAbstractItemView.SingleSelection:
+            self.selectAll()
 
 
 def grid_static(node, _value=None):
@@ -2142,6 +2183,10 @@ register(ControlType("DataGrid", lambda n: GridWidget(n),
           Prop("SelectedIndex", "number", "Common", apply=grid_select, read=lambda n: n.widget.selected_row()),
           Prop("SelectedValue", "text", "Common", read=lambda n: n.widget.selected_value()),
           Prop("SelectedItem", "text", "Common", read=lambda n: n.widget.selected_json()),
+          Prop("SelectedIndices", "text", "Common", read=lambda n: n.widget.selected_indices()),
+          Prop("SelectionMode", "choice", "Behaviour", options=("Single", "Extended"), default="Single",
+               apply=lambda n, v: n.widget.set_selection_mode(v)),
+          Prop("SelectAll", "text", "Behaviour", apply=lambda n, v: n.widget.select_all_rows()),
           Prop("RowCount", "number", "Common", read=lambda n: len(n.widget.data))])
 
 

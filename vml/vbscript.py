@@ -828,6 +828,11 @@ class VbEnv:
         if t == "member":
             _, base, prop = node
             ctrl = base[1] if base[0] == "var" else to_str(self.eval(base, frame))
+            if prop.lower() in ("listcount", "itemcount"):     # VB: List1.ListCount — live row count
+                try:
+                    return int(self.host("ItemCount", ctrl)) if self.host else 0
+                except (TypeError, ValueError):
+                    return 0
             raw = self.host("GetProperty", ctrl, vml_prop(prop)) if self.host else ""
             return coerce_get(raw, prop)
         if t == "membercall":
@@ -882,17 +887,23 @@ class VbEnv:
         raise VbError(f"unknown '{name}'")
 
     def member_method(self, ctrl, method, argv):
-        """A control method call, e.g. List1.AddItem "x" or Text1.Clear. A small set for now."""
+        """A control method call: List1.AddItem "x", List1.Clear, List1.RemoveItem 0, List1.List(i)."""
         if not self.host:
             return ""
         m = method.lower()
-        if m == "additem":
-            cur = self.host("GetProperty", ctrl, "Items") or ""
-            item = to_str(argv[0]) if argv else ""
-            self.host("SetProperty", ctrl, "Items", (cur + ", " + item) if cur else item)
+        if m == "additem":                                # a real row; commas in the text are safe
+            self.host("AddItem", ctrl, to_str(argv[0]) if argv else "",
+                      to_str(argv[1]) if len(argv) > 1 else -1)
             return ""
-        if m == "clear":
-            return self.host("SetProperty", ctrl, "Items", "")
+        if m in ("clear", "clearitems"):
+            self.host("ClearItems", ctrl)
+            return ""
+        if m in ("removeitem", "remove"):
+            if argv:
+                self.host("RemoveItem", ctrl, to_str(argv[0]))
+            return ""
+        if m == "list":                                   # VB: List1.List(i) reads the i-th item
+            return self.host("GetItem", ctrl, to_str(argv[0])) if argv else ""
         self.log(f"[vb] {ctrl}.{method}() isn't supported yet")
         return ""
 

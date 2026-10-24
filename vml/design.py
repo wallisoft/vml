@@ -1377,6 +1377,20 @@ class GridView(QScrollArea):
                 pick.clicked.connect(lambda _=False, n=name, e=ed, b=pick: self.pick_style(n, e, b))
                 h.addWidget(pick)
                 widget = box
+            elif kind == "list":
+                box = QWidget()
+                h = QHBoxLayout(box)
+                h.setContentsMargins(0, 0, 0, 0)
+                h.setSpacing(4)
+                h.addWidget(ed, 1)
+                pick = QToolButton()
+                pick.setText("…")
+                pick.setFixedSize(20, 20)
+                pick.setToolTip("Edit the list — one item per line")
+                pick.setStyleSheet("QToolButton { border: 1px solid #9ca3af; border-radius: 3px; background: #fff; }")
+                pick.clicked.connect(lambda _=False, n=name, e=ed: self.edit_items(n, e))
+                h.addWidget(pick)
+                widget = box
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.editors[name] = ed
         return widget
@@ -1408,6 +1422,16 @@ class GridView(QScrollArea):
                     self.commit("Class", " ".join(now))
                 act.toggled.connect(toggle)
         menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def edit_items(self, prop, ed):
+        """The Items property's "…": edit the list in a box (one per line), then write it back comma-joined."""
+        from . import dialogs
+        items = [s.strip() for s in str(ed.text()).split(",") if s.strip()]
+        new = dialogs.edit_list(self.window(), items, "Items")
+        if new is not None:
+            text = ", ".join(new)
+            ed.setText(text)
+            self.commit(prop, text)
 
     def commit(self, prop, value):
         if self._loading or not self.target:

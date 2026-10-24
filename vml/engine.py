@@ -1496,6 +1496,68 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         node = self._node(name)
         return getattr(node, "template", None) or node.type.name
 
+    # --- list items: real rows on a ListBox or ComboBox, so VB's AddItem/Clear work and commas in an item are safe
+    def _list_widget(self, name):
+        node, _ = self._resolve(self._node(name), "Items")
+        return node.widget
+
+    def cmd_AddItem(self, name, text="", index=-1):
+        """Add one item (a real row) to a ListBox or ComboBox. index -1 (the default) appends; otherwise it inserts."""
+        from PySide6.QtWidgets import QComboBox, QListWidget
+        w = self._list_widget(name)
+        if not isinstance(w, (QComboBox, QListWidget)):
+            return ""
+        s = "" if text is None else str(text)
+        try:
+            i = int(float(index))
+        except (TypeError, ValueError):
+            i = -1
+        if 0 <= i < w.count():
+            w.insertItem(i, s)
+        else:
+            w.addItem(s)
+        return str(w.count())
+
+    def cmd_ClearItems(self, name):
+        """Empty a ListBox or ComboBox."""
+        from PySide6.QtWidgets import QComboBox, QListWidget
+        w = self._list_widget(name)
+        if isinstance(w, (QComboBox, QListWidget)):
+            w.clear()
+        return ""
+
+    def cmd_RemoveItem(self, name, index):
+        """Remove the item at a row (0-based) from a ListBox or ComboBox."""
+        from PySide6.QtWidgets import QComboBox, QListWidget
+        w = self._list_widget(name)
+        try:
+            i = int(float(index))
+        except (TypeError, ValueError):
+            return ""
+        if 0 <= i < w.count():
+            (w.removeItem if isinstance(w, QComboBox) else w.takeItem)(i)
+        return ""
+
+    def cmd_ItemCount(self, name):
+        """How many items a ListBox or ComboBox holds."""
+        from PySide6.QtWidgets import QComboBox, QListWidget
+        w = self._list_widget(name)
+        return w.count() if isinstance(w, (QComboBox, QListWidget)) else 0
+
+    def cmd_GetItem(self, name, index):
+        """The text of the item at a row (0-based), or '' if there is none."""
+        from PySide6.QtWidgets import QComboBox, QListWidget
+        w = self._list_widget(name)
+        try:
+            i = int(float(index))
+        except (TypeError, ValueError):
+            return ""
+        if isinstance(w, QComboBox) and 0 <= i < w.count():
+            return w.itemText(i)
+        if isinstance(w, QListWidget) and 0 <= i < w.count():
+            return w.item(i).text()
+        return ""
+
     # --- settings
     # An app run on its own keeps its settings for next time, as it does on a phone or in a browser: they go to
     # ~/.vml/kept/<app>.json (readable by this user only) as well as the form's database. keep_settings() turns it on.

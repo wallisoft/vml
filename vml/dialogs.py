@@ -356,6 +356,134 @@ def choose_colour(parent, start="#FFFFFF", title="Choose a colour", edge=""):
     return ColourBox(parent, start, title, edge).run()
 
 
+class ItemsBox(_Framed, QDialog):
+    """Edit a list of items — a ListBox or ComboBox's, one to a line: add, rename (double-click), remove, reorder
+    (the arrows, or drag). Returns the list, or None if cancelled. Drawn in the same card as the other boxes."""
+
+    def __init__(self, parent, items, title="Edit items", edge=""):
+        from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
+        super().__init__(parent if parent is not None else QApplication.activeWindow())
+        self.setWindowTitle(str(title))
+        self.card_setup()
+        self.setModal(True)
+        self.edge = accent_for(edge)
+        self.result = None
+        self.setObjectName("VmlBox")
+        from .theme import theme
+        t = theme()
+        self.setStyleSheet(box_sheet(self.edge)
+                           + f" QDialog#VmlBox QListWidget {{ border: 1px solid {t.line}; border-radius: 6px;"
+                             f" background: {t.surface}; color: {t.ink}; }}"
+                             f" QDialog#VmlBox QListWidget::item {{ padding: 4px 6px; }}"
+                             f" QDialog#VmlBox QListWidget::item:selected {{ background: {self.edge.name()}; color: #FFFFFF; }}")
+        frame = QVBoxLayout(self)
+        frame.setContentsMargins(SHADOW, SHADOW + ACCENT, SHADOW, SHADOW)
+        frame.setSpacing(0)
+        frame.addWidget(_Bar(self, title, self.edge, look="card"))
+        outer = QVBoxLayout()
+        frame.addLayout(outer)
+        outer.setContentsMargins(22, 2, 22, 16)
+        outer.setSpacing(10)
+
+        self.list = QListWidget()
+        self.list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.list.setMinimumSize(360, 240)
+        self.list.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
+        self._ItemClass = QListWidgetItem
+        for it in items:
+            self._add_row(str(it))
+        outer.addWidget(self.list, 1)
+
+        add = QHBoxLayout()
+        add.setSpacing(6)
+        self.entry = QLineEdit()
+        self.entry.setPlaceholderText("New item — type and press Add (or Enter)")
+        self.entry.returnPressed.connect(self._add_from_entry)
+        addbtn = QPushButton("Add")
+        addbtn.setAutoDefault(False)
+        addbtn.clicked.connect(self._add_from_entry)
+        add.addWidget(self.entry, 1)
+        add.addWidget(addbtn)
+        outer.addLayout(add)
+
+        tools = QHBoxLayout()
+        tools.setSpacing(6)
+        for label, slot in (("↑ Up", lambda: self._move(-1)), ("↓ Down", lambda: self._move(1)),
+                            ("Remove", self._remove)):
+            b = QPushButton(label)
+            b.setAutoDefault(False)
+            b.clicked.connect(slot)
+            tools.addWidget(b)
+        tools.addStretch(1)
+        outer.addLayout(tools)
+
+        self.footer = QWidget()
+        self.footer.setAttribute(Qt.WA_TranslucentBackground, True)
+        row = QHBoxLayout(self.footer)
+        row.setContentsMargins(22, 14, 22, 14)
+        row.setSpacing(8)
+        row.addStretch(1)
+        cancel = QPushButton("Cancel")
+        cancel.setAutoDefault(False)
+        cancel.setMinimumWidth(84)
+        cancel.clicked.connect(self.reject)
+        ok = QPushButton("OK")
+        ok.setDefault(True)
+        ok.setAutoDefault(True)
+        ok.setMinimumWidth(84)
+        ok.clicked.connect(self._ok)
+        row.addWidget(cancel)
+        row.addWidget(ok)
+        frame.addWidget(self.footer)
+
+    def _add_row(self, text):
+        it = self._ItemClass(text)
+        it.setFlags(it.flags() | Qt.ItemIsEditable)
+        self.list.addItem(it)
+        return it
+
+    def _add_from_entry(self):
+        t = self.entry.text().strip()
+        if t:
+            self.list.setCurrentItem(self._add_row(t))
+            self.entry.clear()
+        self.entry.setFocus()
+
+    def _remove(self):
+        r = self.list.currentRow()
+        if r >= 0:
+            self.list.takeItem(r)
+
+    def _move(self, d):
+        r = self.list.currentRow()
+        if r < 0 or not (0 <= r + d < self.list.count()):
+            return
+        self.list.insertItem(r + d, self.list.takeItem(r))
+        self.list.setCurrentRow(r + d)
+
+    def _ok(self):
+        self.result = [self.list.item(i).text().strip() for i in range(self.list.count())]
+        self.result = [s for s in self.result if s]
+        self.accept()
+
+    def run(self):
+        QTimer.singleShot(0, self.front)
+        app = QApplication.instance()
+        app.installEventFilter(self)
+        try:
+            self.exec()
+        finally:
+            app.removeEventFilter(self)
+        self.deleteLater()
+        return self.result
+
+
+def edit_list(parent, items, title="Edit items", edge=""):
+    """Edit a list of strings in a box. Returns the new list, or None if cancelled."""
+    return ItemsBox(parent, list(items), title, edge).run()
+
+
 def open_file(parent, title, start="", filters="All files (*)", edge=""):
     from .filebox import FileBox
     return FileBox(parent, title, start, filters, "open", edge).run()
