@@ -68,6 +68,18 @@ unset QT_QPA_PLATFORM
 echo "    all passed"
 
 tar czf "$OUT/vml-linux-x86_64.tar.gz" -C "$OUT" --transform 's,^dist-vml,vml,' dist-vml
+
+# Also make a .deb (Debian/Ubuntu/Mint) and a no-FUSE AppImage (any distro) — the same packager Bob uses for apps.
+echo "==> Linux packages (.deb + AppImage)"
+if bash tools/bob/linux-package.sh --bundle "$D" --name visualised --app "Visualised" \
+        --version "$VERSION" --exe vml --icon "$D/vml.png" --out "$OUT" \
+        --categories "Development;" --depends "libxcb-cursor0" \
+        --desc "Visualised - design and build cross-platform apps with VML, no coding required"; then
+    ls "$OUT"/*.deb "$OUT"/*.AppImage 2>/dev/null | sed 's,^,    ,'
+else
+    echo "    (couldn't build .deb/AppImage - the tar.gz is still here)"
+fi
+
 if [ $INSTALL -eq 1 ]; then
     echo "==> Installing over ~/.local/opt/vml"
     rm -rf "$HOME/.local/opt/vml" && mkdir -p "$HOME/.local/opt/vml"
