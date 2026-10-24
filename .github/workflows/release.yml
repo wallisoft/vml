@@ -168,6 +168,18 @@ jobs:
           cp LICENSE dist-vml/LICENSE.txt; cp LICENSE-EXCEPTION.md dist-vml/
           tar czf vml-linux-x86_64.tar.gz --transform 's,^dist-vml,vml,' dist-vml
           cp packaging/install.sh install.sh
+      - name: Linux packages (.deb + no-FUSE AppImage)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          bash tools/bob/linux-package.sh --bundle dist-vml --name visualised --app "Visualised" \
+            --version "$VERSION" --exe vml --icon dist-vml/vml.png \
+            --categories "Development;" --depends "libxcb-cursor0" \
+            --desc "Visualised - design and build cross-platform apps with VML, no coding required" --out pkg
+          # stable, version-less names so releases/latest/download links never change
+          mv pkg/visualised_*_amd64.deb visualised-amd64.deb
+          mv pkg/Visualised-*-x86_64.AppImage Visualised-x86_64.AppImage
+          ls -la visualised-amd64.deb Visualised-x86_64.AppImage
+
       - name: Smoke test the compiled binary
         run: |
           ./dist-vml/vml parse tests/step1.vml | grep -q "INSERT INTO ui_tree"
@@ -198,6 +210,8 @@ jobs:
           path: |
             vml-linux-x86_64.tar.gz
             install.sh
+            visualised-amd64.deb
+            Visualised-x86_64.AppImage
 
   publish:
     needs: [check, windows, linux]
@@ -208,7 +222,7 @@ jobs:
           merge-multiple: true
       - name: Make sure everything made it
         run: |
-          for f in Visualised-Setup.exe vml-windows-x64.zip vml-linux-x86_64.tar.gz install.sh; do
+          for f in Visualised-Setup.exe vml-windows-x64.zip vml-linux-x86_64.tar.gz install.sh visualised-amd64.deb Visualised-x86_64.AppImage; do
             find . -name "$f" | grep -q . || { echo "::error::$f is missing"; exit 1; }
           done
           find . -name Visualised.msix | grep -q . && echo "Store package included" || echo "no Store package this time (set the MSIX_* variables)"
@@ -221,9 +235,12 @@ jobs:
           body: |
             **Windows 10 and 11:** download `Visualised-Setup.exe` and run it (no admin needed), or unzip `vml-windows-x64.zip` anywhere.
             **Linux (Ubuntu 22.04+ and similar):** `curl -fsSL https://github.com/wallisoft/vml-releases/releases/latest/download/install.sh | bash`
+            &nbsp;&nbsp;&nbsp;&nbsp;or a package: `visualised-amd64.deb` (Debian/Ubuntu/Mint) &middot; `Visualised-x86_64.AppImage` (any distro, no install)
           files: |
             **/Visualised-Setup.exe
             **/vml-windows-x64.zip
             **/vml-linux-x86_64.tar.gz
             **/install.sh
+            **/visualised-amd64.deb
+            **/Visualised-x86_64.AppImage
             **/Visualised.msix
