@@ -111,13 +111,15 @@ if not cat then
          url = "https://vanillaos.org"},
         {name = "Arch Linux",           group = "For the brave", size = "1.3G", live = true, install = true,
          url = "https://archlinux.org/download/"},
+        {name = "GParted Live",         group = "Tools",      size = "0.4G", live = true,  install = false,
+         url = "https://downloads.sourceforge.net/gparted/gparted-live-1.7.0-12-amd64.iso"},
     }}
 end
 
 DISTROS = cat.distros
 local lines, group = {}, nil
 -- preserve a sensible group order
-local order = {"Popular", "Immutable (new wave)", "For the brave", "Other"}
+local order = {"Popular", "Immutable (new wave)", "For the brave", "Tools", "Other"}
 local seen = {}
 for _, g in ipairs(order) do
     for _, d in ipairs(DISTROS) do

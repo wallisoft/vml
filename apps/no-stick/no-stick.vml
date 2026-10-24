@@ -988,6 +988,16 @@ do_iso() {
     trap cleanup EXIT
     mount -o loop,ro "$ISO" "$M"
 
+    # Load the live filesystem into RAM when it comfortably fits: this frees the source disk (so it can be
+    # resized or wiped while the live runs) and the live runs faster. Skipped when the squashfs is too big.
+    SQ=$(find "$M" \( -name 'filesystem.squashfs' -o -name '*.squashfs' \) 2>/dev/null | head -1)
+    RAMMB=$(free -m | awk '/^Mem:/{print $2}')
+    TORAM=""
+    if [ -n "$SQ" ]; then
+        SQMB=$(( $(stat -c%s "$SQ") / 1048576 ))
+        [ "$SQMB" -gt 0 ] && [ $(( SQMB + 768 )) -lt "${RAMMB:-0}" ] && TORAM=1
+    fi
+
     K=""; I=""
     if [ -f "$M/casper/vmlinuz" ]; then
         # Ubuntu, Mint and relatives
@@ -995,18 +1005,18 @@ do_iso() {
         for c in initrd initrd.lz initrd.gz initrd.img; do
             if [ -z "$I" ] && [ -f "$M/casper/$c" ]; then I="/casper/$c"; fi
         done
-        ARGS="boot=casper iso-scan/filename=$REL noprompt noeject ---"
+        ARGS="boot=casper iso-scan/filename=$REL noprompt noeject${TORAM:+ toram} ---"
         KIND="Ubuntu/Mint live"
     elif ls "$M"/live/vmlinuz* >/dev/null 2>&1; then
         # Debian live
         kf=$(ls "$M"/live/vmlinuz* | head -1); inf=$(ls "$M"/live/initrd* 2>/dev/null | head -1)
         K="/live/${kf##*/}"; [ -n "$inf" ] && I="/live/${inf##*/}"
-        ARGS="boot=live components findiso=$REL"
+        ARGS="boot=live components findiso=$REL${TORAM:+ toram}"
         KIND="Debian live"
     elif [ -f "$M/arch/boot/x86_64/vmlinuz-linux" ]; then
         K=/arch/boot/x86_64/vmlinuz-linux
         [ -f "$M/arch/boot/x86_64/initramfs-linux.img" ] && I=/arch/boot/x86_64/initramfs-linux.img
-        ARGS="archisobasedir=arch img_dev=/dev/disk/by-uuid/$HOSTUUID img_loop=$REL earlymodules=loop"
+        ARGS="archisobasedir=arch img_dev=/dev/disk/by-uuid/$HOSTUUID img_loop=$REL earlymodules=loop${TORAM:+ copytoram}"
         KIND="Arch live"
     fi
     if [ -z "$K" ] || [ -z "$I" ]; then
