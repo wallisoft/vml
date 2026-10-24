@@ -410,7 +410,7 @@ class ItemsBox(_Framed, QDialog):
         tools = QHBoxLayout()
         tools.setSpacing(6)
         for label, slot in (("↑ Up", lambda: self._move(-1)), ("↓ Down", lambda: self._move(1)),
-                            ("Edit", self._edit), ("Remove", self._remove)):
+                            ("Edit", self._edit), ("Script…", self._edit_script), ("Remove", self._remove)):
             b = QPushButton(label)
             b.setAutoDefault(False)
             b.clicked.connect(slot)
@@ -438,10 +438,27 @@ class ItemsBox(_Framed, QDialog):
         frame.addWidget(self.footer)
 
     def _add_row(self, text):
-        it = self._ItemClass(text)
+        label, _, script = str(text).partition("::")        # an item may arrive as Label::ScriptName
+        it = self._ItemClass(label.strip())
         it.setFlags(it.flags() | Qt.ItemIsEditable)
+        script = script.strip()
+        if script:
+            it.setData(Qt.UserRole, script)
+            it.setToolTip(f"⚡ runs: {script}")
         self.list.addItem(it)
         return it
+
+    def _edit_script(self):
+        it = self.list.currentItem()
+        if it is None:
+            return
+        cur = it.data(Qt.UserRole) or ""
+        box = Box(self, "Item script", "The @Script to run when this item is used (blank for none):",
+                  ("OK", "Cancel"), self.edge.name(), ask=cur)
+        if box.run() == "OK":
+            s = box.reply.strip()
+            it.setData(Qt.UserRole, s or None)
+            it.setToolTip(f"⚡ runs: {s}" if s else "")
 
     def _add_from_entry(self):
         t = self.entry.text().strip()
@@ -468,8 +485,15 @@ class ItemsBox(_Framed, QDialog):
         self.list.setCurrentRow(r + d)
 
     def _ok(self):
-        self.result = [self.list.item(i).text().strip() for i in range(self.list.count())]
-        self.result = [s for s in self.result if s]
+        out = []
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            label = it.text().strip()
+            if not label:
+                continue
+            s = it.data(Qt.UserRole)
+            out.append(f"{label}::{s}" if s else label)
+        self.result = out
         self.accept()
 
     def run(self):

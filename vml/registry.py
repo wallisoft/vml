@@ -1231,22 +1231,91 @@ def set_text(w, v):
         (w.setPlainText if isinstance(w, QPlainTextEdit) else w.setText)(v)
 
 
+ITEM_SEP = "::"                                        # an item can carry its own script:  Label::ScriptName
+
+
+def _parse_item(part):
+    part = part.strip()
+    if ITEM_SEP in part:
+        label, script = part.split(ITEM_SEP, 1)
+        return label.strip(), script.strip()
+    return part, ""
+
+
 def set_items(node, value):
+    from PySide6.QtWidgets import QListWidgetItem
     w = node.widget
     keep = w.currentText() if isinstance(w, QComboBox) else None
     w.clear()
-    items = [s.strip() for s in str(value or "").split(",") if s.strip()]
-    w.addItems(items)
-    if keep and keep in items:
+    labels = []
+    for part in str(value or "").split(","):
+        if not part.strip():
+            continue
+        label, script = _parse_item(part)
+        labels.append(label)
+        if isinstance(w, QComboBox):
+            w.addItem(label)
+            if script:
+                w.setItemData(w.count() - 1, script, Qt.UserRole)
+        else:
+            it = QListWidgetItem(label)
+            if script:
+                it.setData(Qt.UserRole, script)
+                it.setForeground(_QColor(node.props.get("Accent") or "#2563EB"))   # a cue: this item runs a script
+            w.addItem(it)
+    if keep and keep in labels:
         w.setCurrentText(keep)
+    wire_item_scripts(node)
 
 
 def read_items(node):
-    """The live items as a comma-joined string, so GetProperty("Items") reflects what AddItem/the Items dialog did."""
+    """The live items as a comma-joined string (Label::Script where an item has one), so GetProperty reflects
+    what AddItem / the Items dialog did."""
     w = node.widget
+    out = []
     if isinstance(w, QComboBox):
-        return ", ".join(w.itemText(i) for i in range(w.count()))
-    return ", ".join(w.item(i).text() for i in range(w.count()))
+        for i in range(w.count()):
+            s = w.itemData(i, Qt.UserRole)
+            out.append(f"{w.itemText(i)}{ITEM_SEP}{s}" if s else w.itemText(i))
+    else:
+        for i in range(w.count()):
+            it = w.item(i)
+            s = it.data(Qt.UserRole)
+            out.append(f"{it.text()}{ITEM_SEP}{s}" if s else it.text())
+    return ", ".join(out)
+
+
+def wire_item_scripts(node):
+    """A list/combo item can carry its own @Script (Label::Script). Run it when the item is clicked or
+    double-clicked — per the control's ItemTrigger, at runtime only, never on the design surface."""
+    w = node.widget
+    if getattr(w, "_item_scripts_wired", False):
+        return
+    w._item_scripts_wired = True
+
+    def design_time():
+        return str(getattr(node, "scope", "")).startswith("design:")
+
+    def run_item(item, src):
+        if item is None or design_time():
+            return
+        if str(node.props.get("ItemTrigger") or "DoubleClick") != src:
+            return
+        script = item.data(Qt.UserRole)
+        if script and getattr(node, "engine", None) is not None:
+            node.engine.run_script(str(script), item.text(), str(w.row(item)), origin=node)
+
+    if isinstance(w, QComboBox):
+        def run_combo(i):
+            if design_time():
+                return
+            s = w.itemData(i, Qt.UserRole)
+            if s and getattr(node, "engine", None) is not None:
+                node.engine.run_script(str(s), w.itemText(i), str(i), origin=node)
+        w.activated.connect(run_combo)
+    else:
+        w.itemDoubleClicked.connect(lambda it: run_item(it, "DoubleClick"))
+        w.itemClicked.connect(lambda it: run_item(it, "Click"))
 
 
 def set_item_list(node, items):
@@ -1444,7 +1513,8 @@ register(ControlType("ComboBox", lambda n: QComboBox(), events={"SelectionChange
          COMMON, ATTACHED, DATA,
          [Prop("Items", "list", "Common", apply=set_items, read=read_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentIndex()),
-          Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item)])
+          Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item),
+          Prop("ItemTrigger", "choice", "Behaviour", options=("DoubleClick", "Click"), default="DoubleClick")])  # when an item's own script fires
 
 def set_alternating(node, value):
     """Every other line a shade darker, so a long line can be followed across."""
@@ -1460,6 +1530,7 @@ register(ControlType("ListBox", lambda n: QListWidget(),
          [Prop("Items", "list", "Common", apply=set_items, read=read_items),
           Prop("SelectedIndex", "number", "Common", apply=set_selected_index, read=lambda n: n.widget.currentRow()),
           Prop("SelectedItem", "text", "Common", apply=set_selected_item, read=read_selected_item),
+          Prop("ItemTrigger", "choice", "Behaviour", options=("DoubleClick", "Click"), default="DoubleClick"),  # when an item's own script fires
           Prop("AlternatingRows", "bool", "Appearance", apply=set_alternating)])
 
 
