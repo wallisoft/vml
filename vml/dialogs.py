@@ -410,7 +410,7 @@ class ItemsBox(_Framed, QDialog):
         tools = QHBoxLayout()
         tools.setSpacing(6)
         for label, slot in (("↑ Up", lambda: self._move(-1)), ("↓ Down", lambda: self._move(1)),
-                            ("Remove", self._remove)):
+                            ("Edit", self._edit), ("Remove", self._remove)):
             b = QPushButton(label)
             b.setAutoDefault(False)
             b.clicked.connect(slot)
@@ -449,6 +449,11 @@ class ItemsBox(_Framed, QDialog):
             self.list.setCurrentItem(self._add_row(t))
             self.entry.clear()
         self.entry.setFocus()
+
+    def _edit(self):
+        it = self.list.currentItem()
+        if it is not None:
+            self.list.editItem(it)                        # rename the selected item in place (same as double-click)
 
     def _remove(self):
         r = self.list.currentRow()
