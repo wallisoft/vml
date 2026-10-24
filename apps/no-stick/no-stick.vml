@@ -232,6 +232,12 @@ Foreground=White
 FontWeight=Bold
 VerticalAlignment=Center
 
+@Button btnJobCopy
+Parent=JobHead
+Content=Copy
+Padding=10,2
+OnClick=JobCopy
+
 @Button btnJobCancel
 Parent=JobHead
 Content=Cancel
@@ -1296,4 +1302,18 @@ if item.inmenu then
 end
 Vml("SetStatusText", "Deleted " .. item.name)
 Vml("RunScript", "Load")
+LUA
+
+
+@Script JobCopy
+Interpreter=lua
+<<LUA
+-- copy the whole console log to the clipboard
+local n = tonumber(Vml("ItemCount", "joblog")) or 0
+local lines = {}
+for i = 0, n - 1 do
+    lines[#lines + 1] = Vml("GetItem", "joblog", i)
+end
+Vml("ClipboardSet", table.concat(lines, "\n"))
+Vml("SetProperty", "jobTitle", "Text", (n > 0) and ("Copied " .. n .. " lines") or "Log is empty")
 LUA
