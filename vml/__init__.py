@@ -7,6 +7,10 @@ if _sys2.platform.startswith("win") and not _os2.environ.get("QT_QPA_PLATFORM"):
     # (Windows: ClearType text) Qt draws text with DirectWrite's greyscale smoothing, thin beside every other Windows
     # app; its GDI engine draws it with ClearType, as Explorer and Notepad do. QT_QPA_PLATFORM set already wins.
     _os2.environ["QT_QPA_PLATFORM"] = "windows:fontengine=gdi"
+elif _sys2.platform.startswith("linux") and _os2.environ.get("WAYLAND_DISPLAY") and not _os2.environ.get("QT_QPA_PLATFORM"):
+    # (Linux/Wayland: shortcuts) Under Qt's native Wayland plugin, menu-accelerator shortcuts (Ctrl+S, Ctrl+X, ...)
+    # do not fire; XWayland (xcb) behaves like X11 and Windows, where they always have. An explicit override wins.
+    _os2.environ["QT_QPA_PLATFORM"] = "xcb"
 
 import os as _os
 import sys as _sys
