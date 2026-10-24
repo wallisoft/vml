@@ -74,6 +74,18 @@ class Highlighter(QSyntaxHighlighter):
         lang = (str(language or "lua").lower().replace("c#", "csharp").split() or ["lua"])[0]
         lang = {"cs": "csharp", "bash": "shell", "sh": "shell", "powershell": "shell", "py": "python",
                 "vbscript": "vb", "basic": "vb"}.get(lang, lang)
+        if lang == "vml":
+            self.lang = "vml"
+            self.rules = [
+                (QRegularExpression(r"^@\w+"), _fmt("#7C3AED", bold=True)),          # @Window, @Button, @Script
+                (QRegularExpression(r"^\s*[A-Za-z_]\w*(?==)"), _fmt("#1D4ED8")),     # a property name before =
+                (QRegularExpression(r"<<\w+|^\s*[A-Z_]{3,}\s*$"), _fmt("#B45309")),  # heredoc start/end markers
+                (QRegularExpression(r'"(?:[^"\\]|\\.)*"'), _fmt("#047857")),
+            ]
+            self.comment = QRegularExpression(r"^\s*#.*$")                           # # only at line start (not #RRGGBB values)
+            self.comment_fmt = _fmt("#6B7280", italic=True)
+            self.rehighlight()
+            return
         self.lang = lang if lang in KEYWORDS else "lua"
         words = "|".join(KEYWORDS[self.lang].split())
         kw_rx = QRegularExpression(r"\b(?:" + words + r")\b")

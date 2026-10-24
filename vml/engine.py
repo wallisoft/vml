@@ -399,6 +399,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         if is_designer(node.scope) and not getattr(w, "_f1", None):
             from PySide6.QtGui import QKeySequence, QShortcut
             w._f1 = QShortcut(QKeySequence("F1"), w, activated=self.help_here)          # help on what's selected
+        if is_designer(node.scope) and not getattr(w, "_f7", None):
+            from PySide6.QtGui import QKeySequence, QShortcut
+            w._f7 = QShortcut(QKeySequence("F7"), w, activated=lambda: self.cmd_EditVml("Surface"))   # view/edit the form's VML
         if node.props.get("OnResized") and hasattr(w, "set_title_bar"):     # (VB's Form_Resize: once it settles)
             settle = QTimer(w)
             settle.setSingleShot(True)
@@ -2557,6 +2560,74 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         if done is not False:
             self.cmd_UndoReset(surface)                     # (a form just opened: nothing to undo yet)
         return done
+
+    def cmd_EditVml(self, surface="Surface"):
+        """Open the current form's VML source in an editor. On Save the form and its scripts are replaced by
+        the edited VML - but only if it parses and has a Window; a broken edit leaves the form untouched."""
+        import os as _os, tempfile
+        from PySide6.QtWidgets import QDialog, QPlainTextEdit, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+        from .codeedit import code_font, Highlighter
+
+        fd, src = tempfile.mkstemp(suffix=".vml"); _os.close(fd)
+        self._hush = True
+        try:
+            self.cmd_ExportVml(surface, src)
+        finally:
+            self._hush = False
+        try:
+            text = open(src, encoding="utf-8").read()
+        except Exception:
+            text = ""
+
+        dlg = QDialog()
+        dlg.setWindowTitle("VML source")
+        dlg.resize(760, 640)
+        lay = QVBoxLayout(dlg)
+        ed = QPlainTextEdit()
+        ed.setPlainText(text)
+        ed.setFont(code_font())
+        ed.setLineWrapMode(QPlainTextEdit.NoWrap)
+        ed._hl = Highlighter(ed.document(), "vml")
+        lay.addWidget(ed, 1)
+        err = QLabel("")
+        err.setStyleSheet("color:#B91C1C")
+        err.setWordWrap(True)
+        lay.addWidget(err)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        cancel = QPushButton("Cancel")
+        save = QPushButton("Save")
+        save.setDefault(True)
+        row.addWidget(cancel)
+        row.addWidget(save)
+        lay.addLayout(row)
+        cancel.clicked.connect(dlg.reject)
+
+        def do_save():
+            fd2, cand = tempfile.mkstemp(suffix=".vml"); _os.close(fd2)
+            open(cand, "w", encoding="utf-8").write(ed.toPlainText())
+            try:
+                rows, _props, _scripts = self.store.parse_form(cand)
+            except Exception as exc:
+                err.setText(f"Couldn't parse that VML: {exc}")
+                return
+            if not any(r[2] == "Window" for r in rows):
+                err.setText("A form needs an @Window - nothing was changed.")
+                return
+            self.cmd_ClearDesign(surface)
+            if self.cmd_ImportVml(cand, surface) is False:   # shouldn't happen after the checks, but never lose the form
+                self.cmd_ClearDesign(surface)
+                self.cmd_ImportVml(src, surface)
+                err.setText("That VML didn't load as a form; your form is unchanged.")
+                return
+            dlg.accept()
+
+        save.clicked.connect(do_save)
+        dlg.exec()
+        try:
+            _os.unlink(src)
+        except Exception:
+            pass
 
     def _import_vml(self, path, surface="Surface"):
         surf = self._surface(surface)
