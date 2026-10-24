@@ -429,15 +429,18 @@ if __name__ == "__main__":
             except appapi.ApiError as e:
                 print(json.dumps({"error": str(e)}))
             sys.exit(0)
-    if "--rm" in sys.argv:                                     # TopCat's window: stop (if needed) and forget a build
-        jid = "".join(ch for ch in sys.argv[sys.argv.index("--rm") + 1] if ch.isalnum() or ch == "-")
-        try:
-            r = appapi.remove(jid)
-        except appapi.ApiError as e:
-            print(json.dumps({"error": str(e)}))
-            sys.exit(0)
-        try:                                                  # drop its lines from the window's log, so the row goes too
+    if "--rm" in sys.argv:                                     # TopCat's window: stop (if needed) and forget builds
+        ids = ["".join(ch for ch in a if ch.isalnum() or ch == "-")
+               for a in sys.argv[sys.argv.index("--rm") + 1:] if not a.startswith("-")]
+        ids = [i for i in ids if i]
+        for jid in ids:
+            try:
+                appapi.remove(jid)                            # a job: stop it and remove its files
+            except appapi.ApiError:
+                pass                                          # not a job (a plain log row): still pruned below
+        try:                                                  # prune every selected row's log lines in ONE pass (no races)
             if LOG.exists():
+                drop = set(ids) | {i + "-done" for i in ids}
                 keep = []
                 for ln in LOG.read_text(encoding="utf-8").splitlines():
                     try:
@@ -445,13 +448,13 @@ if __name__ == "__main__":
                     except ValueError:
                         keep.append(ln)
                         continue
-                    if str(o.get("job") or "") == jid or str(o.get("id") or "") in (jid, jid + "-done"):
+                    if str(o.get("job") or "") in drop or str(o.get("id") or "") in drop:
                         continue
                     keep.append(ln)
                 LOG.write_text(("\n".join(keep) + "\n") if keep else "", encoding="utf-8")
         except OSError:
             pass
-        print(json.dumps(r))
+        print(json.dumps({"removed": ids}))
         sys.exit(0)
     for w in ("on", "off", "restart"):
         if f"--{w}" in sys.argv:

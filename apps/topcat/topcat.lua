@@ -69,6 +69,7 @@ function TopCat.Opened()
   -- it stays out until you tick "Let TopCat in". The agent is a service of its own; here we only reflect its state.
   TopCat.Tick()
   set("tmr", "IsEnabled", "true")
+  TopCat.UpdateButtons()                                      -- grey Pause/Kill/Delete until something's selected
   if Vml("LaunchedAtBoot") == "true" and TopCat.inTray then Vml("HideForm", "TopCat") end
 end
 
@@ -117,7 +118,7 @@ end
 -- loop (within the last minute means it's running); we read it ourselves, so this is the same on every system.
 function TopCat.Marks()
   local function mark(btn, on)
-    set(btn, "Content", on and "✓" or "✗")
+    set(btn, "Content", on and "✔" or "✘")                -- heavy check / cross, bolder than ✓/✗
     set(btn, "Foreground", on and "#16A34A" or "#DC2626")
   end
   mark("chkOnBtn", get("chkOn", "IsChecked") == "true")
@@ -125,12 +126,16 @@ function TopCat.Marks()
 end
 
 function TopCat.OnToggle()
-  set("chkOn", "IsChecked", TopCat.on and "false" or "true")
+  local want = not TopCat.on
+  set("chkOn", "IsChecked", want and "true" or "false")
+  TopCat.want, TopCat.wantAt = want, os.time()            -- remember the intent so Tick doesn't snap it back
+  TopCat.Marks()                                          -- flip the ✔/✘ at once, before the agent catches up
   TopCat.Toggle()
 end
 
 function TopCat.OnBoot()
   set("chkBoot", "IsChecked", get("chkBoot", "IsChecked") == "true" and "false" or "true")
+  TopCat.Marks()                                          -- instant feedback
   TopCat.Boot()
 end
 
@@ -148,7 +153,11 @@ function TopCat.Tick()
   local running = st.at and (os.time() - math.floor(st.at)) < 60 and true or false
   local on = running and st.on and true or false
   TopCat.machine = st.machine
-  if TopCat.on ~= running then
+  if TopCat.want ~= nil and (running == TopCat.want or (os.time() - (TopCat.wantAt or 0)) >= 10) then
+    TopCat.want = nil                                   -- the agent reached the wanted state (or we waited long enough)
+  end
+  local waiting = TopCat.want ~= nil and running ~= TopCat.want
+  if not waiting and TopCat.on ~= running then
     TopCat.on = running
     TopCat.TrayUpdate()
     TopCat.quiet = true
@@ -203,9 +212,38 @@ function TopCat.Log(log)
   end
 end
 
+-- the jobs behind the selected rows (grid index i -> TopCat.rows[i+1]); only rows that are builds
+function TopCat.SelectedJobs()
+  local out = {}
+  for tok in tostring(get("grdLog", "SelectedIndices")):gmatch("%d+") do
+    local r = TopCat.rows[tonumber(tok) + 1]
+    if r and (r.job or r.id) then out[#out + 1] = tostring(r.job or r.id):gsub("[^%w%-]", "") end
+  end
+  return out
+end
+
+function TopCat.UpdateButtons()
+  local on = (#TopCat.SelectedJobs() > 0)
+  local flag = on and "true" or "false"
+  local GREY = "#434A54"                                 -- a custom Background ignores Qt's disabled look, so grey it ourselves
+  set("btnPause", "IsEnabled", flag); set("btnPause", "Background", on and (TopCat.paused and "#2563EB" or "#D97706") or GREY)
+  set("btnKill",  "IsEnabled", flag); set("btnKill",  "Background", on and "#DC2626" or GREY)
+  set("btnDel",   "IsEnabled", flag); set("btnDel",   "Background", on and "#6B7280" or GREY)
+end
+
 function TopCat.Picked()
-  local r = TopCat.rows[(tonumber(get("grdLog", "SelectedIndex")) or -1) + 1]
-  if r and (r.job or r.id) then TopCat.Watch(r.job or r.id) end
+  TopCat.UpdateButtons()
+  local jobs = TopCat.SelectedJobs()
+  if #jobs >= 1 then TopCat.Watch(jobs[1]) end          -- the log panel follows the first of the selection
+end
+
+function TopCat.GridMenuShow()
+  Vml("ShowContextMenu", "gridMenu")
+end
+
+function TopCat.SelAll()
+  set("grdLog", "SelectAll", "1")
+  TopCat.UpdateButtons()
 end
 
 function TopCat.JobScroll()
@@ -249,43 +287,48 @@ function TopCat.JobDone()
   TopCat.proc = nil
 end
 
--- the three buttons on the build row: pause/resume, stop, and delete. Each acts on the build being watched.
-local function busy(id)
-  if not id then set("StatusBar", "Text", "Pick a build above first."); return false end
-  if trim(read(JOBS .. "/" .. id .. ".exit")) ~= "" then
-    set("StatusBar", "Text", "That build has already finished."); return false
+-- the three buttons (and the right-click menu): pause/resume, stop, delete. Each acts on every
+-- selected build. They are greyed (IsEnabled=false) while nothing is selected.
+local function plural(n) return n == 1 and "" or "s" end
+local function running_only(jobs)
+  local out = {}
+  for _, id in ipairs(jobs) do
+    if trim(read(JOBS .. "/" .. id .. ".exit")) == "" then out[#out + 1] = id end
   end
-  return true
+  return out
 end
 
 function TopCat.JobPause()
-  local id = TopCat.job
-  if not busy(id) then return end
+  local jobs = TopCat.SelectedJobs()
+  if #jobs == 0 then set("StatusBar", "Text", "Select a build (or more) first."); return end
+  local live = running_only(jobs)
   TopCat.paused = not TopCat.paused
-  agent((TopCat.paused and "--pause " or "--resume ") .. id)
+  for _, id in ipairs(live) do agent((TopCat.paused and "--pause " or "--resume ") .. id) end
   set("btnPause", "Content", TopCat.paused and "Resume" or "Pause")
   set("btnPause", "Background", TopCat.paused and "#2563EB" or "#D97706")
-  set("StatusBar", "Text", (TopCat.paused and "Paused " or "Resumed ") .. id .. ".")
+  set("StatusBar", "Text", (TopCat.paused and "Paused " or "Resumed ") .. #live .. " build" .. plural(#live) .. ".")
 end
 
 function TopCat.JobKill()
-  local id = TopCat.job
-  if not busy(id) then return end
-  agent("--kill " .. id)                                -- the --follow stream ends as it stops; JobDone shows "stopped"
-  set("StatusBar", "Text", "Stopping " .. id .. "…")
+  local jobs = TopCat.SelectedJobs()
+  if #jobs == 0 then set("StatusBar", "Text", "Select a build (or more) first."); return end
+  local live = running_only(jobs)
+  for _, id in ipairs(live) do agent("--kill " .. id) end   -- JobDone shows each as "stopped"
+  set("StatusBar", "Text", "Stopping " .. #live .. " build" .. plural(#live) .. "…")
 end
 
 function TopCat.JobDel()
-  local id = TopCat.job
-  if not id then set("StatusBar", "Text", "Pick a build above first."); return end
+  local jobs = TopCat.SelectedJobs()
+  if #jobs == 0 then set("StatusBar", "Text", "Select a build (or more) first."); return end
   if TopCat.proc then Vml("CancelProcess", TopCat.proc); TopCat.proc = nil end
-  agent("--rm " .. id)                                  -- stops it if needed, removes its files, prunes it from the log
+  agent("--rm " .. table.concat(jobs, " "))               -- one atomic call: no concurrent log-rewrite races
   TopCat.job = nil
   set("lstJob", "Items", "")
-  set("lblJob", "Text", "A build, as it goes (pick one above)")
+  set("lblJob", "Text", "Console output — pick a build above")
   set("lblJob", "Foreground", "#374151")
-  set("StatusBar", "Text", "Deleted " .. id .. ".")
-  TopCat.size = -1                                      -- force Tick to rebuild the list from the pruned log
+  set("StatusBar", "Text", "Deleted " .. #jobs .. " build" .. plural(#jobs) .. ".")
+  TopCat.size = -1                                        -- force Tick to rebuild from the pruned log
+  TopCat.UpdateButtons()
 end
 
 function TopCat.Toggle()
@@ -319,13 +362,19 @@ local function paint(btn, s)
   set(btn, "Content", s[1] .. "     ▾")
   set(btn, "Background", s[2])
 end
-function TopCat.ShowLevel() paint("btnLevel", LEVEL_LOOK[TopCat.level or "ask"]) end
+function TopCat.ShowLevel()
+  paint("btnLevel", LEVEL_LOOK[TopCat.level or "ask"])
+  set("chkOnBtn", "BorderBrush", LEVEL_LOOK[TopCat.level or "ask"][2])      -- Let-in border matches Callers
+end
 
 function TopCat.LevelNext()
   TopCat.level = ({ look = "do", ["do"] = "ask", ask = "look" })[TopCat.level or "ask"]
   TopCat.Level()
 end
-function TopCat.ShowShell() paint("btnShell", SHELL_LOOK[TopCat.shell or "off"]) end
+function TopCat.ShowShell()
+  paint("btnShell", SHELL_LOOK[TopCat.shell or "off"])
+  set("chkBootBtn", "BorderBrush", SHELL_LOOK[TopCat.shell or "off"][2])    -- Start-with border matches Shell
+end
 
 function TopCat.Shell()
   TopCat.shell = ({ off = "session", session = "always", always = "off" })[TopCat.shell or "off"]
