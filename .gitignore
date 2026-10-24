@@ -11,3 +11,4 @@ csharp/VmlCSharpHost/obj/
 *.apk
 !vml/web/*.apk
 !vml/web/*.apk
+tiny-apps/

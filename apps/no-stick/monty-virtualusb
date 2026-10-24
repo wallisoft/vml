@@ -1,0 +1,151 @@
+#!/bin/bash
+# monty-virtualusb — a permanent "Virtual_USB" partition: a no-USB installer slot that lives on the machine,
+# on Windows and Linux alike. Born from a Linux swap partition (reserved space that, with >8GB RAM, is never
+# touched), it stays on as Virtual_USB — always ready to boot an installer or a live distro, no stick required.
+#
+#   stage   <iso> <partition>   make it a Virtual_USB FAT32 slot, lay an install medium on it (install.wim
+#                               auto-split for the 4GB FAT limit), and set a one-shot UEFI boot entry.
+#   clear   <partition>         wipe the media but KEEP the empty Virtual_USB slot, ready for next time.
+#   to-swap <partition>         give it back to Linux as swap (the opposite of adopting it).
+#   status  <partition>         show what the partition currently is.
+#
+# Options:
+#   --swapfile[=SIZE]   when adopting a Linux swap partition, create a replacement /swapfile first (SIZE like 8G;
+#                       default = the old swap's size). Usually unnecessary: with >8GB RAM swap is rarely touched.
+#   --force             adopt a partition that isn't swap or an existing Virtual_USB (you confirm the wipe).
+set -euo pipefail
+
+SLOT_LABEL=Virtual_USB                             # 11 chars — the FAT32 label limit, exactly
+FORCE=0; MK_SWAPFILE=0; SWAPFILE_SIZE=""
+die(){ echo "monty-virtualusb: $*" >&2; exit 1; }
+
+is_partition(){ [ -b "$1" ] && [ -e "/sys/class/block/$(basename "$1")/partition" ]; }
+parent_disk(){ lsblk -no pkname "$1" | head -1; }
+fstype(){ lsblk -no FSTYPE "$1" | head -1; }
+label(){ lsblk -no LABEL "$1" | head -1; }
+mounted(){ findmnt -S "$1" >/dev/null 2>&1; }
+is_ourslot(){ [ "$(fstype "$1")" = "vfat" ] && [ "$(label "$1")" = "$SLOT_LABEL" ]; }
+holds_system(){
+  local disk="/dev/$(parent_disk "$1")" m src
+  for m in / /boot /boot/efi; do
+    src=$(findmnt -no SOURCE "$m" 2>/dev/null || true)
+    [ -n "$src" ] && [ "/dev/$(parent_disk "$src" 2>/dev/null)" = "$disk" ] && return 0
+  done
+  return 1
+}
+
+guard(){
+  local part="$1"
+  is_partition "$part" || die "'$part' is not a partition (point me at e.g. /dev/sda3, not /dev/sda)"
+  mounted "$part" && die "'$part' is mounted — unmount it first"
+  local ft; ft=$(fstype "$part")
+  if [ "$ft" != "swap" ] && ! is_ourslot "$part" && [ "$FORCE" != 1 ]; then
+    die "'$part' is '$ft', not swap and not an existing $SLOT_LABEL. Refusing. Use --force to wipe it anyway."
+  fi
+  if [ "$ft" != "swap" ] && ! is_ourslot "$part" && holds_system "$part" && [ "$FORCE" != 1 ]; then
+    die "'$part' lives on the disk that carries / or /boot — too close to the system partitions. Use --force if sure."
+  fi
+}
+
+maybe_swapfile(){                                  # optionally replace a swapped-off partition with a /swapfile
+  [ "$MK_SWAPFILE" = 1 ] || { echo "   (left as $SLOT_LABEL; with >8GB RAM a swapfile is rarely needed — re-run with --swapfile to add one)"; return; }
+  local sz="${SWAPFILE_SIZE:-${1:-}}"
+  [ -n "$sz" ] || sz=4G
+  if [ -f /swapfile ]; then echo "   /swapfile already exists — leaving it"; return; fi
+  echo "   creating replacement /swapfile ($sz)…"
+  fallocate -l "$sz" /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=$(( ${sz%G} * 1024 )) status=none
+  chmod 600 /swapfile; mkswap /swapfile >/dev/null; swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  echo "   /swapfile on and added to /etc/fstab"
+}
+
+lay_media(){                                       # format the slot FAT32 and copy an install medium onto it
+  local iso="$1" part="$2"
+  local work; work=$(mktemp -d); local isomnt="$work/iso" slotmnt="$work/slot"; mkdir -p "$isomnt" "$slotmnt"
+  echo "   formatting FAT32 as $SLOT_LABEL…"; wipefs -a "$part" >/dev/null; mkfs.vfat -F32 -n "$SLOT_LABEL" "$part" >/dev/null
+  mount -o ro,loop "$iso" "$isomnt"; mount "$part" "$slotmnt"
+  echo "   copying install media…"
+  rsync -rlt --no-owner --no-group --no-perms --exclude 'sources/install.wim' "$isomnt"/ "$slotmnt"/
+  if [ -f "$isomnt/sources/install.wim" ]; then
+    local sz; sz=$(stat -c%s "$isomnt/sources/install.wim")
+    if [ "$sz" -gt 4000000000 ]; then
+      echo "   install.wim is $((sz/1024/1024))MB (> FAT 4GB) — splitting to .swm…"
+      wimlib-imagex split "$isomnt/sources/install.wim" "$slotmnt/sources/install.swm" 3800 >/dev/null
+    else cp "$isomnt/sources/install.wim" "$slotmnt/sources/"; fi
+  fi
+  sync; umount "$slotmnt"; umount "$isomnt"; rm -rf "$work"
+}
+
+set_boot_once(){                                   # one-shot UEFI entry -> the slot's EFI loader
+  local part="$1"
+  if [ "${MONTY_NO_BOOTENTRY:-0}" = 1 ]; then
+    echo "==> media staged; skipping the UEFI entry (MONTY_NO_BOOTENTRY=1). Boot \\EFI\\BOOT\\BOOTX64.EFI on $part yourself."; return; fi
+  command -v efibootmgr >/dev/null && [ -d /sys/firmware/efi ] || { echo "!! not a UEFI session — add a boot entry chainloading \\EFI\\BOOT\\BOOTX64.EFI on $part."; return; }
+  local disk="/dev/$(parent_disk "$part")" pnum; pnum=$(cat "/sys/class/block/$(basename "$part")/partition")
+  local id; id=$(efibootmgr -c -d "$disk" -p "$pnum" -L "Monty: $SLOT_LABEL installer" -l '\EFI\BOOT\BOOTX64.EFI' 2>/dev/null \
+                 | awk '/Monty: '"$SLOT_LABEL"'/{gsub(/[^0-9]/,"",$1); print $1; exit}')
+  if [ -n "${id:-}" ]; then efibootmgr -n "$id" >/dev/null; echo "==> one-shot boot set: next reboot runs the installer, then the machine returns to normal."
+  else echo "!! couldn't add the UEFI entry — add a GRUB entry chainloading \\EFI\\BOOT\\BOOTX64.EFI on $part, or use the firmware boot menu."; fi
+}
+
+cmd_stage(){
+  local iso="$1" part="$2"
+  [ -f "$iso" ] || die "ISO not found: $iso"
+  command -v wimlib-imagex >/dev/null || die "needs wimlib-imagex (apt install wimtools)"
+  guard "$part"
+  local was_swap=0 oldsize=""
+  if [ "$(fstype "$part")" = "swap" ]; then was_swap=1; oldsize=$(lsblk -nbo SIZE "$part" | head -1); fi
+  echo "==> adopting $part as the permanent $SLOT_LABEL slot"
+  swapoff "$part" 2>/dev/null && echo "   swapoff $part" || true
+  lay_media "$iso" "$part"
+  [ "$was_swap" = 1 ] && maybe_swapfile "$(numfmt --to=iec "$oldsize" 2>/dev/null | tr -d 'iB' || echo 4G)"
+  set_boot_once "$part"
+  echo "==> staged. Reboot to install. The $SLOT_LABEL slot stays put afterwards (your no-USB slot on this machine)."
+}
+
+cmd_clear(){                                       # empty the media, keep the slot as an empty Virtual_USB
+  local part="$1"
+  is_partition "$part" || die "'$part' is not a partition"; mounted "$part" && die "'$part' is mounted"
+  is_ourslot "$part" || [ "$FORCE" = 1 ] || die "'$part' isn't a $SLOT_LABEL slot (use --force to make it one)."
+  echo "==> clearing $part, keeping it as an empty $SLOT_LABEL slot"
+  wipefs -a "$part" >/dev/null; mkfs.vfat -F32 -n "$SLOT_LABEL" "$part" >/dev/null
+  echo "   done — ready for the next install or live distro."
+}
+
+cmd_to_swap(){
+  local part="$1"
+  is_partition "$part" || die "'$part' is not a partition"; mounted "$part" && die "'$part' is mounted"
+  [ "$(fstype "$part")" = "swap" ] && { echo "$part is already swap."; swapon "$part" 2>/dev/null || true; return; }
+  echo "==> turning $part back into Linux swap"
+  wipefs -a "$part" >/dev/null; mkswap -L swap "$part" >/dev/null; swapon "$part"
+  echo "   done. If you keep swap in /etc/fstab by UUID: $(blkid -s UUID -o value "$part")"
+}
+
+cmd_status(){ local p="$1"; echo "device : $p"; echo "fstype : $(fstype "$p")"; echo "label  : $(label "$p")"; echo "size   : $(lsblk -no SIZE "$p" | head -1)"; echo "mounted: $(mounted "$p" && echo yes || echo no)"; echo "onswap : $(grep -q "^$p " /proc/swaps && echo yes || echo no)"; echo "is Virtual_USB: $(is_ourslot "$p" && echo yes || echo no)"; }
+
+# ---- args
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --force) FORCE=1;;
+    --swapfile) MK_SWAPFILE=1;;
+    --swapfile=*) MK_SWAPFILE=1; SWAPFILE_SIZE="${a#*=}";;
+    *) ARGS+=("$a");;
+  esac
+done
+set -- "${ARGS[@]:-}"
+case "${1:-}" in
+  stage)   shift; [ $# -eq 2 ] || die "usage: monty-virtualusb [--swapfile[=SIZE]] [--force] stage <iso> <partition>"; cmd_stage "$1" "$2";;
+  clear)   shift; [ $# -eq 1 ] || die "usage: monty-virtualusb clear <partition>"; cmd_clear "$1";;
+  to-swap|reclaim) shift; [ $# -eq 1 ] || die "usage: monty-virtualusb to-swap <partition>"; cmd_to_swap "$1";;
+  status)  shift; [ $# -eq 1 ] || die "usage: monty-virtualusb status <partition>"; cmd_status "$1";;
+  *) cat >&2 <<EOF
+monty-virtualusb — a permanent Virtual_USB partition: a no-USB installer slot
+  sudo monty-virtualusb [--swapfile[=SIZE]] stage <iso> <partition>   adopt + lay installer + one-shot boot
+  sudo monty-virtualusb clear   <partition>                           empty it, keep the Virtual_USB slot
+  sudo monty-virtualusb to-swap <partition>                           hand it back to Linux as swap
+  sudo monty-virtualusb status  <partition>                           what is it right now
+  (--force to adopt a partition that isn't swap or an existing Virtual_USB)
+EOF
+  exit 1;;
+esac
