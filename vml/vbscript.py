@@ -29,6 +29,8 @@ CStr, CInt, CDbl, Chr, Asc, MsgBox, ...). Everything is case-insensitive.
 This is a useful subset, not the whole language — the full VB.NET lives on the .NET path.
 """
 import re
+import datetime
+import math
 
 
 class VbError(Exception):
@@ -54,7 +56,7 @@ _TOKEN = re.compile(r"""
     (?P<ws>[ \t]+)
   | (?P<num>\d+\.\d+|\.\d+|\d+)
   | (?P<str>"(?:[^"]|"")*")
-  | (?P<id>[A-Za-z_][A-Za-z0-9_]*)
+  | (?P<id>[A-Za-z_][A-Za-z0-9_]*\$?)
   | (?P<op><=|>=|<>|[-+*/\\^&=<>().,])
 """, re.VERBOSE)
 
@@ -881,6 +883,8 @@ class VbEnv:
             return self.host(*[to_str(a) if not is_num(a) and not isinstance(a, bool) else a for a in args])
         if low in BUILTINS:
             return BUILTINS[low](self, args)
+        if low.endswith("$") and low[:-1] in BUILTINS:   # VB's string-returning $ variants
+            return BUILTINS[low[:-1]](self, args)
         # unknown name with no args: treat as a variable read (forgiving)
         if not args:
             return frame.get(name)
@@ -956,6 +960,36 @@ BUILTINS = {
     "asc": lambda e, a: ord(to_str(_arg(a, 0, " "))[:1] or " "),
     "abs": lambda e, a: abs(to_num(_arg(a, 0, 0))),
     "int": lambda e, a: int(to_num(_arg(a, 0, 0)) // 1),
+    "fix": lambda e, a: math.trunc(to_num(_arg(a, 0, 0))),
+    "sgn": lambda e, a: (to_num(_arg(a, 0, 0)) > 0) - (to_num(_arg(a, 0, 0)) < 0),
+    "sqr": lambda e, a: math.sqrt(max(0.0, float(to_num(_arg(a, 0, 0))))),
+    "round": lambda e, a: round(float(to_num(_arg(a, 0, 0))), int(to_num(_arg(a, 1, 0)))),
+    "exp": lambda e, a: math.exp(float(to_num(_arg(a, 0, 0)))),
+    "log": lambda e, a: (math.log(float(to_num(_arg(a, 0, 1)))) if to_num(_arg(a, 0, 1)) > 0 else 0),
+    "sin": lambda e, a: math.sin(float(to_num(_arg(a, 0, 0)))),
+    "cos": lambda e, a: math.cos(float(to_num(_arg(a, 0, 0)))),
+    "tan": lambda e, a: math.tan(float(to_num(_arg(a, 0, 0)))),
+    "atn": lambda e, a: math.atan(float(to_num(_arg(a, 0, 0)))),
+    "hex": lambda e, a: format(int(to_num(_arg(a, 0, 0))) & 0xFFFFFFFF, "X"),
+    "oct": lambda e, a: format(int(to_num(_arg(a, 0, 0))) & 0xFFFFFFFF, "o"),
+    "space": lambda e, a: " " * max(0, int(to_num(_arg(a, 0, 0)))),
+    "string": lambda e, a: _vb_string(a),
+    "strreverse": lambda e, a: to_str(_arg(a, 0))[::-1],
+    "instrrev": lambda e, a: to_str(_arg(a, 0)).rfind(to_str(_arg(a, 1))) + 1,
+    "isnumeric": lambda e, a: _is_number(_arg(a, 0)),
+    "iif": lambda e, a: _arg(a, 1) if _truthy(_arg(a, 0)) else _arg(a, 2),
+    "format": lambda e, a: _format(a),
+    "now": lambda e, a: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    "date": lambda e, a: datetime.date.today().strftime("%Y-%m-%d"),
+    "time": lambda e, a: datetime.datetime.now().strftime("%H:%M:%S"),
+    "timer": lambda e, a: (lambda t: t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6)(datetime.datetime.now()),
+    "year": lambda e, a: _asdate(_arg(a, 0)).year,
+    "month": lambda e, a: _asdate(_arg(a, 0)).month,
+    "day": lambda e, a: _asdate(_arg(a, 0)).day,
+    "hour": lambda e, a: _asdate(_arg(a, 0)).hour,
+    "minute": lambda e, a: _asdate(_arg(a, 0)).minute,
+    "second": lambda e, a: _asdate(_arg(a, 0)).second,
+    "weekday": lambda e, a: (_asdate(_arg(a, 0)).isoweekday() % 7) + 1,
     "ucase$": lambda e, a: to_str(_arg(a, 0)).upper(),
     "msgbox": lambda e, a: (e.host("InfoDialog", to_str(_arg(a, 0))) if e.host else e.log("[vb] MsgBox: " + to_str(_arg(a, 0)))) or "",
 }
@@ -978,6 +1012,85 @@ def _val(v):
         return 0
     t = m.group()
     return float(t) if "." in t else int(t)
+
+
+def _truthy(v):
+    if isinstance(v, bool):
+        return v
+    try:
+        return to_num(v) != 0
+    except VbError:
+        return bool(to_str(v))
+
+
+def _is_number(v):
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return True
+    try:
+        float(to_str(v).strip())
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _vb_string(a):
+    n = max(0, int(to_num(_arg(a, 0, 0))))
+    c = _arg(a, 1, " ")
+    ch = chr(int(to_num(c))) if _is_number(c) else (to_str(c)[:1] or " ")
+    return ch * n
+
+
+def _asdate(v):
+    if v in (EMPTY, "", None):
+        return datetime.datetime.now()
+    try:
+        return datetime.datetime.fromisoformat(to_str(v).strip())
+    except ValueError:
+        return datetime.datetime.now()
+
+
+_FMT_DATE = (("yyyy", "%Y"), ("yy", "%y"), ("mmmm", "%B"), ("mmm", "%b"), ("mm", "%m"),
+             ("dddd", "%A"), ("ddd", "%a"), ("dd", "%d"), ("hh", "%H"), ("nn", "%M"), ("ss", "%S"))
+_FMT_NAMED = {"currency": "\u00a3#,##0.00", "fixed": "0.00", "standard": "#,##0.00", "percent": "0.00%",
+              "general number": "", "long date": "%A %d %B %Y", "medium date": "%d %b %Y",
+              "short date": "%d/%m/%Y", "long time": "%H:%M:%S", "short time": "%H:%M"}
+
+
+def _format(a):
+    """Format(value, pattern): the common cases - fixed decimals, thousands, percent, a leading
+    currency sign, the named formats, and date patterns (yyyy mm dd hh nn ss). Best-effort, not every VB nicety."""
+    v = _arg(a, 0, 0)
+    fmt = to_str(_arg(a, 1, ""))
+    if fmt == "":
+        return to_str(v)
+    low = fmt.lower()
+    if low in _FMT_NAMED:
+        rep = _FMT_NAMED[low]
+        if rep == "":
+            return to_str(v)
+        if rep.startswith("%"):
+            return _asdate(v).strftime(rep)
+        fmt, low = rep, rep.lower()
+    if any(tok in low for tok, _ in _FMT_DATE):
+        out = fmt
+        for tok, code in _FMT_DATE:
+            out = re.sub(tok, code, out, flags=re.IGNORECASE)
+        try:
+            return _asdate(v).strftime(out)
+        except Exception:
+            return to_str(v)
+    try:
+        n = to_num(v)
+    except VbError:
+        return to_str(v)
+    pct = fmt.endswith("%")
+    core = fmt[:-1] if pct else fmt
+    if pct:
+        n = n * 100
+    decimals = len(core.split(".", 1)[1]) if "." in core else 0
+    body = ("{:,.%df}" % decimals).format(float(n)) if "," in core else ("{:.%df}" % decimals).format(float(n))
+    cur = fmt[0] if fmt[:1] in "\u00a3$\u20ac" else ""
+    return cur + body + ("%" if pct else "")
 
 
 # ---------------------------------------------------------------- self-test
