@@ -12,3 +12,6 @@ csharp/VmlCSharpHost/obj/
 !vml/web/*.apk
 !vml/web/*.apk
 tiny-apps/
+*.bak
+*.bak.*
+nohup.out

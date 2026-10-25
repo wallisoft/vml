@@ -125,6 +125,7 @@ Vml("SetProperty", "cboLang", "Items", table.concat(json.decode(Vml("GetLanguage
 local wanted, chosen = Vml("GetSetting", "editor_event"), names[1]
 for _, n in ipairs(names) do if n == wanted then chosen = n end end
 Vml("SetProperty", "cboEvent", "SelectedItem", chosen)
+Vml("SetProperty", "txtCode", "ObjectModel", Vml("ObjectModel", "Surface"))   -- the form's controls, for member completion
 Vml("SetSetting", "editor_loaded_event", "")
 Vml("RunScript", "EditorEventChanged")
 LUA

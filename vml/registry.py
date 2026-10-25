@@ -115,6 +115,62 @@ def register(ct: ControlType, *prop_lists):
     return ct
 
 
+# ---- the object model a script's editor sees. This is split in two on purpose:
+#   * what a CONTROL is - its get/set properties and its events - is the same whatever language the script is in,
+#     so it lives here (control_members), straight off the control type.
+#   * what you can DO with it in code - the global functions and keywords, the method names, whether an event even
+#     belongs in a `name.` list, the member separators - is the INTERPRETER's business and differs per language
+#     (VB's `obj.AddItem` vs Lua's `obj:method`), so each interpreter registers its own rules (register_lang_rules)
+#     and the editor assembles the final list (completion_pool). An interpreter with no rules yet still gets
+#     sensible property completion from the shared half.
+_GROUP_ORDER = {"Common": 0, "Text": 1, "Content": 1, "Appearance": 2, "Behaviour": 3, "Behavior": 3, "Layout": 4}
+
+
+def control_members(ct: "ControlType"):
+    """Language-agnostic: a control's properties (the ones people set most first, then A-Z) and its events."""
+    props = sorted(ct.props.keys(), key=lambda n: (_GROUP_ORDER.get(ct.props[n].group, 9), n.lower()))
+    return {"props": props, "events": sorted(ct.events.keys())}
+
+
+# Per-language completion rules, owned by each interpreter. A rules dict may carry:
+#   globals   [{name, kind}]      functions/keywords offered on a bare word (kind: func|kw)
+#   methods   {typeName: (..)}    method names by control type; the "" key applies to every control
+#   aliases   (..)                extra property names the bridge accepts on any control (VB: Caption, Value, ...)
+#   events    bool                include a control's events in its `name.` list (VB: no - they're Sub handlers)
+#   seps      str                 member separators that open the list (default "."; Lua would add ":")
+LANG_RULES: "dict[str, dict]" = {}
+
+
+def register_lang_rules(name: str, **spec):
+    LANG_RULES[name.lower()] = spec
+    return spec
+
+
+def lang_rules(name: str):
+    return LANG_RULES.get((name or "").lower())
+
+
+def completion_pool(kind, owner, model, rules, control_names):
+    """Build the candidate list (before filtering) for a completion context. Pure, so it's testable without a GUI.
+       `model` is {controlName: {type, props, events}} (from Engine.cmd_ObjectModel); `rules` is lang_rules(lang)."""
+    rules = rules or {}
+    if kind == "dot":
+        entry = next((v for k, v in model.items() if k.lower() == owner.lower()), None)
+        if entry is None:
+            return []
+        pool = [{"name": n, "kind": "prop"} for n in entry.get("props", [])]
+        pool += [{"name": a, "kind": "prop"} for a in rules.get("aliases", ()) if a not in entry.get("props", [])]
+        meths = rules.get("methods", {})
+        names = sorted(set(list(meths.get(entry.get("type", ""), ())) + list(meths.get("", ()))))
+        pool += [{"name": m, "kind": "method"} for m in names]
+        if rules.get("events"):
+            pool += [{"name": e, "kind": "event"} for e in entry.get("events", [])]
+        return pool
+    pool = [{"name": n, "kind": "ctrl"} for n in control_names]
+    pool += list(rules.get("globals", ()))
+    return pool
+
+
 # ------------------------------------------------------------------ styling: one stylesheet per node, rebuilt on change
 
 _LEFT_OUT = set()          # what has already been reported as web only (once each: a style is often shared)

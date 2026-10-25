@@ -21,11 +21,17 @@ Run=--machines
 
 @Command build
 Level=ask
-About=Run one of a project's builds (minutes: answers with a job to follow). Some builds publish (a GitHub release), so the person's yes first
+About=Run one of a project's builds, in Bob's window so you can watch it (opens Bob if it's shut). Some builds publish (a GitHub release), so the person's yes first
 Param=recipe:text:The project's recipe.vml
 Param=build:text:The build's name (from builds)
-Background=yes
-Run=--config {recipe} --build {build}
+Run=--config {recipe} --build {build} --queue
+
+@Command edge
+Level=ask
+About=Publish this computer's builds as the rolling 'build' - a quiet upstream build (no update pill; offered in About on a version-click). Runs in Bob's window. The person's yes first
+Param=recipe:text:The project's recipe.vml
+Param=build:text:The GitHub build's name (from builds)
+Run=--config {recipe} --build {build} --edge --queue
 
 @Command stop
 Level=do

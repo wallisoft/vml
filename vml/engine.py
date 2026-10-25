@@ -1667,11 +1667,22 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             with urllib.request.urlopen(req, timeout=6) as r:
                 releases = [x for x in json.load(r) if not x.get("draft")]
             number = lambda v: tuple(int(x) for x in re.findall(r"\d+", v)[:3])
-            best = max(releases, key=lambda x: number(str(x.get("tag_name", ""))) or (0,), default={})
+            # the rolling 'build' tag is a quiet upstream build (Bob publishes this computer's builds to it): apps
+            # offer it only on a version-click, it never raises the pill. Every other tag is a real release and
+            # drives 'newer'/the pill exactly as before.
+            rolling = next((x for x in releases if str(x.get("tag_name", "")) == "build"), None)
+            formal = [x for x in releases if str(x.get("tag_name", "")) != "build"]
+            best = max(formal, key=lambda x: number(str(x.get("tag_name", ""))) or (0,), default={})
             out["tag"] = str(best.get("tag_name", ""))
             out["latest"] = out["tag"].lstrip("v")
             out["url"] = best.get("html_url") or out["url"]
             out["newer"] = bool(out["latest"]) and number(out["latest"]) > number(__version__)
+            if rolling is not None:                 # the build's version is in its title ("Visualised 1.11.0 (build)")
+                bits = re.findall(r"\d+", str(rolling.get("name") or ""))[:3]
+                bv = ".".join(bits)
+                if len(bits) >= 2 and number(bv) > number(__version__) and number(bv) >= number(out["latest"] or "0"):
+                    out["edge"], out["build_tag"] = bv, "build"
+                    out["build_url"] = rolling.get("html_url") or out["url"]
         except Exception as exc:
             out["error"] = str(exc)
         return json.dumps(out)
@@ -2636,6 +2647,26 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
                 _os.unlink(src)
             except Exception:
                 pass
+
+    def cmd_ObjectModel(self, surface="Surface"):
+        """The object model for the form on `surface`: {controlName: {type, props, events}} - each control's type,
+        its get/set properties and its events. Language-agnostic; the editor turns it into a member list using the
+        rules the chosen interpreter registered (see registry.completion_pool). For the editor's `name.` completion."""
+        import json as _json
+        from . import registry
+        surf = self._surface(surface)
+        model = {}
+
+        def walk(node):
+            for kid in getattr(node, "children", []):
+                if kid.type.name in registry.REGISTRY:
+                    entry = registry.control_members(kid.type)
+                    entry["type"] = kid.type.name
+                    model[kid.name] = entry
+                walk(kid)
+
+        walk(surf)
+        return _json.dumps(model, separators=(",", ":"))
 
     def _import_vml(self, path, surface="Surface"):
         surf = self._surface(surface)

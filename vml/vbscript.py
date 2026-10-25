@@ -32,6 +32,8 @@ import re
 import datetime
 import math
 
+from .registry import register_lang_rules
+
 
 class VbError(Exception):
     pass
@@ -1094,6 +1096,31 @@ def _format(a):
 
 
 # ---------------------------------------------------------------- self-test
+
+# ---- what the script editor offers for VB. Kept in the interpreter, not the editor, so each language caters for
+#      its own needs: the functions and keywords VB knows, the control methods it actually dispatches (member_method),
+#      and the classic VB property names the bridge maps (PROP_ALIAS). Filtered against BUILTINS/PROP_ALIAS so the
+#      list can never offer something this interpreter doesn't support - and so it self-heals if either changes.
+_VB_FUNCTIONS = ("Abs Asc Atn CDbl CInt CLng Chr Cos CStr Date Day Exp Fix Format Hex Hour IIf InStr InStrRev Int "
+                 "IsNumeric LCase Left Len Log LTrim Mid Minute Month MsgBox Now Oct Replace Right Round RTrim "
+                 "Second Sgn Sin Space Sqr Str String StrReverse Tan Time Timer Trim UCase Val Weekday Year").split()
+_VB_KEYWORDS = ("And As ByRef ByVal Call Case Dim Do Each Else ElseIf End Exit False For Function If In Is Loop Mod "
+                "New Next Not Nothing Or Private Public ReDim Rem Return Select Set Step Sub Then To True Until Wend "
+                "While With Xor").split()
+_VB_METHODS = {"ListBox": ("AddItem", "Clear", "List", "RemoveItem"),
+               "ComboBox": ("AddItem", "Clear", "List", "RemoveItem")}
+_VB_ALIASES = ("Caption", "Value", "Enabled", "Visible", "ForeColor", "BackColor", "ToolTipText", "Tag")
+
+register_lang_rules(
+    "vb",
+    globals=[{"name": f, "kind": "func"} for f in _VB_FUNCTIONS if f.lower() in BUILTINS]
+            + [{"name": k, "kind": "kw"} for k in _VB_KEYWORDS],
+    methods=_VB_METHODS,
+    aliases=tuple(a for a in _VB_ALIASES if a.lower() in PROP_ALIAS),
+    events=False,           # in VB you never type `btn.OnClick`; an event is a `btn_Click` Sub (the double-click)
+    seps=".",
+)
+
 
 if __name__ == "__main__":
     calls = []

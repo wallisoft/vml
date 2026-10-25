@@ -17,12 +17,13 @@ On the web it's a plain text area.
 """
 import re
 
-from PySide6.QtCore import QRect, QRegularExpression, QSize, Qt
-from PySide6.QtGui import (QColor, QFont, QFontDatabase, QKeySequence, QPainter, QShortcut, QSyntaxHighlighter,
-                           QTextCharFormat, QTextCursor, QTextFormat)
-from PySide6.QtWidgets import QInputDialog, QPlainTextEdit, QTextEdit, QWidget
+from PySide6.QtCore import QModelIndex, QRect, QRegularExpression, QSize, Qt
+from PySide6.QtGui import (QColor, QFont, QFontDatabase, QKeySequence, QPainter, QShortcut, QStandardItem,
+                           QStandardItemModel, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat)
+from PySide6.QtWidgets import QCompleter, QInputDialog, QPlainTextEdit, QTextEdit, QWidget
 
-from .registry import ATTACHED, COMMON, ControlType, Prop, num, register, truthy
+from .registry import (ATTACHED, COMMON, ControlType, Prop, completion_pool, lang_rules, num, register,
+                       truthy)
 
 GUTTER_BG, GUTTER_INK, BREAK, STOPPED, LINE_LIT = "#F3F4F6", "#9CA3AF", "#DC2626", "#FEF08A", "#F5F8FF"
 
@@ -40,6 +41,37 @@ KEYWORDS = {
           "single step string sub then to true until variant wend while with xor",
 }
 COMMENT = {"lua": "--", "python": "#", "shell": "#", "csharp": "//", "vb": "'"}
+
+# member completion. The rules for each language (its functions, control methods, whether events appear) are owned
+# by that language's interpreter and registered with the registry; the editor just lays out and filters the result.
+# A language whose interpreter hasn't registered rules still gets plain property completion from the shared model.
+_LANG_MODULE = {"vb": "vbscript"}                 # languages whose rules a module registers on import (imported lazily)
+_KIND_GLYPH = {"prop": "\u2261", "method": "\u0192", "func": "\u0192", "event": "\u26a1",
+               "ctrl": "\u25a2", "kw": "\u00b7"}
+
+
+def _subseq(term, s):            # is `term` a subsequence of `s`? (so "fsz" finds "FontSize")
+    i = 0
+    for ch in s:
+        if i < len(term) and ch == term[i]:
+            i += 1
+    return i == len(term)
+
+
+def _fuzzy(pool, term):
+    """Prefix matches first (keeping the pool's order), then looser subsequence matches."""
+    if not term:
+        return list(pool)
+    t = term.lower()
+    pref, sub = [], []
+    for m in pool:
+        nl = m["name"].lower()
+        if nl.startswith(t):
+            pref.append(m)
+        elif _subseq(t, nl):
+            sub.append(m)
+    return pref + sub
+
 
 
 def code_font(size=0):
@@ -162,6 +194,16 @@ class CodeEditorWidget(QPlainTextEdit):
         QShortcut(QKeySequence.Find, self, activated=self.find_text)
         QShortcut(QKeySequence("F3"), self, activated=lambda: self.find_text(again=True))
         self._find = ""
+        # member completion: type `name.` for a control's members, or a bare word for controls + this language's words
+        self._omodel = {}                      # {controlName: {type, props, events}}, set by the ObjectModel property
+        self._cmp_model = QStandardItemModel(self)
+        self._completer = QCompleter(self)
+        self._completer.setModel(self._cmp_model)
+        self._completer.setWidget(self)
+        self._completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.activated[QModelIndex].connect(self._insert_completion)
+        self._cmp_ctx = None                   # (kind, owner, partial, partial_len) while the popup is up
 
     # ---- the margin: line numbers and breakpoints
     def gutter_width(self):
@@ -265,6 +307,19 @@ class CodeEditorWidget(QPlainTextEdit):
     # ---- typing
     def keyPressEvent(self, e):
         k, mods = e.key(), e.modifiers()
+        pop = self._completer.popup()
+        if pop.isVisible():
+            if k == Qt.Key_Escape:
+                pop.hide(); return
+            if k in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab):
+                idx = pop.currentIndex()
+                if not idx.isValid() and self._cmp_model.rowCount():
+                    idx = self._cmp_model.index(0, 0)
+                if idx.isValid():
+                    self._insert_completion(idx); return
+                pop.hide()
+            elif k in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown):
+                pop.event(e); return
         if k in (Qt.Key_Return, Qt.Key_Enter) and not mods & (Qt.ControlModifier | Qt.ShiftModifier):
             line = self.textCursor().block().text()
             before = line[:self.textCursor().positionInBlock()]
@@ -289,6 +344,82 @@ class CodeEditorWidget(QPlainTextEdit):
                     c.deletePreviousChar()
                 return
         super().keyPressEvent(e)
+        txt = e.text()
+        if k in (Qt.Key_Period, Qt.Key_Colon, Qt.Key_Backspace) or (txt and (txt.isalnum() or txt == "_")):
+            self._maybe_complete()
+        elif not (mods & (Qt.ControlModifier | Qt.AltModifier)):
+            self._completer.popup().hide()
+
+    def set_object_model(self, data):
+        """Give the editor the form's object model: {controlName: {type, props, events}} (JSON or a dict)."""
+        import json as _json
+        try:
+            self._omodel = _json.loads(data) if isinstance(data, str) else (data or {})
+        except Exception:
+            self._omodel = {}
+
+    def _rules(self):
+        """This language's completion rules, from whichever interpreter owns them (imported on first need)."""
+        lang = self.hl.lang
+        r = lang_rules(lang)
+        if r is None and lang in _LANG_MODULE:
+            try:
+                import importlib
+                importlib.import_module("vml." + _LANG_MODULE[lang])
+            except Exception:
+                pass
+            r = lang_rules(lang)
+        return r or {}
+
+    def _ctx_before(self):
+        c = self.textCursor()
+        before = c.block().text()[:c.positionInBlock()]
+        m = re.search(r"([A-Za-z_]\w*)([.:])(\w*)$", before)
+        if m and m.group(2) in self._rules().get("seps", "."):
+            return ("dot", m.group(1), m.group(3), len(m.group(3)))
+        m = re.search(r"([A-Za-z_]\w*)$", before)
+        if m:
+            return ("word", None, m.group(1), len(m.group(1)))
+        return None
+
+    def _candidates(self, ctx):
+        kind, owner, partial, _ = ctx
+        if kind == "word" and len(partial) < 2:            # a bare word only pops once there's something to go on
+            return []
+        names = sorted(self._omodel, key=str.lower)
+        return _fuzzy(completion_pool(kind, owner, self._omodel, self._rules(), names), partial)
+
+    def _maybe_complete(self):
+        ctx = self._ctx_before()
+        cands = self._candidates(ctx) if ctx else []
+        if not cands:
+            self._completer.popup().hide()
+            self._cmp_ctx = None
+            return
+        self._cmp_model.clear()
+        for m in cands[:200]:
+            it = QStandardItem("%s  %s" % (_KIND_GLYPH.get(m["kind"], " "), m["name"]))
+            it.setData(m["name"], Qt.UserRole)
+            it.setEditable(False)
+            self._cmp_model.appendRow(it)
+        self._cmp_ctx = ctx
+        cr = self.cursorRect()
+        cr.setWidth(self._completer.popup().sizeHintForColumn(0) + 32)
+        self._completer.complete(cr)
+        self._completer.popup().setCurrentIndex(self._cmp_model.index(0, 0))
+
+    def _insert_completion(self, index):
+        name = self._cmp_model.data(index, Qt.UserRole)
+        if not name or not self._cmp_ctx:
+            return
+        plen = self._cmp_ctx[3]
+        c = self.textCursor()
+        for _ in range(plen):
+            c.deletePreviousChar()
+        c.insertText(name)
+        self.setTextCursor(c)
+        self._completer.popup().hide()
+        self._cmp_ctx = None
 
     def _lines(self):
         c = self.textCursor()
@@ -372,4 +503,5 @@ register(ControlType("CodeEditor", lambda n: CodeEditorWidget(n),
                read=lambda n: n.widget.breaks_text()),
           Prop("CurrentLine", "number", "Behaviour", default="0", apply=lambda n, v: n.widget.set_current(v)),
           Prop("IsReadOnly", "bool", "Behaviour", default="false", apply=lambda n, v: n.widget.setReadOnly(truthy(v))),
-          Prop("FontSize", "number", "Appearance", apply=lambda n, v: n.widget.setFont(code_font(num(v, 0))))])
+          Prop("FontSize", "number", "Appearance", apply=lambda n, v: n.widget.setFont(code_font(num(v, 0)))),
+          Prop("ObjectModel", "text", "Behaviour", apply=lambda n, v: n.widget.set_object_model(v))])

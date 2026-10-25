@@ -358,6 +358,11 @@ Interval=20000
 IsEnabled=true
 OnTick=GhPoll
 
+@Timer tmrInbox
+Interval=1500
+IsEnabled=true
+OnTick=Inbox
+
 # once a second while a build runs: its stage and how long it has taken
 @Timer tmr
 Parent=c
@@ -611,6 +616,13 @@ for i, b in ipairs(builds) do
     make("Button", "btn" .. i, card, { {"Canvas.Left", tostring(w - bw - 14)}, {"Canvas.Top", "106"}, {"Width", tostring(bw)}, {"Height", "34"},
         {"Content", b.kind == "github" and "Release" or "Build"} })
     Vml("SetEvent", "btn" .. i, "OnClick", "BuildOne(" .. i .. ")")
+    if b.kind == "github" then                     -- also a quiet rolling build: this computer's builds, no pill
+        make("Button", "btnE" .. i, card, { {"Canvas.Left", "14"}, {"Canvas.Top", "106"},
+            {"Width", tostring(bw + (narrow and 6 or 20))}, {"Height", "34"},
+            {"Content", narrow and "Publish" or "Publish build"},
+            {"ToolTip", "Publish this computer's builds as the rolling 'build' - offered in About on a version click, no update pill"} })
+        Vml("SetEvent", "btnE" .. i, "OnClick", "BuildEdge(" .. i .. ")")
+    end
     make("TabPage", "pg" .. i, "logs", { {"Header", b.name .. " log"} })
     make("ListBox", "log" .. i, "pg" .. i, { {"Canvas.Left", "8"}, {"Canvas.Top", "8"}, {"Width", "642"}, {"Height", "224"},
         {"FontFamily", "monospace"}, {"FontSize", "11"}, {"Anchor", "Top,Bottom,Left,Right"} })
@@ -691,6 +703,8 @@ Interpreter=lua
 -- Start one build (its card's number)
 local i = tostring((...))
 if Vml("GetSetting", "bob_run_" .. i) == "1" then return end
+local edge = Vml("GetSetting", "bob_edge_" .. i) == "1"
+Vml("SetSetting", "bob_edge_" .. i, "")                        -- one-shot: a plain build next time unless asked again
 local log = Vml("GetSetting", "bob_log_" .. i)
 local install = Vml("GetProperty", "chkInstall", "IsChecked") == "true"
 Vml("SetProperty", "light" .. i, "Foreground", "#F59E0B")
@@ -702,7 +716,7 @@ Vml("SetSetting", "bob_start_" .. i, tostring(os.time()))
 Vml("SetSetting", "bob_stopping", "")
 Vml("SetSetting", "bob_said_" .. i, "")
 Vml("SetSetting", "bob_run_" .. i, "1")
-local args = '--config "' .. Vml("GetSetting", "bob_config") .. '" --build "' .. Vml("GetSetting", "bob_bname_" .. i) .. '"' .. (install and "" or " --no-install")
+local args = '--config "' .. Vml("GetSetting", "bob_config") .. '" --build "' .. Vml("GetSetting", "bob_bname_" .. i) .. '"' .. (edge and " --edge" or (install and "" or " --no-install"))
 local cmd = 'mkdir -p "$HOME/.cache/bob/logs" && set -o pipefail && ' .. Vml("RunScript", "Bob", args) .. ' 2>&1 | tee "' .. log .. '"'
 local pid = Vml("RunProcess", cmd, "log" .. i, "Done" .. i)
 Vml("SetSetting", "bob_pid_" .. i, pid or "")
@@ -733,6 +747,62 @@ if Vml("GetSetting", "bob_kind_" .. i) == "github" then          -- a release: s
     if yes ~= true and yes ~= "true" and yes ~= "True" then return end
 end
 Vml("SetProperty", "logs", "SelectedIndex", tostring(i))      -- (GitHub is tab 0)
+Vml("RunScript", "Start", tostring(i))
+LUA
+
+@Script Inbox
+Interpreter=lua
+<<LUA
+-- A build the API/TopCat handed us: heartbeat so run.py knows Bob is up, then run anything waiting in the inbox,
+-- here in the window where it can be watched (card lights up, log streams) - not off in a headless shell.
+Vml("Shell", "mkdir -p \"$HOME/.cache/bob/inbox\" && touch \"$HOME/.cache/bob/ui.alive\"")
+local list = Vml("Shell", "ls \"$HOME/.cache/bob/inbox\"/*.json 2>/dev/null") or ""
+if list == "" then return end
+local json = require("dkjson")
+for path in list:gmatch("[^\n]+") do
+    local body = Vml("Shell", "cat \"" .. path .. "\" 2>/dev/null") or ""
+    Vml("Shell", "rm -f \"" .. path .. "\"")                                 -- take it once
+    local job = json.decode(body) or {}
+    if job.recipe and job.build then
+        if Vml("GetSetting", "bob_config") ~= job.recipe then                  -- bring that project on screen
+            local projs = json.decode(Vml("GetSetting", "bob_projects")) or {}
+            local idx
+            for i, pj in ipairs(projs) do if pj.config == job.recipe then idx = i end end
+            if not idx then
+                local one = json.decode(Vml("Shell", Vml("RunScript", "Bob", '--config "' .. job.recipe .. '" --list') .. " 2>/dev/null") or "") or {}
+                projs[#projs + 1] = { name = one.name or job.recipe, config = job.recipe, version = one.version or "" }
+                idx = #projs
+                Vml("SetSetting", "bob_projects", json.encode(projs))
+            end
+            Vml("RunScript", "ShowProject", tostring(idx))
+        end
+        local n, bi = tonumber(Vml("GetSetting", "bob_n")) or 0, nil
+        for i = 1, n do if Vml("GetSetting", "bob_bname_" .. i) == job.build then bi = i end end
+        if bi then
+            if job.mode == "edge" then Vml("SetSetting", "bob_edge_" .. bi, "1") end
+            Vml("SetProperty", "logs", "SelectedIndex", tostring(bi))
+            Vml("RunScript", "Start", tostring(bi))
+            Vml("SetProperty", "StatusBar", "Text", "Started " .. job.build .. (job.mode == "edge" and " (publish build)" or "") .. " from the API")
+        else
+            Vml("SetProperty", "StatusBar", "Text", "API asked for build '" .. tostring(job.build) .. "' - not in this project")
+        end
+    end
+end
+LUA
+
+@Script BuildEdge
+Interpreter=lua
+<<LUA
+local i = tonumber((...)) or 1
+local info = require("dkjson").decode(Vml("Shell", Vml("RunScript", "Bob", '--config "' .. Vml("GetSetting", "bob_config") .. '" --list') .. " 2>/dev/null") or "") or {}
+local yes = Vml("ConfirmDialog",
+    "Publish " .. Vml("GetSetting", "bob_name") .. " " .. (info.version or "") .. " as the rolling build?\n\n" ..
+    "Bob puts this computer's builds into the single 'build' pre-release (replacing the last). Apps offer it in About " ..
+    "on a version click - no update pill - while releases and the website stay on the last clean release.\n\n" ..
+    "Build it here first (Build all).", "Publish a build")
+if yes ~= true and yes ~= "true" and yes ~= "True" then return end
+Vml("SetSetting", "bob_edge_" .. i, "1")
+Vml("SetProperty", "logs", "SelectedIndex", tostring(i))
 Vml("RunScript", "Start", tostring(i))
 LUA
 

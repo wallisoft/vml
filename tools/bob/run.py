@@ -431,6 +431,67 @@ def fix_release(cfg_path, cfg, build, version, tag):
     step(f"Released {tag} in {s // 60}m {s % 60:02d}s: {r.stdout.strip()}")
 
 
+
+def build_release(cfg_path, cfg, build, version):
+    """Publish THIS computer's builds as the rolling 'build' pre-release: a quiet upstream build apps offer only on
+    a version-click (no pill, no 'update available'), while releases/latest and the website stay on the last clean
+    release. Unlike a fix it needs no new version - it force-replaces the single 'build' release each time."""
+    tag = "build"
+    step(f"{cfg.get('name')} {version}: publishing this computer's builds as the rolling {tag!r} (a quiet upstream build)")
+    if subprocess.call(["gh", "auth", "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        fail("the gh command isn't signed in (or isn't installed): see Bob's help, Getting started")
+    if git("status", "--porcelain", "--untracked-files=no"):
+        fail("there are changes not committed yet: commit them, then build, then publish the build")
+    files, builds = [], {b["name"]: b for b in cfg.get("builds") or []}
+    for name in build["assets"]:
+        b = builds.get(name)
+        if not b:
+            fail(f"Assets names {name!r}, but the recipe has no build called that")
+        d = Path(os.path.expanduser(b["results"])) if b.get("results") else out_dir(cfg, b)
+        found = [f for f in sorted(d.glob("*")) if f.is_file() and not f.name.endswith((".log", ".json"))] if d.is_dir() else []
+        if not found:
+            fail(f"nothing from the {name} build yet ({d}): build it first")
+        files += found
+    base = Path(cfg_path).parent
+    for extra in build.get("asset_files") or []:
+        f = (base / extra).resolve()
+        if not f.is_file():
+            fail(f"AssetFiles names {extra}, which isn't there")
+        files.append(f)
+    for f in files:
+        if not os.access(f, os.R_OK):                        # (a file copied back from Windows can come with no read bit)
+            os.chmod(f, f.stat().st_mode | 0o644)
+        print(f"    {f.name}  ({f.stat().st_size // 1024:,} KB)", flush=True)
+    repo = build.get("assets_repo") or build.get("repo") or ""
+    where = ["-R", repo] if repo else []
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    if (git("rev-list", "--count", f"origin/{branch}..HEAD", check=False) or "0") != "0":
+        step(f"Pushing {branch} first")
+        git("push", "origin", branch)
+    sha = git("rev-parse", "HEAD")
+    # force-replace the single rolling release: drop the old one (and its tag), then make it afresh at this commit
+    subprocess.call(["gh", "release", "delete", tag, *where, "-y", "--cleanup-tag"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    step(f"Publishing the {tag!r} pre-release at {sha[:7]}" + (f" on {repo}" if repo else ""))
+    notes = (f"A build by Bob from {sha[:7]} - the latest build, not a release and not tested. Apps offer it only on a "
+             f"version click; releases/latest and the website's downloads stay on the last clean release.")
+    stage = Path.home() / f"bob-upload-{tag}"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir()
+    try:
+        for f in files:
+            shutil.copy2(f, stage / f.name)
+        r = subprocess.run(["gh", "release", "create", tag, *where, "--target", sha, "--prerelease",
+                            "--title", f"{cfg.get('name')} {version} (build)", "--notes", notes,
+                            *[str(stage / f.name) for f in files]], capture_output=True, text=True)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    if r.returncode != 0:
+        fail("GitHub wouldn't take the build: " + (r.stderr or r.stdout).strip()[-300:])
+    s2 = int(time.time() - STARTED)
+    step(f"Published the {tag!r} build ({version}) in {s2 // 60}m {s2 % 60:02d}s: {r.stdout.strip()}")
+
+
 def run_build(cfg_path, cfg, build, install):
     if build.get("kind") == "github":
         return github(cfg_path, cfg, build)
@@ -823,6 +884,31 @@ def new_recipe(proj):
     return str(target)
 
 
+def _queue_build(a):
+    """Hand a build to Bob's window instead of running it here: drop a job file Bob picks up, and open Bob if it's
+    shut. So every build the API starts shows up live in Bob (what the person watches), not off in a headless shell."""
+    if not a.config or not a.build:
+        fail("--queue needs --config and --build")
+    inbox = Path.home() / ".cache" / "bob" / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    job = {"recipe": os.path.abspath(a.config), "build": a.build, "mode": "edge" if a.edge else "build"}
+    (inbox / f"{int(time.time() * 1000)}.json").write_text(json.dumps(job), encoding="utf-8")
+    alive = Path.home() / ".cache" / "bob" / "ui.alive"
+    up = alive.is_file() and (time.time() - alive.stat().st_mtime) < 6      # Bob touches this ~every 1.5s while open
+    opened = False
+    if not up:
+        bob = Path(__file__).resolve().parents[2] / "apps" / "bob" / "Bob.vml"
+        try:
+            subprocess.Popen([str(bob)], cwd=str(bob.parents[2]), start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+            opened = True
+        except Exception as exc:
+            print(json.dumps({"queued": True, "build": a.build, "mode": job["mode"], "bob_error": str(exc)}))
+            return
+    print(json.dumps({"queued": True, "build": a.build, "mode": job["mode"],
+                      "bob": "opening" if opened else "already open", "note": "watch it in Bob's window"}))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Run a project's build, here or on another machine")
     ap.add_argument("--config", help="the project's recipe.vml")
@@ -838,7 +924,16 @@ def main():
     ap.add_argument("--to-vml", metavar="RECIPE_JSON", help="a JSON recipe (bob.json) as VML, written beside it")
     ap.add_argument("--stop", action="store_true")
     ap.add_argument("--no-install", action="store_true", help="(script builds: {install} becomes --no-install)")
+    ap.add_argument("--edge", action="store_true",
+                    help="publish this computer's builds as the rolling 'build' pre-release (a quiet upstream "
+                         "build: no pill, offered only on a version-click) instead of cutting a release")
+    ap.add_argument("--queue", action="store_true",
+                    help="don't build here: drop the build into Bob's window (opening Bob if it's shut) so it runs "
+                         "there where you can watch it - how TopCat/the API start a build")
     a = ap.parse_args()
+    if a.queue:
+        _queue_build(a)
+        return
     if a.projects:
         print(json.dumps(projects()))
         return
@@ -889,6 +984,10 @@ def main():
         fail(f"no build called {a.build!r} in {cfg_path}")
     if a.stop:
         stop(cfg_path, cfg, build)
+    elif a.edge:
+        if build.get("kind") != "github":
+            fail("--edge publishes a GitHub build's local artifacts as the rolling 'build'; this build isn't a GitHub one")
+        build_release(cfg_path, cfg, build, version_of(cfg_path, cfg))
     else:
         run_build(cfg_path, cfg, build, install=not a.no_install)
 

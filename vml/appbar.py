@@ -321,9 +321,11 @@ class AppBar(QWidget):
             lines += ["", f"{self.title} {self.latest} is available."]
             buttons.append(f"Install {self.latest}")
         if self.edge_version:
-            lines += ["", f"The latest from {self.info['spec']['branch']} is {self.edge_version}: not a release yet, so not tested"
+            where = f"the {self.info['spec']['branch']} branch" if self.info.get("spec") else "the latest build"
+            lines += ["", f"The newest from {where} is {self.edge_version}: not a release yet, so not tested"
                           " as much. You can go back afterwards."]
-            buttons.append(f"Latest from {self.info['spec']['branch']} ({self.edge_version})")
+            buttons.append((f"Latest from {self.info['spec']['branch']}" if self.info.get("spec") else "Latest build")
+                           + f" ({self.edge_version})")
         back = self.backup()
         if back:
             lines += ["", f"The copy before the last update ({back}) is kept, if this one doesn't suit."]
@@ -334,7 +336,7 @@ class AppBar(QWidget):
         picked = dialogs.choose(self.window(), f"About {self.title}", "\n".join(lines), tuple(buttons) + ("Close",), self.edge())
         if picked.startswith("Install "):
             self.install(asked=True)
-        elif picked.startswith("Latest from "):
+        elif picked.startswith("Latest "):
             self.install(asked=True, edge=True)
         elif picked.startswith("Go back to "):
             self.go_back()
@@ -446,7 +448,8 @@ class AppBar(QWidget):
         frozen = not (sys.argv and sys.argv[0].endswith(".py"))
         if not frozen:
             return "This Visualised runs from its source code: update it with git."
-        tag = str((self.info or {}).get("tag") or "")           # the release found (a fix is a pre-release)
+        edge = getattr(self, "_edge_install", False)
+        tag = str((self.info or {}).get("build_tag" if edge else "tag") or "")   # a fix is a pre-release; the build is the rolling 'build'
         at = (lambda name: f"https://github.com/wallisoft/vml-releases/releases/download/{tag}/{name}") if tag else None
         if sys.platform.startswith("win"):
             exe = os.path.join(tempfile.mkdtemp(prefix="vml-update-"), "Visualised-Setup.exe")
