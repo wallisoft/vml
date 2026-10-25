@@ -101,7 +101,14 @@ class VmlMenu(QMenu):
             first = next((a for a in self.actions() if a.isVisible() and not a.isSeparator()), None)
             if first is not None:
                 self._dropped = True
-                self.move(self.pos() + QPoint(0, self.actionGeometry(first).top()))
+                drop = QPoint(0, self.actionGeometry(first).top())
+                if QGuiApplication.platformName().startswith("windows"):
+                    # Windows finalises a sub-menu's position after showEvent - lining its first item up with the
+                    # parent and undoing a move made here - so apply the cascade once that has settled.
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, lambda d=drop: self.move(self.pos() + d))
+                else:
+                    self.move(self.pos() + drop)
 
     def hideEvent(self, e):
         super().hideEvent(e)

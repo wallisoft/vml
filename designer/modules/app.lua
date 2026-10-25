@@ -107,6 +107,9 @@ function BuildToolsMenu()
     Vml("CreateControl", "MenuItem", "ToolsScriptEditor", "Tools")
     Vml("SetProperty", "ToolsScriptEditor", "Text", "Script Editor...")
     Vml("SetEvent", "ToolsScriptEditor", "OnClick", "ToolsScriptEditor")
+    Vml("CreateControl", "MenuItem", "ToolsVmlEditor", "Tools")
+    Vml("SetProperty", "ToolsVmlEditor", "Text", "VML Editor...")
+    Vml("SetEvent", "ToolsVmlEditor", "OnClick", "ToolsVmlEditor")
     Vml("CreateControl", "MenuItem", "ToolsDebugger", "Tools")
     Vml("SetProperty", "ToolsDebugger", "Text", "Debugger (F12)")
     Vml("SetEvent", "ToolsDebugger", "OnClick", "ToolsDebugger")
@@ -190,4 +193,9 @@ function ToolsScriptEditor(...)
     Vml("SetSetting", "editor_event", "OnOpened")
     Vml("FormOpenModal", "script-editor.vml")
     Vml("RunScript", "SelectionChanged")
+end
+
+function ToolsVmlEditor(...)
+    -- the whole form as VML: edit it and, on Save, rebuild the form from the edited source
+    Vml("EditVml", "Surface")
 end

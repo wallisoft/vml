@@ -399,9 +399,6 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         if is_designer(node.scope) and not getattr(w, "_f1", None):
             from PySide6.QtGui import QKeySequence, QShortcut
             w._f1 = QShortcut(QKeySequence("F1"), w, activated=self.help_here)          # help on what's selected
-        if is_designer(node.scope) and not getattr(w, "_f7", None):
-            from PySide6.QtGui import QKeySequence, QShortcut
-            w._f7 = QShortcut(QKeySequence("F7"), w, activated=lambda: self.cmd_EditVml("Surface"))   # view/edit the form's VML
         if node.props.get("OnResized") and hasattr(w, "set_title_bar"):     # (VB's Form_Resize: once it settles)
             settle = QTimer(w)
             settle.setSingleShot(True)
