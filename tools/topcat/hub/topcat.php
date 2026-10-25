@@ -60,9 +60,10 @@ function db(): PDO {
     $pdo->exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
     $pdo->exec('CREATE TABLE IF NOT EXISTS requests (id INTEGER PRIMARY KEY, machine TEXT, caller TEXT, app TEXT, command TEXT,
                 args TEXT, yes INTEGER, status TEXT DEFAULT \'queued\', result TEXT, asked REAL, taken REAL, answered REAL);
-                CREATE TABLE IF NOT EXISTS machines (name TEXT PRIMARY KEY, seen REAL, apps TEXT, address TEXT, owner INTEGER);
+                CREATE TABLE IF NOT EXISTS machines (name TEXT PRIMARY KEY, seen REAL, apps TEXT, address TEXT, owner INTEGER, uuid TEXT);
                 CREATE INDEX IF NOT EXISTS rq ON requests (machine, status);');
     try { $pdo->exec('ALTER TABLE machines ADD COLUMN owner INTEGER'); } catch (\Throwable $e) {}   // migrate older DBs
+    try { $pdo->exec('ALTER TABLE machines ADD COLUMN uuid TEXT'); } catch (\Throwable $e) {}
     if ($new) @chmod(DB, 0600);
     return $pdo;
 }
@@ -78,10 +79,11 @@ if ($kind === 'machine') {
     $b = body();
     if ($a === 'next') {
         $apps = isset($b['apps']) ? json_encode($b['apps']) : null;
-        $pdo->prepare('INSERT INTO machines (name, seen, apps, address) VALUES (?, ?, ?, ?)
+        $uuid = ((string)($b['uuid'] ?? '')) !== '' ? (string)$b['uuid'] : null;
+        $pdo->prepare('INSERT INTO machines (name, seen, apps, address, uuid) VALUES (?, ?, ?, ?, ?)
                        ON CONFLICT(name) DO UPDATE SET seen = excluded.seen, address = excluded.address,
-                       apps = COALESCE(excluded.apps, machines.apps)')
-            ->execute([$name, microtime(true), $apps, $_SERVER['REMOTE_ADDR'] ?? '']);
+                       apps = COALESCE(excluded.apps, machines.apps), uuid = COALESCE(machines.uuid, excluded.uuid)')
+            ->execute([$name, microtime(true), $apps, $_SERVER['REMOTE_ADDR'] ?? '', $uuid]);
         // (a request nobody picked up in 10 minutes is dropped: whoever asked has long given up)
         $pdo->prepare("UPDATE requests SET status = 'expired' WHERE status = 'queued' AND asked < ?")->execute([microtime(true) - 600]);
         $end = microtime(true) + 20;
@@ -149,15 +151,15 @@ if ($a === 'claim') {
 }
 if ($a === 'machines') {
     if ($owner === null) {
-        $rows = $pdo->query('SELECT name, seen, apps, address FROM machines ORDER BY name')->fetchAll();
+        $rows = $pdo->query('SELECT name, seen, apps, address, uuid FROM machines ORDER BY name')->fetchAll();
     } else {
-        $q = $pdo->prepare('SELECT name, seen, apps, address FROM machines WHERE owner = ? ORDER BY name');
+        $q = $pdo->prepare('SELECT name, seen, apps, address, uuid FROM machines WHERE owner = ? ORDER BY name');
         $q->execute([$owner]);
         $rows = $q->fetchAll();
     }
     $now = microtime(true);
     out(array_map(fn($m) => ['machine' => $m['name'], 'online' => ($now - (float)$m['seen']) < 60,
-        'seen_seconds_ago' => (int)($now - (float)$m['seen']), 'apps' => json_decode($m['apps'] ?: '[]', true)], $rows));
+        'seen_seconds_ago' => (int)($now - (float)$m['seen']), 'uuid' => $m['uuid'], 'apps' => json_decode($m['apps'] ?: '[]', true)], $rows));
 }
 if ($a === 'call') {
     $b = body();

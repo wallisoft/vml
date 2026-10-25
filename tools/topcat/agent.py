@@ -21,6 +21,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -57,6 +58,8 @@ def conf():
     for k, v in (("python", AGENT_CALL[0]), ("agent", AGENT_CALL[1])):
         if c.get(k) != v:                                       # so TopCat's window knows how to call us to switch
             c[k], changed = v, True
+    if not c.get("uuid"):                                       # a durable, OS-independent machine id, minted once and kept
+        c["uuid"], changed = uuid.uuid4().hex, True
     if changed:
         save_conf(c)
     return c
@@ -252,7 +255,7 @@ def run():
     first, wait = True, 2
     while True:
         try:
-            job = post(c, "next", {"machine": c["machine"], **({"apps": apps} if first else {})})
+            job = post(c, "next", {"machine": c["machine"], "uuid": c.get("uuid"), **({"apps": apps} if first else {})})
             first, wait = False, 2
             state(c, True)
             if job.get("id"):
