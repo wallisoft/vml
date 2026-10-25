@@ -200,6 +200,7 @@ class AppBar(QWidget):
             self.version, self.title = str(p.get("Version") or ""), str(p.get("Title") or node.name)
             self.terms = str(p.get("Terms") or "")
         self.latest, self.level, self.info, self.edge_version = "", "", {}, ""
+        self._about_pending = False     # a version click asked for About once a fresh check comes back
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 0, 8, 0)
         lay.setSpacing(6)
@@ -282,19 +283,25 @@ class AppBar(QWidget):
             self.latest = self.info.get("latest", "")
             self.level = level(self.latest, self.version) or "fix"
             self.engine.log_line(f"{self.title} {self.latest} is out (this is {self.version}): a {self.level} update")
-            if self.level == "fix":                          # a fix: About offers it, the bar stays quiet
-                return
-            bg, fg, hover = ("#DC2626", "#FFFFFF", "#B91C1C") if self.level == "major" else ("#FACC15", "#422006", "#EAB308")
-            self.hazard.setStyleSheet(f"QPushButton{{background:{bg};color:{fg};border:0;border-radius:8px;"
-                                      f"padding:1px 8px;font-size:11px;font-weight:600}}QPushButton:hover{{background:{hover}}}")
-            self.hazard.setText(f"⚠ {self.latest}")
-            self.hazard.setToolTip(f"{self.title} {self.latest} is out (this is {self.version}). Click to install it.")
-            self.hazard.show()
+            if self.level != "fix":                          # maj/min raise the bar; a fix stays quiet (the version click offers it)
+                bg, fg, hover = ("#DC2626", "#FFFFFF", "#B91C1C") if self.level == "major" else ("#FACC15", "#422006", "#EAB308")
+                self.hazard.setStyleSheet(f"QPushButton{{background:{bg};color:{fg};border:0;border-radius:8px;"
+                                          f"padding:1px 8px;font-size:11px;font-weight:600}}QPushButton:hover{{background:{hover}}}")
+                self.hazard.setText(f"⚠ {self.latest}")
+                self.hazard.setToolTip(f"{self.title} {self.latest} is out (this is {self.version}). Click to install it.")
+                self.hazard.show()
+        if self._about_pending:                              # a version click is waiting on this check
+            self._about_pending = False
+            self.about()
 
     # ---- the links
     def clicked(self, what):
         if what == "terms":
             self.engine.cmd_ShowMarkdown(self.terms, "Terms")      # in a window of the app: reading them shouldn't mean leaving it
+            return
+        if self.designer or str(self.node.props.get("UpdateFrom") or ""):
+            self._about_pending = True       # refresh first, so About reflects the newest upstream build, incl. a fix
+            self.check()
         else:
             self.about()
 
