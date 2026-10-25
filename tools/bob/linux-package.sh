@@ -18,6 +18,8 @@ OUT="dist"
 WANT_DEB=0; WANT_APPIMAGE=0
 DESC="A Wallisoft app"
 EXE=""
+URL=""
+LICENSE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,6 +33,8 @@ while [ $# -gt 0 ]; do
     --maintainer) MAINTAINER="$2"; shift 2;;
     --categories) CATEGORIES="$2"; shift 2;;
     --depends) DEPENDS="$2"; shift 2;;
+    --url) URL="$2"; shift 2;;
+    --license) LICENSE="$2"; shift 2;;
     --out) OUT="$2"; shift 2;;
     --deb) WANT_DEB=1; shift;;
     --appimage) WANT_APPIMAGE=1; shift;;
@@ -63,6 +67,28 @@ Terminal=false
 EOF
 }
 
+make_metainfo() { # $1=path  (AppStream, so GNOME Software treats a side-loaded .deb as a proper app)
+  local app desc
+  app="${APP//&/&amp;}"; app="${app//</&lt;}"; app="${app//>/&gt;}"
+  desc="${DESC//&/&amp;}"; desc="${desc//</&lt;}"; desc="${desc//>/&gt;}"
+  {
+    echo '<?xml version="1.0" encoding="UTF-8"?>'
+    echo '<component type="desktop-application">'
+    echo "  <id>uk.wallisoft.$NAME</id>"
+    echo "  <name>$app</name>"
+    echo "  <summary>$desc</summary>"
+    echo '  <metadata_license>CC0-1.0</metadata_license>'
+    [ -n "$LICENSE" ] && echo "  <project_license>$LICENSE</project_license>"
+    echo "  <description><p>$desc</p></description>"
+    echo "  <launchable type=\"desktop-id\">$NAME.desktop</launchable>"
+    [ -n "$URL" ] && echo "  <url type=\"homepage\">$URL</url>"
+    echo "  <provides><id>$NAME.desktop</id></provides>"
+    echo '  <content_rating type="oars-1.1"/>'
+    echo "  <releases><release version=\"$VERSION\"/></releases>"
+    echo '</component>'
+  } > "$1"
+}
+
 # --- .deb ------------------------------------------------------------------
 if [ "$WANT_DEB" = 1 ]; then
   echo "== building .deb =="
@@ -73,6 +99,8 @@ if [ "$WANT_DEB" = 1 ]; then
   chmod +x "$R/usr/bin/$NAME"
   [ -n "$ICON" ] && cp "$ICON" "$R/usr/share/icons/hicolor/256x256/apps/$NAME.png"
   make_desktop "$NAME" "$R/usr/share/applications/$NAME.desktop"
+  mkdir -p "$R/usr/share/metainfo"
+  make_metainfo "$R/usr/share/metainfo/uk.wallisoft.$NAME.metainfo.xml"
   SIZE_KB="$(du -sk "$R" | cut -f1)"
   { echo "Package: $NAME"
     echo "Version: $VERSION"
