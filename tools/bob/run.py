@@ -481,7 +481,7 @@ def build_release(cfg_path, cfg, build, version):
     try:
         for f in files:
             shutil.copy2(f, stage / f.name)
-        r = subprocess.run(["gh", "release", "create", tag, *where, "--target", sha, "--prerelease",
+        r = subprocess.run(["gh", "release", "create", tag, *where, "--prerelease",
                             "--title", f"{cfg.get('name')} {version} (build)", "--notes", notes,
                             *[str(stage / f.name) for f in files]], capture_output=True, text=True)
     finally:
