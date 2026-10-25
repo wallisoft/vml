@@ -42,13 +42,18 @@ function api_user(): ?int {
 
 // Returns [kind, name, owner] where owner is the caller's TinyWeb user_id (int) when the token is an API key,
 // or null for a machine or a legacy hub caller (which stays unscoped).
-function who(): array {
+function who(PDO $pdo): array {
     $t = json_decode((string)@file_get_contents(TOKENS), true) ?: [];
     $h = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
     $given = preg_match('/^Bearer\s+(\S+)$/', $h, $m) ? $m[1] : '';
     if (strlen($given) < 24) out(['error' => 'no token'], 401);
     foreach (($t['machines'] ?? []) as $name => $tok) if (hash_equals((string)$tok, $given)) return ['machine', (string)$name, null];
     foreach (($t['callers'] ?? []) as $name => $tok) if (hash_equals((string)$tok, $given)) return ['caller', (string)$name, null];
+    $aq = $pdo->prepare('SELECT id, adopted FROM anon WHERE key = ?');
+    $aq->execute([hash('sha256', $given)]);
+    if ($r = $aq->fetch()) return $r['adopted'] !== null
+        ? ['caller', 'u' . (int)$r['adopted'], (int)$r['adopted']]     // this key was adopted into an account
+        : ['caller', 'anon' . (int)$r['id'], -(int)$r['id']];          // an anonymous owner (negative id, its own namespace)
     $uid = api_user();
     if ($uid !== null) return ['caller', 'u' . $uid, $uid];
     out(['error' => 'not a token TopCat knows (a caller uses their TinyWeb API key)'], 401);
@@ -61,6 +66,7 @@ function db(): PDO {
     $pdo->exec('CREATE TABLE IF NOT EXISTS requests (id INTEGER PRIMARY KEY, machine TEXT, caller TEXT, app TEXT, command TEXT,
                 args TEXT, yes INTEGER, status TEXT DEFAULT \'queued\', result TEXT, asked REAL, taken REAL, answered REAL);
                 CREATE TABLE IF NOT EXISTS machines (name TEXT PRIMARY KEY, seen REAL, apps TEXT, address TEXT, owner INTEGER, uuid TEXT);
+                CREATE TABLE IF NOT EXISTS anon (id INTEGER PRIMARY KEY, key TEXT UNIQUE, created REAL, ip TEXT, adopted INTEGER);
                 CREATE INDEX IF NOT EXISTS rq ON requests (machine, status);');
     try { $pdo->exec('ALTER TABLE machines ADD COLUMN owner INTEGER'); } catch (\Throwable $e) {}   // migrate older DBs
     try { $pdo->exec('ALTER TABLE machines ADD COLUMN uuid TEXT'); } catch (\Throwable $e) {}
@@ -70,10 +76,25 @@ function db(): PDO {
 
 function body(): array { return json_decode((string)file_get_contents('php://input'), true) ?: []; }
 
-[$kind, $name, $owner] = who();
 $a = $_GET['a'] ?? '';
 $pdo = db();
 set_time_limit(70);
+
+// A brand-new anonymous owner key: no token needed (this is how you GET one). Rate-limited per address so it
+// can't be farmed. The key is the owner - every machine carrying it shares one namespace; adopt links it to
+// a TinyWeb account later for recovery.
+if ($a === 'mint') {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    $c = $pdo->prepare('SELECT COUNT(*) n FROM anon WHERE ip = ? AND created > ?');
+    $c->execute([$ip, microtime(true) - 86400]);
+    if ((int)$c->fetch()['n'] >= 20) out(['error' => 'too many new keys from here today - try later'], 429);
+    $key = bin2hex(random_bytes(24));
+    $pdo->prepare('INSERT INTO anon (key, created, ip) VALUES (?, ?, ?)')->execute([hash('sha256', $key), microtime(true), $ip]);
+    out(['key' => $key, 'owner' => -(int)$pdo->lastInsertId(),
+         'note' => 'This key owns your machines - put it in TopCat on each one. With no account it is the only way back in, so keep it safe or adopt it into a TinyWeb account.']);
+}
+
+[$kind, $name, $owner] = who($pdo);
 
 if ($kind === 'machine') {
     $b = body();
@@ -149,6 +170,21 @@ if ($a === 'claim') {
     if ((int)$row['owner'] !== $owner) out(['error' => 'that machine is already owned by someone else'], 403);
     out(['ok' => true, 'machine' => $mc, 'owner' => $owner]);
 }
+if ($a === 'adopt') {
+    if ($owner === null || $owner < 0) out(['error' => 'adopting a key into an account needs your TinyWeb API key (sign in first)'], 403);
+    $b = body();
+    $ak = (string)($b['anon_key'] ?? '');
+    if (strlen($ak) < 24) out(['error' => 'anon_key?'], 400);
+    $st = $pdo->prepare('SELECT id, adopted FROM anon WHERE key = ?');
+    $st->execute([hash('sha256', $ak)]);
+    $row = $st->fetch();
+    if (!$row) out(['error' => 'no such key'], 404);
+    if ($row['adopted'] !== null) out(['error' => 'that key is already linked to an account'], 409);
+    $mv = $pdo->prepare('UPDATE machines SET owner = ? WHERE owner = ?');
+    $mv->execute([$owner, -(int)$row['id']]);
+    $pdo->prepare('UPDATE anon SET adopted = ? WHERE id = ?')->execute([$owner, (int)$row['id']]);
+    out(['ok' => true, 'adopted_into' => $owner, 'machines_moved' => $mv->rowCount()]);
+}
 if ($a === 'machines') {
     if ($owner === null) {
         $rows = $pdo->query('SELECT name, seen, apps, address, uuid FROM machines ORDER BY name')->fetchAll();
@@ -170,4 +206,4 @@ if ($a === 'call') {
     out(result($pdo, (int)$pdo->lastInsertId(), 50));
 }
 if ($a === 'result') out(result($pdo, (int)($_GET['id'] ?? 0), 25));
-out(['error' => 'ask for machines, call, result or claim'], 400);
+out(['error' => 'ask for machines, call, result, claim or adopt (or mint, no token, for a new owner key)'], 400);
