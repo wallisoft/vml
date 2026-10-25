@@ -1,5 +1,5 @@
 """VML engine for Qt: VML -> (Lua parser) -> SQLite -> Qt widgets, scripted in Lua, Bash and PowerShell."""
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 
 import os as _os2
 import sys as _sys2

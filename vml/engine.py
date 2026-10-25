@@ -2606,25 +2606,36 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             try:
                 rows, _props, _scripts = self.store.parse_form(cand)
             except Exception as exc:
-                err.setText(f"Couldn't parse that VML: {exc}")
-                return
+                err.setText(f"Couldn't parse that VML: {exc}"); _os.unlink(cand); return
             if not any(r[2] == "Window" for r in rows):
-                err.setText("A form needs an @Window - nothing was changed.")
-                return
-            self.cmd_ClearDesign(surface)
-            if self.cmd_ImportVml(cand, surface) is False:   # shouldn't happen after the checks, but never lose the form
-                self.cmd_ClearDesign(surface)
-                self.cmd_ImportVml(src, surface)
-                err.setText("That VML didn't load as a form; your form is unchanged.")
-                return
+                err.setText("A form needs an @Window - nothing was changed."); _os.unlink(cand); return
             dlg.accept()
+            # Rebuild AFTER the dialog has closed. Tearing the surface down inside this modal click
+            # handler left dangling control widgets that crashed on the next click, and the designer
+            # pointing at a control that no longer existed - so defer it to the next event-loop turn.
+            def rebuild():
+                self.cmd_ClearDesign(surface)
+                if self.cmd_ImportVml(cand, surface) is False:   # validated above, but never lose the form
+                    self.cmd_ClearDesign(surface)
+                    self.cmd_ImportVml(src, surface)
+                try:
+                    self.vml("RunScript", "SelectionChanged")    # resync the designer to the rebuilt form
+                except Exception:
+                    pass
+                for f in (src, cand):
+                    try:
+                        _os.unlink(f)
+                    except Exception:
+                        pass
+            QTimer.singleShot(0, rebuild)
 
         save.clicked.connect(do_save)
         dlg.exec()
-        try:
-            _os.unlink(src)
-        except Exception:
-            pass
+        if dlg.result() != QDialog.Accepted:                     # cancelled: the save path cleans up its own temps
+            try:
+                _os.unlink(src)
+            except Exception:
+                pass
 
     def _import_vml(self, path, surface="Surface"):
         surf = self._surface(surface)
