@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 # TopCat installer for Linux (Ubuntu 22.04+ and similar).
-#   curl -fsSL https://github.com/wallisoft/vml/releases/download/topcat-v0.2/install.sh | bash
+#   curl -fsSL https://github.com/wallisoft/vml/releases/download/topcat-v0.3/install.sh | bash
 # Installs into your home folder: TopCat in your app menu and `topcat` in ~/.local/bin.
 # Asks for your password only to add one small system library. Re-run to update.
 
 set -euo pipefail
 
-URL="${TOPCAT_URL:-https://github.com/wallisoft/vml/releases/download/topcat-v0.2/topcat-linux-x86_64.tar.gz}"
+URL="${TOPCAT_URL:-https://github.com/wallisoft/vml/releases/download/topcat-v0.3/topcat-linux-x86_64.tar.gz}"
 DEST="$HOME/.local/opt/topcat"
 
 if [ "$(id -u)" -eq 0 ]; then
