@@ -11,7 +11,8 @@
 
 @Window TopCat
 Title=TopCat
-Version=0.2
+Version=0.3
+UpdateFrom=github:wallisoft/vml
 AppBar=true
 Icon=topcat.png
 TitleBar=Own
