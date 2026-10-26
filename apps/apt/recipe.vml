@@ -1,0 +1,9 @@
+# The Wallisoft apt repository: collect each app's newest .deb and publish the signed repo (see tools/apt/).
+@Recipe AptRepo
+Text=Apt repo
+
+@Build Publish
+Text=Publish apt repo
+Machine=here
+Kind=command
+Run=tools/apt/sync.sh
