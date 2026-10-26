@@ -23,3 +23,11 @@ Text=Quick export
 Machine=here
 Kind=export
 Platforms=linux, windows
+
+@Build Release
+Text=GitHub release
+Kind=github
+Tag=topcat-v{version}
+Assets=Linux, Windows
+AssetsRepo=wallisoft/vml
+AssetFiles=packaging/topcat/install.sh
