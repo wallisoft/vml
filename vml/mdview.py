@@ -88,13 +88,14 @@ class Reader:
         self.where = None                     # (kind, place): ("help", page) ("url", address) ("file", path) ("text", "")
         self.back_list, self.forward_list = [], []
         self.markdown_text = ""
+        self.tab_lang = "lua"           # which language the ~~~script tabs show
         self.net, self._reply = None, None
         browser.anchorClicked.connect(self.follow)
 
     # ---- showing
     def show_markdown(self, text, anchor=""):
         self.markdown_text = str(text or "")
-        self.browser.setHtml(markdown.to_html(self.markdown_text))
+        self.browser.setHtml(markdown.to_html(self.markdown_text, tab_lang=self.tab_lang))
         first = re.search(r"^#\s+(.+)$", self.markdown_text, re.M)
         if self.on_title and first:
             self.on_title(first.group(1).strip())
@@ -216,6 +217,13 @@ class Reader:
         href = qurl.toString()
         if href.startswith("#"):
             self.browser.scrollToAnchor(href[1:])
+            return
+        if href.startswith("lang:"):                 # a ~~~script tab: re-show this page in that language, keep our place
+            self.tab_lang = href[5:]
+            bar = self.browser.verticalScrollBar()
+            pos = bar.value()
+            self.browser.setHtml(markdown.to_html(self.markdown_text, tab_lang=self.tab_lang))
+            QTimer.singleShot(0, lambda: bar.setValue(pos))
             return
         kind, place = self.where or ("text", "")
         if re.match(r"^(mailto:|tel:)", href):

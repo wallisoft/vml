@@ -4,6 +4,19 @@
 
 Lua is Visualised's own language, and the one that runs everywhere: desktop, web and phone. On a computer, a script can also be Python, C#, Bash or PowerShell. Python and C# are built in the way Lua is: each form keeps its variables between scripts, `Vml()` calls answer at once, and the debugger stops in them and steps through them.
 
+## Your script, in every language
+
+Write a lesson's script once, in Lua, and the reader picks the language — the same script, translated:
+
+~~~script
+-- add up the squares
+local total = 0
+for i = 1, 4 do
+  total = total + i * i
+end
+Vml("SetProperty", "lblTotal", "Text", "Total " .. total)
+~~~
+
 ## Step 1: A Python script
 
 Give the script `Interpreter=python`:

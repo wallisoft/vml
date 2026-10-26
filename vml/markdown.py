@@ -88,7 +88,7 @@ def rule(colour, height, gap):
             f'<tr><td bgcolor="{colour}" height="{height}" style="font-size:1px">&nbsp;</td></tr></table>')
 
 
-def to_html(md, base_size=16):                              # GitHub's own: 16px, line height 1.5
+def to_html(md, base_size=16, tab_lang="lua"):                              # GitHub's own: 16px, line height 1.5
     lines = str(md or "").replace("\r\n", "\n").replace("\t", "    ").split("\n")
     out, para, lists = [], [], []                           # lists: the open ones, (kind, indent), innermost last
 
@@ -110,16 +110,38 @@ def to_html(md, base_size=16):                              # GitHub's own: 16px
         fence = re.match(r"^(```|~~~)", s)
         if fence:                                           # a code block
             flush_para(); close_lists()
+            info = s[len(fence.group(1)):].strip().lower()   # the word after the fence, e.g. script / lua
             body = []
             i += 1
             while i < len(lines) and not lines[i].strip().startswith(fence.group(1)):
                 body.append(lines[i])
                 i += 1
-            code = highlight("\n".join(body)).replace("\n", "<br>").replace("  ", "&nbsp; ")
-            out.append(f'<table width="100%" cellpadding="16" cellspacing="0" style="margin:0 0 16px 0">'
-                       f'<tr><td bgcolor="{TINT}" style="font-family:{MONO}; font-size:{round(base_size * 0.85)}px; '
-                       f'line-height:130%; color:{INK}">{code}</td></tr></table>')
             i += 1
+            src = "\n".join(body)
+            as_tabs = info in ("script", "tabs", "lua tabs", "vml")
+            if as_tabs:                                      # one Lua snippet, shown in every language (a tab bar)
+                from . import translate as _tr
+                lang = tab_lang if tab_lang in _tr.LANGS else "lua"
+                bits = []
+                for lg in _tr.LANGS:
+                    if lg == lang:
+                        bits.append(f'<b style="color:{INK}">{_tr.LABEL[lg]}</b>')
+                    else:
+                        bits.append(f'<a href="lang:{lg}" style="color:{LINK}; text-decoration:none">{_tr.LABEL[lg]}</a>')
+                bar = ' &nbsp;&middot;&nbsp; '.join(bits)
+                shown = _tr.translate(src, lang)
+            else:
+                bar, shown = None, src
+            code = highlight(shown).replace("\n", "<br>").replace("  ", "&nbsp; ")
+            cell = (f'<table width="100%" cellpadding="16" cellspacing="0" style="margin:0 0 {0 if as_tabs else 16}px 0">'
+                    f'<tr><td bgcolor="{TINT}" style="font-family:{MONO}; font-size:{round(base_size * 0.85)}px; '
+                    f'line-height:130%; color:{INK}">{code}</td></tr></table>')
+            if as_tabs:
+                out.append(f'<p style="margin:0 0 4px 0; font-size:{round(base_size * 0.82)}px">{bar}</p>')
+                out.append(cell)
+                out.append('<p style="margin:0 0 16px 0; font-size:2px">&nbsp;</p>')
+            else:
+                out.append(cell)
             continue
         m = re.match(r"^(#{1,6})\s+(.*?)\s*#*\s*$", s)
         if m:                                               # a heading
