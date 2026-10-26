@@ -129,7 +129,7 @@ def to_html(md, base_size=16, tab_lang="lua"):                              # Gi
                     else:
                         bits.append(f'<a href="lang:{lg}" style="color:{LINK}; text-decoration:none">{_tr.LABEL[lg]}</a>')
                 bar = ' &nbsp;&middot;&nbsp; '.join(bits)
-                shown = _tr.translate(src, lang)
+                shown = _tr.translate(src, "lua", lang)
             else:
                 bar, shown = None, src
             code = highlight(shown).replace("\n", "<br>").replace("  ", "&nbsp; ")
