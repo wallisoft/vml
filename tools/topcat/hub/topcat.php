@@ -96,22 +96,40 @@ if ($a === 'mint') {
 
 [$kind, $name, $owner] = who($pdo);
 
-if ($kind === 'machine') {
+// A machine checking in (next) or answering (answer). Two ways authenticate: a legacy per-machine token (it names
+// itself), OR a caller holding an owner key / TinyWeb API key (it names itself in the body, and the machine is
+// registered - and auto-claimed - under that owner). So a machine needs no tokens.json entry: its owner key is enough.
+$machine_mode = ($kind === 'machine') || (($a === 'next' || $a === 'answer') && $owner !== null);
+if ($machine_mode) {
     $b = body();
+    if ($kind === 'machine') {
+        $mname = $name;
+    } else {
+        $mname = (string)($b['machine'] ?? '');
+        if (!preg_match('/^[\w.-]{1,64}$/', $mname)) out(['error' => 'machine name?'], 400);
+        $chk = $pdo->prepare('SELECT owner FROM machines WHERE name = ?');
+        $chk->execute([$mname]);
+        $ex = $chk->fetch();
+        if ($ex && $ex['owner'] !== null && (int)$ex['owner'] !== $owner) out(['error' => 'a machine called that is owned by someone else'], 403);
+    }
     if ($a === 'next') {
         $apps = isset($b['apps']) ? json_encode($b['apps']) : null;
         $uuid = ((string)($b['uuid'] ?? '')) !== '' ? (string)$b['uuid'] : null;
         $pdo->prepare('INSERT INTO machines (name, seen, apps, address, uuid) VALUES (?, ?, ?, ?, ?)
                        ON CONFLICT(name) DO UPDATE SET seen = excluded.seen, address = excluded.address,
                        apps = COALESCE(excluded.apps, machines.apps), uuid = COALESCE(machines.uuid, excluded.uuid)')
-            ->execute([$name, microtime(true), $apps, $_SERVER['REMOTE_ADDR'] ?? '', $uuid]);
+            ->execute([$mname, microtime(true), $apps, $_SERVER['REMOTE_ADDR'] ?? '', $uuid]);
+        if ($kind !== 'machine') {                           // an owner-key agent claims its own machine automatically
+            $pdo->prepare('UPDATE machines SET owner = ? WHERE name = ? AND (owner IS NULL OR owner = ?)')
+                ->execute([$owner, $mname, $owner]);
+        }
         // (a request nobody picked up in 10 minutes is dropped: whoever asked has long given up)
         $pdo->prepare("UPDATE requests SET status = 'expired' WHERE status = 'queued' AND asked < ?")->execute([microtime(true) - 600]);
         $end = microtime(true) + 20;
         do {
             $pdo->beginTransaction();
             $r = $pdo->prepare("SELECT * FROM requests WHERE machine = ? AND status = 'queued' ORDER BY id LIMIT 1");
-            $r->execute([$name]);
+            $r->execute([$mname]);
             $job = $r->fetch();
             if ($job) {
                 $pdo->prepare("UPDATE requests SET status = 'taken', taken = ? WHERE id = ?")->execute([microtime(true), $job['id']]);
@@ -121,13 +139,13 @@ if ($kind === 'machine') {
             }
             $pdo->commit();
             usleep(500000);
-            $pdo->prepare('UPDATE machines SET seen = ? WHERE name = ?')->execute([microtime(true), $name]);
+            $pdo->prepare('UPDATE machines SET seen = ? WHERE name = ?')->execute([microtime(true), $mname]);
         } while (microtime(true) < $end);
         out(['id' => null]);
     }
     if ($a === 'answer') {
         $pdo->prepare("UPDATE requests SET status = 'answered', result = ?, answered = ? WHERE id = ? AND machine = ?")
-            ->execute([json_encode($b['result'] ?? null, JSON_UNESCAPED_UNICODE), microtime(true), (int)($b['id'] ?? 0), $name]);
+            ->execute([json_encode($b['result'] ?? null, JSON_UNESCAPED_UNICODE), microtime(true), (int)($b['id'] ?? 0), $mname]);
         out(['ok' => true]);
     }
     out(['error' => 'a machine can ask next or answer'], 400);
