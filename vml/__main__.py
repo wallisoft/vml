@@ -175,7 +175,15 @@ def main():
     designer = Path(a.vml).resolve() == (Path(__file__).resolve().parent.parent / "designer" / "designer.vml").resolve()
     if not a.db and not designer:                           # an app on its own keeps its settings, as on a phone
         eng.keep_settings(a.vml)
+    splash = None
+    if designer and not a.shot:                             # a brief branded splash so the first paint is not a black gap
+        from .splash import Splash
+        from . import __version__ as _ver
+        splash = Splash(f"Visualised {_ver}")
+        splash.show(); splash.say("Loading the designer\u2026")
     eng.load(a.vml)
+    if splash is not None:
+        splash.done(eng.windows[0].widget if eng.windows else None)
     if a.shot:
         def snap():
             eng.windows[0].widget.grab().save(a.shot)
