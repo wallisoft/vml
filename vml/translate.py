@@ -112,6 +112,26 @@ def _join(toks):
 # items: ("comment",t) ("assign",decl,var,rhs) ("call",e) ("return",e)
 #        ("open","for",v,a,b) ("open","if",cond) ("elif",cond) ("else",) ("open","while",cond) ("close",) ("raw",t) ("blank",)
 
+def _split_comment(line, lead):
+    """Split a line into (code, comment) at the first comment lead that's outside a string. comment is None
+    when there isn't one. Handles inline comments (Vml(...) -- note) that a naive tokenizer would mangle."""
+    strs = '"' if lead == "'" else "\"'"     # VB uses ' for comments, so there ' is never a string
+    i, q, n, L = 0, None, len(line), len(lead)
+    while i < n:
+        c = line[i]
+        if q:
+            if c == q:
+                q = None
+            i += 1
+            continue
+        if c in strs:
+            q = c; i += 1; continue
+        if line[i:i + L] == lead:
+            return line[:i].rstrip(), line[i + L:].strip()
+        i += 1
+    return line, None
+
+
 def read(code, lang):
     sp = SPEC[lang]
     items, blockstack = [], []                                      # blockstack: header indents of open python blocks
@@ -120,15 +140,15 @@ def read(code, lang):
             items.append(("blank",)); continue
         ind = len(raw) - len(raw.lstrip(" "))
         s = raw.strip()
+        s, trail = _split_comment(s, sp["comment"])              # peel a whole-line or inline comment off first
+        if not s:
+            items.append(("comment", trail if trail is not None else "")); continue
         if sp["pyblock"]:                                            # python: a dedent closes blocks; else/elif continue one
             cont = bool(re.match(r"^(elif\b|else\b)", s))
             while blockstack and (ind < blockstack[-1] or (ind == blockstack[-1] and not cont)):
                 items.append(("close",)); blockstack.pop()
-        # comment
-        cm = re.escape(sp["comment"])
-        m = re.match(rf"^{cm}\s?(.*)$", s)
-        if m:
-            items.append(("comment", m.group(1))); continue
+        if trail is not None:                                    # an inline comment: keep it, on its own line
+            items.append(("comment", trail))
         # closers (vb/csharp/lua) — a bare end / } / Next / End If / End While
         if not sp["pyblock"] and s in ("end", "}", "Next", "End If", "End While", "End"):
             items.append(("close",)); continue

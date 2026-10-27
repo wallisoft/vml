@@ -180,7 +180,7 @@ def main():
         from .splash import Splash
         from . import __version__ as _ver
         splash = Splash(f"Visualised {_ver}")
-        splash.show(); splash.say("Loading the designer\u2026")
+        splash.start("Loading the designer\u2026")
     eng.load(a.vml)
     if splash is not None:
         splash.done(eng.windows[0].widget if eng.windows else None)
