@@ -31,7 +31,7 @@ Width=336
 Height=92
 FontSize=28
 Content=Choose a tile to talk
-OnClick=Repeat
+OnClick=BannerTap
 Style=background:#0F766E;color:#FFFFFF;border:0;border-radius:18px;font-weight:700;padding:10px;box-shadow:0 3px 10px rgba(15,118,110,.30)
 
 @Button btnGear
@@ -44,6 +44,144 @@ FontSize=15
 Content=⚙
 OnClick=OpenSettings
 Style=background:rgba(255,255,255,.20);color:#FFFFFF;border:0;border-radius:9px
+
+@Timer tmrScan
+Parent=c
+Interval=1600
+IsEnabled=false
+OnTick=ScanTick
+
+@Rectangle rHi1
+Parent=c
+Canvas.Left=6
+Canvas.Top=110
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi2
+Parent=c
+Canvas.Left=122
+Canvas.Top=110
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi3
+Parent=c
+Canvas.Left=238
+Canvas.Top=110
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi4
+Parent=c
+Canvas.Left=6
+Canvas.Top=238
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi5
+Parent=c
+Canvas.Left=122
+Canvas.Top=238
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi6
+Parent=c
+Canvas.Left=238
+Canvas.Top=238
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi7
+Parent=c
+Canvas.Left=6
+Canvas.Top=366
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi8
+Parent=c
+Canvas.Left=122
+Canvas.Top=366
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi9
+Parent=c
+Canvas.Left=238
+Canvas.Top=366
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi10
+Parent=c
+Canvas.Left=6
+Canvas.Top=494
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi11
+Parent=c
+Canvas.Left=122
+Canvas.Top=494
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
+
+@Rectangle rHi12
+Parent=c
+Canvas.Left=238
+Canvas.Top=494
+Width=116
+Height=128
+Fill=#0F766E
+CornerRadius=22
+IsHitTestVisible=false
+IsVisible=false
 
 @Button btn1
 Parent=c
@@ -220,12 +358,23 @@ TextWrapping=Wrap
 Foreground=#51615F
 Text=One tile per line: an emoji, a short word, then = and the words to speak. Example: Toilet = I need the toilet. Blank line hides a tile.
 
+@Button btnScan
+Parent=pSet
+Canvas.Left=16
+Canvas.Top=112
+Width=328
+Height=46
+FontSize=17
+Content=Scan mode: off
+OnClick=ToggleScan
+Style=background:#FFFFFF;color:#0F766E;border:2px solid #0F766E;border-radius:14px;font-weight:700
+
 @TextBox txtPhrases
 Parent=pSet
 Canvas.Left=16
-Canvas.Top=114
+Canvas.Top=166
 Width=328
-Height=366
+Height=304
 FontSize=18
 AcceptsReturn=true
 TextWrapping=Wrap
@@ -233,9 +382,9 @@ TextWrapping=Wrap
 @Button btnReviewLog
 Parent=pSet
 Canvas.Left=16
-Canvas.Top=490
+Canvas.Top=478
 Width=328
-Height=46
+Height=44
 FontSize=17
 Content=Review the log
 OnClick=OpenLog
@@ -244,7 +393,7 @@ Style=background:#FFFFFF;color:#0F766E;border:2px solid #0F766E;border-radius:14
 @Button btnDone
 Parent=pSet
 Canvas.Left=16
-Canvas.Top=548
+Canvas.Top=530
 Width=328
 Height=56
 FontSize=20
@@ -420,6 +569,50 @@ function Say(i)
   Vml("Speak", t)
   Log(t)
 end
+
+-- scan mode: one switch, tiles light up in turn, the switch picks the lit one
+scanning = false
+scanPos = 0
+
+function visibleTiles()
+  local v = {}
+  for i = 1, 12 do if spoken[i] and spoken[i] ~= "" then v[#v + 1] = i end end
+  return v
+end
+
+function clearHi()
+  for i = 1, 12 do Vml("SetProperty", "rHi" .. i, "IsVisible", "false") end
+end
+
+function ScanStep()
+  local v = visibleTiles()
+  if #v == 0 then return end
+  scanPos = scanPos % #v + 1
+  clearHi()
+  Vml("SetProperty", "rHi" .. v[scanPos], "IsVisible", "true")
+end
+
+function ScanSelect()
+  local v = visibleTiles()
+  if #v == 0 or scanPos < 1 then return end
+  Say(v[((scanPos - 1) % #v) + 1])
+end
+
+function startScan(on)
+  scanning = on
+  Vml("SetProperty", "btnScan", "Content", on and "Scan mode: ON" or "Scan mode: off")
+  if on then
+    scanPos = 0
+    Vml("SetProperty", "btnBanner", "Content", "Press your switch to choose")
+    Vml("SetProperty", "tmrScan", "IsEnabled", "true")
+  else
+    Vml("SetProperty", "tmrScan", "IsEnabled", "false")
+    clearHi()
+    Vml("SetProperty", "btnBanner", "Content", "Choose a tile to talk")
+  end
+end
+
+if (Vml("GetSetting", "talker_scan") or "") == "1" then startScan(true) end
 LUA
 
 @Script Repeat
@@ -548,4 +741,28 @@ LUA
 Interpreter=lua
 <<LUA
 Vml("SetProperty", "pLog", "IsVisible", "false")
+LUA
+
+@Script ScanTick
+Interpreter=lua
+<<LUA
+ScanStep()
+LUA
+
+@Script BannerTap
+Interpreter=lua
+<<LUA
+if scanning then
+  ScanSelect()
+else
+  if last and last ~= "" then Vml("Speak", last) end
+end
+LUA
+
+@Script ToggleScan
+Interpreter=lua
+<<LUA
+local now = not scanning
+startScan(now)
+Vml("SetSetting", "talker_scan", now and "1" or "")
 LUA
