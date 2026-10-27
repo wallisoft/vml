@@ -20,22 +20,22 @@ LABEL = {"lua": "Lua", "vb": "VB", "csharp": "C#", "python": "Python"}
 SPEC = {
     "lua": dict(
         comment="--", decl="local ", end="", indent="  ", pyblock=False,
-        concat="..", neq="~=", words={"and": "and", "or": "or", "not": "not", "true": "true", "false": "false", "nil": "nil"},
+        concat="..", neq="~=", eq="==", words={"and": "and", "or": "or", "not": "not", "true": "true", "false": "false", "nil": "nil"},
         forl="for {v} = {a}, {b} do", iff="if {c} then", elf="elseif {c} then", els="else",
         whl="while {c} do", close={"for": "end", "if": "end", "while": "end"}),
     "vb": dict(
         comment="'", decl="Dim ", end="", indent="    ", pyblock=False,
-        concat=" & ", neq="<>", words={"and": "And", "or": "Or", "not": "Not", "true": "True", "false": "False", "nil": "Nothing"},
+        concat=" & ", neq="<>", eq="=", words={"and": "And", "or": "Or", "not": "Not", "true": "True", "false": "False", "nil": "Nothing"},
         forl="For {v} = {a} To {b}", iff="If {c} Then", elf="ElseIf {c} Then", els="Else",
         whl="While {c}", close={"for": "Next", "if": "End If", "while": "End While"}),
     "csharp": dict(
         comment="//", decl="var ", end=";", indent="    ", pyblock=False,
-        concat=" + ", neq="!=", words={"and": "&&", "or": "||", "not": "!", "true": "true", "false": "false", "nil": "null"},
+        concat=" + ", neq="!=", eq="==", words={"and": "&&", "or": "||", "not": "!", "true": "true", "false": "false", "nil": "null"},
         forl="for (var {v} = {a}; {v} <= {b}; {v}++) {{", iff="if ({c}) {{", elf="}} else if ({c}) {{", els="} else {",
         whl="while ({c}) {{", close={"for": "}", "if": "}", "while": "}"}),
     "python": dict(
         comment="#", decl="", end="", indent="    ", pyblock=True,
-        concat=" + ", neq="!=", words={"and": "and", "or": "or", "not": "not", "true": "True", "false": "False", "nil": "None"},
+        concat=" + ", neq="!=", eq="==", words={"and": "and", "or": "or", "not": "not", "true": "True", "false": "False", "nil": "None"},
         forl="for {v} in range({a}, {b1}):", iff="if {c}:", elf="elif {c}:", els="else:",
         whl="while {c}:", close={"for": "", "if": "", "while": ""}),
 }
@@ -50,7 +50,7 @@ CANON = {"&&": "and", "||": "or", "!": "not", "And": "and", "Or": "or", "Not": "
 
 def _toks(expr):
     out = []
-    for m in re.finditer(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\b\d+\.?\d*\b|[A-Za-z_]\w*|\.\.|[<>=!~]=|&&|\|\||[^\s]', expr):
+    for m in re.finditer(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\b\d+\.?\d*\b|[A-Za-z_]\w*|\.\.|[<>=!~]=|<>|&&|\|\||[^\s]', expr):
         t = m.group(0)
         k = "str" if t[0] in "\"'" else "num" if t[0].isdigit() else "word" if (t[:1].isalpha() or t[0] == "_") else "op"
         out.append((k, t))
@@ -66,6 +66,8 @@ def _to_canon(expr):
     for k, t in toks:
         if k == "op" and t == "&":                                   # VB's join operator is always a join
             parts.append((k, ".."))
+        elif k == "op" and t == "=":                                 # a lone '=' in an expression is VB equality
+            parts.append((k, "=="))
         elif k == "op" and t == "+":
             parts.append((k, ".." if joins else "+"))
         elif k == "op" and t in CANON:
@@ -86,6 +88,8 @@ def _from_canon(expr, lang):
             out.append((k, sp["concat"].strip())); has_concat = True
         elif k == "op" and t == "~=":
             out.append((k, sp["neq"]))
+        elif k == "op" and t == "==":
+            out.append((k, sp["eq"]))
         elif k == "word" and t in sp["words"] and t in ("and", "or", "not", "true", "false", "nil"):
             out.append(("word", sp["words"][t]))
         else:
