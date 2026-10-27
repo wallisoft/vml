@@ -161,6 +161,7 @@ Vml("SetProperty", "txtCode", "Breakpoints", table.concat(shown, ", "))
 Vml("SetProperty", "btnRemove", "IsEnabled", s.code ~= "" and "true" or "false")
 Vml("SetSetting", "editor_loaded_event", event)
 Vml("SetSetting", "editor_original", code)
+Vml("SetSetting", "editor_is_starter", s.code == "" and "1" or "")
 LUA
 
 @Script EditorBreaks
@@ -191,8 +192,8 @@ local oldlang = Vml("GetSetting", "editor_code_lang")
 if oldlang == "" then oldlang = "Lua" end
 local code = Vml("GetProperty", "txtCode", "Text")
 local ctrl, event = Vml("GetSetting", "editor_control"), Vml("GetProperty", "cboEvent", "SelectedItem")
-if code == Vml("GetSetting", "editor_original") then
-    -- nothing written yet: just swap the starter comment to the new language
+if Vml("GetSetting", "editor_is_starter") == "1" and code == Vml("GetSetting", "editor_original") then
+    -- an untouched blank starter: just swap the comment to the new language
     code = Vml("RunScript", "EditorStarter", chosen, ctrl, event)
     Vml("SetProperty", "txtCode", "Text", code)
     Vml("SetSetting", "editor_original", code)
