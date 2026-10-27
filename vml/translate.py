@@ -22,22 +22,26 @@ SPEC = {
         comment="--", decl="local ", end="", indent="  ", pyblock=False,
         concat="..", neq="~=", eq="==", words={"and": "and", "or": "or", "not": "not", "true": "true", "false": "false", "nil": "nil"},
         forl="for {v} = {a}, {b} do", iff="if {c} then", elf="elseif {c} then", els="else",
-        whl="while {c} do", close={"for": "end", "if": "end", "while": "end"}),
+        funcl="function {name}({args})",
+        whl="while {c} do", close={"for": "end", "if": "end", "while": "end", "func": "end"}),
     "vb": dict(
         comment="'", decl="Dim ", end="", indent="    ", pyblock=False,
         concat=" & ", neq="<>", eq="=", words={"and": "And", "or": "Or", "not": "Not", "true": "True", "false": "False", "nil": "Nothing"},
         forl="For {v} = {a} To {b}", iff="If {c} Then", elf="ElseIf {c} Then", els="Else",
-        whl="While {c}", close={"for": "Next", "if": "End If", "while": "End While"}),
+        funcl="Function {name}({args})",
+        whl="While {c}", close={"for": "Next", "if": "End If", "while": "End While", "func": "End Function"}),
     "csharp": dict(
         comment="//", decl="var ", end=";", indent="    ", pyblock=False,
         concat=" + ", neq="!=", eq="==", words={"and": "&&", "or": "||", "not": "!", "true": "true", "false": "false", "nil": "null"},
         forl="for (var {v} = {a}; {v} <= {b}; {v}++) {{", iff="if ({c}) {{", elf="}} else if ({c}) {{", els="} else {",
-        whl="while ({c}) {{", close={"for": "}", "if": "}", "while": "}"}),
+        funcl="object {name}({args}) {{",
+        whl="while ({c}) {{", close={"for": "}", "if": "}", "while": "}", "func": "}"}),
     "python": dict(
         comment="#", decl="", end="", indent="    ", pyblock=True,
         concat=" + ", neq="!=", eq="==", words={"and": "and", "or": "or", "not": "not", "true": "True", "false": "False", "nil": "None"},
         forl="for {v} in range({a}, {b1}):", iff="if {c}:", elf="elif {c}:", els="else:",
-        whl="while {c}:", close={"for": "", "if": "", "while": ""}),
+        funcl="def {name}({args}):",
+        whl="while {c}:", close={"for": "", "if": "", "while": "", "func": ""}),
 }
 
 # canonical operator/word forms (what the neutral middle uses); readers map INTO these, writers map OUT of these
@@ -154,7 +158,7 @@ def read(code, lang):
         if trail is not None:                                    # an inline comment: keep it, on its own line
             items.append(("comment", trail))
         # closers (vb/csharp/lua) — a bare end / } / Next / End If / End While
-        if not sp["pyblock"] and s in ("end", "}", "Next", "End If", "End While", "End"):
+        if not sp["pyblock"] and s in ("end", "}", "Next", "End If", "End While", "End Function", "End Sub", "End"):
             items.append(("close",)); continue
         # for (numeric) — try each language's shape
         m = (re.match(r"^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s+do$", s) or                      # lua
@@ -201,6 +205,19 @@ def read(code, lang):
         m = re.match(r"^[Rr]eturn\b\s*(.*?);?$", s)
         if m:
             items.append(("return", _to_canon(m.group(1)) if m.group(1) else "")); continue
+        # function / sub definition
+        m = (re.match(r"^(?:local\s+)?function\s+(\w+)\s*\((.*?)\)\s*$", s) or                    # lua
+             re.match(r"^(?:Function|Sub)\s+(\w+)\s*\((.*?)\)\s*$", s, re.I) or                   # vb
+             re.match(r"^def\s+(\w+)\s*\((.*?)\)\s*:$", s) or                                     # python
+             (re.match(r"^(?!(?:new|throw|await|yield|using|return)\b)"
+                       r"(?:(?:public|private|protected|internal|static|async)\s+)*"
+                       r"[\w<>\[\],.]+\s+(\w+)\s*\((.*?)\)\s*\{?$", s) if lang == "csharp" else None))
+        if m:
+            names = ", ".join(p.strip().split()[-1] for p in m.group(2).split(",") if p.strip())  # bare param names
+            items.append(("open", "func", m.group(1), names))
+            if sp["pyblock"]:
+                blockstack.append(ind)
+            continue
         # assignment:  [decl] name = expr
         m = re.match(r"^(local\s+|Dim\s+|var\s+)?([A-Za-z_]\w*)\s*=\s*(.+?);?$", s)
         if m and not re.match(r"^(if|for|while|elseif|elif|return|function)\b", s, re.I):
@@ -248,6 +265,8 @@ def write(items, lang):
                 line(sp["iff"].format(c=_from_canon(it[2], lang)))
             elif what == "while":
                 line(sp["whl"].format(c=_from_canon(it[2], lang)))
+            elif what == "func":
+                line(sp["funcl"].format(name=it[2], args=it[3]))
             stack.append(what); depth += 1
         elif kind == "elif":
             depth -= 1
