@@ -13,8 +13,8 @@ is never silently mistranslated.
 """
 import re
 
-LANGS = ("lua", "vb", "csharp", "python")
-LABEL = {"lua": "Lua", "vb": "VB", "csharp": "C#", "python": "Python"}
+LANGS = ("lua", "vb", "csharp", "python", "php")
+LABEL = {"lua": "Lua", "vb": "VB", "csharp": "C#", "python": "Python", "php": "PHP"}
 
 # Each language, declared as data. {a} {b} {v} {c} are filled in by the engine.
 SPEC = {
@@ -42,6 +42,12 @@ SPEC = {
         forl="for {v} in range({a}, {b1}):", iff="if {c}:", elf="elif {c}:", els="else:",
         funcl="def {name}({args}):",
         whl="while {c}:", close={"for": "", "if": "", "while": "", "func": ""}),
+    "php": dict(
+        comment="//", decl="", end=";", indent="    ", pyblock=False, sigil="$",
+        concat=" . ", neq="!=", eq="==", words={"and": "&&", "or": "||", "not": "!", "true": "true", "false": "false", "nil": "null"},
+        forl="for ({v} = {a}; {v} <= {b}; {v}++) {{", iff="if ({c}) {{", elf="}} else if ({c}) {{", els="} else {",
+        funcl="function {name}({args}) {{",
+        whl="while ({c}) {{", close={"for": "}", "if": "}", "while": "}", "func": "}"}),
 }
 
 # canonical operator/word forms (what the neutral middle uses); readers map INTO these, writers map OUT of these
@@ -61,7 +67,7 @@ def _toks(expr):
     return out
 
 
-def _to_canon(expr):
+def _to_canon(expr, lang=None):
     """An expression in any language -> neutral form: concat as .., word/op literals normalised, str() peeled off."""
     expr = re.sub(r"\bstr\(([^()]*)\)", r"\1", expr)                 # python str(x) -> x
     toks = _toks(expr)
@@ -72,6 +78,8 @@ def _to_canon(expr):
             parts.append((k, ".."))
         elif k == "op" and t == "=":                                 # a lone '=' in an expression is VB equality
             parts.append((k, "=="))
+        elif lang == "php" and k == "op" and t == ".":               # PHP joins with '.'
+            parts.append((k, ".."))
         elif k == "op" and t == "+":
             parts.append((k, ".." if joins else "+"))
         elif k == "op" and t in CANON:
@@ -140,6 +148,29 @@ def _split_comment(line, lead):
     return line, None
 
 
+def _strip_sigil(line, sig):
+    """Remove a leading sigil (PHP's $) from identifiers, leaving string literals untouched."""
+    out, i, q, n = [], 0, None, len(line)
+    while i < n:
+        c = line[i]
+        if q:
+            out.append(c)
+            if c == q:
+                q = None
+            i += 1; continue
+        if c in "\"'":
+            q = c; out.append(c); i += 1; continue
+        if c == sig and i + 1 < n and (line[i + 1].isalpha() or line[i + 1] == "_"):
+            i += 1; continue
+        out.append(c); i += 1
+    return "".join(out)
+
+
+def _apply_sigil(expr, sig, names):
+    """Put the sigil back on every known variable in an emitted expression (not calls, keywords or strings)."""
+    return _join([(k, sig + t if (k == "word" and t in names) else t) for k, t in _toks(expr)])
+
+
 def read(code, lang):
     sp = SPEC[lang]
     items, blockstack = [], []                                      # blockstack: header indents of open python blocks
@@ -151,6 +182,8 @@ def read(code, lang):
         s, trail = _split_comment(s, sp["comment"])              # peel a whole-line or inline comment off first
         if not s:
             items.append(("comment", trail if trail is not None else "")); continue
+        if sp.get("sigil"):                                          # php: $name -> name, so the rest reads as usual
+            s = _strip_sigil(s, sp["sigil"])
         if sp["pyblock"]:                                            # python: a dedent closes blocks; else/elif continue one
             cont = bool(re.match(r"^(elif\b|else\b)", s))
             while blockstack and (ind < blockstack[-1] or (ind == blockstack[-1] and not cont)):
@@ -166,7 +199,7 @@ def read(code, lang):
              re.match(r"^for\s*\(\s*(?:var\s+)?(\w+)\s*=\s*(.+?);\s*\w+\s*<=\s*(.+?);.*\)\s*\{?$", s) or  # c#
              re.match(r"^for\s+(\w+)\s+in\s+range\(\s*(.+?)\s*,\s*(.+?)\s*\)\s*:$", s))         # python
         if m:
-            v, a, b = m.group(1), _to_canon(m.group(2)), _to_canon(m.group(3))
+            v, a, b = m.group(1), _to_canon(m.group(2), lang), _to_canon(m.group(3), lang)
             if lang == "python":                                    # range stop is exclusive -> inclusive b
                 b = str(int(b) - 1) if b.strip().isdigit() else f"({b}) - 1"
             items.append(("open", "for", v, a, b))
@@ -178,7 +211,7 @@ def read(code, lang):
              re.match(r"^\}?\s*else\s+if\s*\(\s*(.+?)\s*\)\s*\{?$", s) or
              re.match(r"^elif\s+(.+?)\s*:$", s))
         if m:
-            items.append(("elif", _to_canon(m.group(1)))); continue
+            items.append(("elif", _to_canon(m.group(1), lang))); continue
         # else
         if re.match(r"^\}?\s*else\s*\{?$", s) or s.lower() in ("else", "else:"):
             items.append(("else",)); continue
@@ -187,7 +220,7 @@ def read(code, lang):
              re.match(r"^if\s*\(\s*(.+?)\s*\)\s*\{?$", s) or
              re.match(r"^if\s+(.+?)\s*:$", s))
         if m:
-            items.append(("open", "if", _to_canon(m.group(1))))
+            items.append(("open", "if", _to_canon(m.group(1), lang)))
             if sp["pyblock"]:
                 blockstack.append(ind)
             continue
@@ -197,18 +230,19 @@ def read(code, lang):
              re.match(r"^While\s+(.+?)$", s, re.I) or
              re.match(r"^while\s+(.+?)\s*:$", s))
         if m:
-            items.append(("open", "while", _to_canon(m.group(1))))
+            items.append(("open", "while", _to_canon(m.group(1), lang)))
             if sp["pyblock"]:
                 blockstack.append(ind)
             continue
         # return
         m = re.match(r"^[Rr]eturn\b\s*(.*?);?$", s)
         if m:
-            items.append(("return", _to_canon(m.group(1)) if m.group(1) else "")); continue
+            items.append(("return", _to_canon(m.group(1), lang) if m.group(1) else "")); continue
         # function / sub definition
         m = (re.match(r"^(?:local\s+)?function\s+(\w+)\s*\((.*?)\)\s*$", s) or                    # lua
              re.match(r"^(?:Function|Sub)\s+(\w+)\s*\((.*?)\)\s*$", s, re.I) or                   # vb
              re.match(r"^def\s+(\w+)\s*\((.*?)\)\s*:$", s) or                                     # python
+             (re.match(r"^function\s+(\w+)\s*\((.*?)\)\s*\{?$", s) if lang == "php" else None) or  # php
              (re.match(r"^(?!(?:new|throw|await|yield|using|return)\b)"
                        r"(?:(?:public|private|protected|internal|static|async)\s+)*"
                        r"[\w<>\[\],.]+\s+(\w+)\s*\((.*?)\)\s*\{?$", s) if lang == "csharp" else None))
@@ -221,9 +255,9 @@ def read(code, lang):
         # assignment:  [decl] name = expr
         m = re.match(r"^(local\s+|Dim\s+|var\s+)?([A-Za-z_]\w*)\s*=\s*(.+?);?$", s)
         if m and not re.match(r"^(if|for|while|elseif|elif|return|function)\b", s, re.I):
-            items.append(("assign", bool(m.group(1)), m.group(2), _to_canon(m.group(3)))); continue
+            items.append(("assign", bool(m.group(1)), m.group(2), _to_canon(m.group(3), lang))); continue
         # anything else: a call / statement
-        items.append(("call", _to_canon(s.rstrip(";"))))
+        items.append(("call", _to_canon(s.rstrip(";"), lang)))
     while blockstack:
         items.append(("close",)); blockstack.pop()
     return items
@@ -232,13 +266,19 @@ def read(code, lang):
 # ---- write neutral items -> a language --------------------------------------
 
 def write(items, lang):
-    if lang == "lua" and False:
-        pass
     sp = SPEC[lang]
-    out, stack, depth, declared = [], [], 0, set()
+    sig = sp.get("sigil")                                           # php: $ on every variable; others: none
+    out, stack, depth, declared, pvars = [], [], 0, set(), set()
 
     def line(t):
         out.append(sp["indent"] * depth + t)
+
+    def E(e):                                                       # an expression, sigil put back on known variables
+        s = _from_canon(e, lang)
+        return _apply_sigil(s, sig, pvars) if sig else s
+
+    def V(name):                                                   # a bare variable, sigilled where the language wants it
+        return (sig + name) if sig else name
 
     for it in items:
         kind = it[0]
@@ -248,29 +288,33 @@ def write(items, lang):
             line(f"{sp['comment']} {it[1]}".rstrip())
         elif kind == "assign":
             decl = sp["decl"] if it[2] not in declared else ""      # first mention of a variable declares it
-            declared.add(it[2])
-            line(f"{decl}{it[2]} = {_from_canon(it[3], lang)}{sp['end']}")
+            declared.add(it[2]); pvars.add(it[2])
+            line(f"{decl}{V(it[2])} = {E(it[3])}{sp['end']}")
         elif kind == "call":
-            line(f"{_from_canon(it[1], lang)}{sp['end']}")
+            line(f"{E(it[1])}{sp['end']}")
         elif kind == "return":
             kw = "Return" if lang == "vb" else "return"
-            line(f"{kw} {_from_canon(it[1], lang)}{sp['end']}".rstrip() if it[1] else f"{kw}{sp['end']}")
+            line(f"{kw} {E(it[1])}{sp['end']}".rstrip() if it[1] else f"{kw}{sp['end']}")
         elif kind == "open":
             what = it[1]
             if what == "for":
-                v, a, b = it[2], _from_canon(it[3], lang), _from_canon(it[4], lang)
+                pvars.add(it[2])
+                a, b = E(it[3]), E(it[4])
                 b1 = str(int(b) + 1) if b.strip().lstrip("-").isdigit() else f"({b}) + 1"
-                line(sp["forl"].format(v=v, a=a, b=b, b1=b1))
+                line(sp["forl"].format(v=V(it[2]), a=a, b=b, b1=b1))
             elif what == "if":
-                line(sp["iff"].format(c=_from_canon(it[2], lang)))
+                line(sp["iff"].format(c=E(it[2])))
             elif what == "while":
-                line(sp["whl"].format(c=_from_canon(it[2], lang)))
+                line(sp["whl"].format(c=E(it[2])))
             elif what == "func":
-                line(sp["funcl"].format(name=it[2], args=it[3]))
+                params = [p.strip() for p in it[3].split(",") if p.strip()]
+                for p in params:
+                    pvars.add(p)
+                line(sp["funcl"].format(name=it[2], args=", ".join(V(p) for p in params)))
             stack.append(what); depth += 1
         elif kind == "elif":
             depth -= 1
-            line(sp["elf"].format(c=_from_canon(it[1], lang)))
+            line(sp["elf"].format(c=E(it[1])))
             depth += 1
         elif kind == "else":
             depth -= 1

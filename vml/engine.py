@@ -3104,7 +3104,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         when either side isn't one of the four code languages - Bash and PowerShell are shells, not translatable."""
         from . import translate
         names = {"lua": "lua", "vb": "vb", "vbscript": "vb", "basic": "vb",
-                 "c#": "csharp", "csharp": "csharp", "cs": "csharp", "python": "python"}
+                 "c#": "csharp", "csharp": "csharp", "cs": "csharp", "python": "python", "php": "php"}
 
         def code_of(x):
             x = str(x or "").strip().lower()
