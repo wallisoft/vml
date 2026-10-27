@@ -1385,6 +1385,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
             raise KeyError(f"no control called '{name}'")
         return node
 
+    def _design_node(self, name):
+        """A control as the DESIGNER holds it. find() picks the active scope, which after a Preview is the
+        running copy of the form - and that copy's controls carry no design_scripts (their code is in the
+        store). So for the script editor, look in the scope that actually holds a DesignSurface."""
+        for nodes in self.scopes.values():
+            if name in nodes and any(n.type.name == "DesignSurface" for n in nodes.values()):
+                return nodes[name]
+        return self._node(name)
+
     def _resolve(self, node, prop):
         """Composite properties route to the inner control they're mapped to."""
         if prop in node.maps:
@@ -3082,10 +3091,31 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
                            f"{item}_Click")
             interp, code = getattr(surf, "menu_scripts", {}).get(handler, ("lua", ""))
             return json.dumps({"language": self._lang_label(interp), "code": code, "script": handler})
-        node = self._node(name)
+        node = self._design_node(name)
         interp, code = getattr(node, "design_scripts", {}).get(event, ("lua", ""))
         return json.dumps({"language": self._lang_label(interp), "code": code,
                            "script": node.props.get(event, "")})
+
+    def cmd_TranslateScript(self, code, from_lang, to_lang):
+        """Translate a script between languages, for the editor's language switch and the doc tabs. Returns ""
+        when either side isn't one of the four code languages - Bash and PowerShell are shells, not translatable."""
+        from . import translate
+        names = {"lua": "lua", "vb": "vb", "vbscript": "vb", "basic": "vb",
+                 "c#": "csharp", "csharp": "csharp", "cs": "csharp", "python": "python"}
+
+        def code_of(x):
+            x = str(x or "").strip().lower()
+            return names.get(x.split()[0], "") if x else ""
+
+        f, t = code_of(from_lang), code_of(to_lang)
+        if not f or not t:
+            return ""
+        if f == t:
+            return str(code)
+        try:
+            return translate.translate(str(code), f, t)
+        except Exception:
+            return ""
 
     def cmd_SetDesignScript(self, name, event, language, code):
         """Attach (or, with empty code, remove) a control's event script."""
@@ -3108,7 +3138,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
                     it["onclick"] = handler
             surf.widget.emit("OnChanged", {"selected_control": ""})
             return handler
-        node = self._node(name)
+        node = self._design_node(name)
         node.design_scripts = getattr(node, "design_scripts", {})
         if not str(code).strip():
             node.design_scripts.pop(event, None)
@@ -3531,6 +3561,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
 
     def cmd_FormOpenModal(self, path):
         """Open a form and wait until it closes; returns whatever it passed to SetDialogResult."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtWidgets import QApplication
+        # A modal that just closed had its widgets deleteLater()'d (see delete()); those deletions are still
+        # pending on the event loop. Finish them NOW, before we build the next form - otherwise reopening a
+        # form that has a CodeEditor builds a fresh one while the old one is half-destroyed, and Qt segfaults.
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         p = self._form_to_run(path)
         self.store.set_setting("dialog_result", "")
         before = len(self.windows)

@@ -150,6 +150,7 @@ local code = s.code
 if code == "" then code = Vml("RunScript", "EditorStarter", chosen, ctrl, event) end
 Vml("SetProperty", "txtCode", "Text", code)
 Vml("SetProperty", "txtCode", "Language", ((chosen:match("^(%S+)") or "Lua"):gsub("#", "Sharp")))
+Vml("SetSetting", "editor_code_lang", (chosen:match("^(%S+)") or "Lua"))
 -- the breakpoints this script has (by the name it runs under: Form_OnOpened, btnGo_OnClick...)
 local script = s.script ~= "" and s.script or (ctrl == "Surface" and ("Form_" .. event) or (ctrl .. "_" .. event))
 Vml("SetSetting", "editor_script", script)
@@ -185,15 +186,28 @@ local chosen = Vml("GetProperty", "cboLang", "SelectedItem") or ""
 if chosen:find("(needs", 1, true) and Vml("GetSetting", "editor_lang_quiet") ~= "1" then
     Vml("SetUpLanguage", chosen)
 end
--- swap the starter comment if nothing has been written yet
+local newlang = chosen:match("^(%S+)") or "Lua"
+local oldlang = Vml("GetSetting", "editor_code_lang")
+if oldlang == "" then oldlang = "Lua" end
 local code = Vml("GetProperty", "txtCode", "Text")
+local ctrl, event = Vml("GetSetting", "editor_control"), Vml("GetProperty", "cboEvent", "SelectedItem")
 if code == Vml("GetSetting", "editor_original") then
-    local ctrl, event = Vml("GetSetting", "editor_control"), Vml("GetProperty", "cboEvent", "SelectedItem")
-    code = Vml("RunScript", "EditorStarter", Vml("GetProperty", "cboLang", "SelectedItem"), ctrl, event)
+    -- nothing written yet: just swap the starter comment to the new language
+    code = Vml("RunScript", "EditorStarter", chosen, ctrl, event)
     Vml("SetProperty", "txtCode", "Text", code)
-    Vml("SetProperty", "txtCode", "Language", ((Vml("GetProperty", "cboLang", "SelectedItem"):match("^(%S+)") or "Lua"):gsub("#", "Sharp")))
     Vml("SetSetting", "editor_original", code)
+elseif newlang ~= oldlang then
+    -- real code: translate it from the old language to the new one
+    local translated = Vml("TranslateScript", code, oldlang, newlang)
+    if translated ~= "" then
+        Vml("SetProperty", "txtCode", "Text", translated)
+        Vml("SetProperty", "lblHint", "Text", "Translated " .. oldlang .. " to " .. newlang .. ": funcs and Vml() calls carry cleanly; check any fancy logic")
+    else
+        Vml("SetProperty", "lblHint", "Text", oldlang .. " and " .. newlang .. " don't translate between each other (a shell is its own thing) - the script is unchanged")
+    end
 end
+Vml("SetProperty", "txtCode", "Language", (newlang:gsub("#", "Sharp")))
+Vml("SetSetting", "editor_code_lang", newlang)
 LUA
 
 @Script EditorStarter
