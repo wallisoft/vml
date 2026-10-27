@@ -1,0 +1,393 @@
+# ============================================================================
+# Shinewater Talker - a simple talking board.
+#
+#   Big tiles; tap one and the tablet says it out loud. Made for care-home
+#   residents with little motor function and no interest in fiddly tech:
+#   nothing to read, nothing to set up, just tap and be heard. A carer edits
+#   the tiles to the person's own words behind the gear button.
+#
+#   Runs on a Windows/Linux desktop and as an Android app. Made with
+#   Visualised by Wallisoft.
+# ============================================================================
+
+@Window Talker
+Title=Shinewater Talker
+Version=0.1.0
+Width=360
+Height=652
+AppBar=true
+About=A simple talking board: tap a tile and it speaks aloud. Made with Visualised by Wallisoft.
+OnOpened=Opened
+
+@Canvas c
+Parent=Talker
+Background=#EEF2F2
+
+@Button btnBanner
+Parent=c
+Canvas.Left=12
+Canvas.Top=12
+Width=336
+Height=92
+FontSize=28
+Content=Choose a tile to talk
+OnClick=Repeat
+Style=background:#0F766E;color:#FFFFFF;border:0;border-radius:18px;font-weight:700;padding:10px;box-shadow:0 3px 10px rgba(15,118,110,.30)
+
+@Button btnGear
+Parent=c
+Canvas.Left=304
+Canvas.Top=18
+Width=40
+Height=28
+FontSize=15
+Content=⚙
+OnClick=OpenSettings
+Style=background:rgba(255,255,255,.20);color:#FFFFFF;border:0;border-radius:9px
+
+@Button btn1
+Parent=c
+Canvas.Left=12
+Canvas.Top=116
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=Yes
+OnClick=Tap1
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn2
+Parent=c
+Canvas.Left=128
+Canvas.Top=116
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=No
+OnClick=Tap2
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn3
+Parent=c
+Canvas.Left=244
+Canvas.Top=116
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=Please
+OnClick=Tap3
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn4
+Parent=c
+Canvas.Left=12
+Canvas.Top=244
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=Thank you
+OnClick=Tap4
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn5
+Parent=c
+Canvas.Left=128
+Canvas.Top=244
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=I'm in pain
+OnClick=Tap5
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn6
+Parent=c
+Canvas.Left=244
+Canvas.Top=244
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=I need the toilet
+OnClick=Tap6
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn7
+Parent=c
+Canvas.Left=12
+Canvas.Top=372
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=I'm thirsty
+OnClick=Tap7
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn8
+Parent=c
+Canvas.Left=128
+Canvas.Top=372
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=I'm hungry
+OnClick=Tap8
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn9
+Parent=c
+Canvas.Left=244
+Canvas.Top=372
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=I'm too hot
+OnClick=Tap9
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn10
+Parent=c
+Canvas.Left=12
+Canvas.Top=500
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=I'm too cold
+OnClick=Tap10
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn11
+Parent=c
+Canvas.Left=128
+Canvas.Top=500
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=I'm tired
+OnClick=Tap11
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+@Button btn12
+Parent=c
+Canvas.Left=244
+Canvas.Top=500
+Width=104
+Height=116
+FontSize=20
+TextWrapping=Wrap
+Content=Help please
+OnClick=Tap12
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:18px;font-weight:700;box-shadow:0 2px 6px rgba(16,33,31,.07)
+
+# --- carer settings (hidden until the gear is tapped) ---
+@Canvas pSet
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=360
+Height=652
+Background=#FFFFFF
+IsVisible=false
+
+@TextBlock lblSetHead
+Parent=pSet
+Canvas.Left=16
+Canvas.Top=18
+Width=328
+Height=34
+FontSize=22
+Foreground=#10211F
+Text=Edit the tiles
+
+@TextBlock lblSetHelp
+Parent=pSet
+Canvas.Left=16
+Canvas.Top=54
+Width=328
+Height=54
+FontSize=14
+TextWrapping=Wrap
+Foreground=#51615F
+Text=One phrase per line, in the person's own words. A blank line hides that tile. Up to 12 tiles.
+
+@TextBox txtPhrases
+Parent=pSet
+Canvas.Left=16
+Canvas.Top=114
+Width=328
+Height=428
+FontSize=18
+AcceptsReturn=true
+TextWrapping=Wrap
+
+@Button btnDone
+Parent=pSet
+Canvas.Left=16
+Canvas.Top=558
+Width=328
+Height=58
+FontSize=20
+Content=Save and close
+OnClick=SaveSettings
+Style=background:#0F766E;color:#FFFFFF;border:0;border-radius:14px;font-weight:700
+
+# ============================================================================
+# Scripts. Opened runs when the form opens and defines what the taps share.
+# ============================================================================
+
+@Script Opened
+Interpreter=lua
+<<LUA
+default = {"Yes", "No", "Please", "Thank you", "I'm in pain", "I need the toilet",
+           "I'm thirsty", "I'm hungry", "I'm too hot", "I'm too cold", "I'm tired", "Help please"}
+phrases = {}
+last = ""
+
+function wrap(t, w)
+  local out, line = {}, ""
+  for word in t:gmatch("%S+") do
+    if line == "" then line = word
+    elseif #line + 1 + #word <= w then line = line .. " " .. word
+    else out[#out + 1] = line; line = word end
+  end
+  if line ~= "" then out[#out + 1] = line end
+  return table.concat(out, "\n")
+end
+
+local saved = Vml("GetSetting", "talker_phrases") or ""
+local list = {}
+if saved ~= "" then
+  for line in (saved .. "\n"):gmatch("(.-)\n") do list[#list + 1] = line end
+else
+  list = default
+end
+
+for i = 1, 12 do
+  local t = list[i] or ""
+  phrases[i] = t
+  Vml("SetProperty", "btn" .. i, "Content", wrap(t, 8))
+  Vml("SetProperty", "btn" .. i, "IsVisible", t ~= "" and "true" or "false")
+end
+
+function Say(i)
+  local t = phrases[i] or ""
+  if t == "" then return end
+  last = t
+  Vml("SetProperty", "btnBanner", "Content", t)
+  Vml("Speak", t)
+end
+LUA
+
+@Script Repeat
+Interpreter=lua
+<<LUA
+if last and last ~= "" then Vml("Speak", last) end
+LUA
+
+@Script Tap1
+Interpreter=lua
+<<LUA
+Say(1)
+LUA
+
+@Script Tap2
+Interpreter=lua
+<<LUA
+Say(2)
+LUA
+
+@Script Tap3
+Interpreter=lua
+<<LUA
+Say(3)
+LUA
+
+@Script Tap4
+Interpreter=lua
+<<LUA
+Say(4)
+LUA
+
+@Script Tap5
+Interpreter=lua
+<<LUA
+Say(5)
+LUA
+
+@Script Tap6
+Interpreter=lua
+<<LUA
+Say(6)
+LUA
+
+@Script Tap7
+Interpreter=lua
+<<LUA
+Say(7)
+LUA
+
+@Script Tap8
+Interpreter=lua
+<<LUA
+Say(8)
+LUA
+
+@Script Tap9
+Interpreter=lua
+<<LUA
+Say(9)
+LUA
+
+@Script Tap10
+Interpreter=lua
+<<LUA
+Say(10)
+LUA
+
+@Script Tap11
+Interpreter=lua
+<<LUA
+Say(11)
+LUA
+
+@Script Tap12
+Interpreter=lua
+<<LUA
+Say(12)
+LUA
+
+@Script OpenSettings
+Interpreter=lua
+<<LUA
+local t = {}
+for i = 1, 12 do t[i] = phrases[i] or "" end
+while #t > 0 and (t[#t] == nil or t[#t] == "") do t[#t] = nil end
+Vml("SetProperty", "txtPhrases", "Text", table.concat(t, "\n"))
+Vml("SetProperty", "pSet", "IsVisible", "true")
+LUA
+
+@Script SaveSettings
+Interpreter=lua
+<<LUA
+local txt = Vml("GetProperty", "txtPhrases", "Text") or ""
+Vml("SetSetting", "talker_phrases", txt)
+local list = {}
+for line in (txt .. "\n"):gmatch("(.-)\n") do list[#list + 1] = line end
+for i = 1, 12 do
+  local s = list[i] or ""
+  phrases[i] = s
+  Vml("SetProperty", "btn" .. i, "Content", wrap(s, 8))
+  Vml("SetProperty", "btn" .. i, "IsVisible", s ~= "" and "true" or "false")
+end
+Vml("SetProperty", "pSet", "IsVisible", "false")
+LUA
