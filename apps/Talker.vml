@@ -51,7 +51,7 @@ Canvas.Left=12
 Canvas.Top=116
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=Yes
 OnClick=Tap1
@@ -63,7 +63,7 @@ Canvas.Left=128
 Canvas.Top=116
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=No
 OnClick=Tap2
@@ -75,7 +75,7 @@ Canvas.Left=244
 Canvas.Top=116
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=Please
 OnClick=Tap3
@@ -87,7 +87,7 @@ Canvas.Left=12
 Canvas.Top=244
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=Thank you
 OnClick=Tap4
@@ -99,7 +99,7 @@ Canvas.Left=128
 Canvas.Top=244
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=I'm in pain
 OnClick=Tap5
@@ -111,7 +111,7 @@ Canvas.Left=244
 Canvas.Top=244
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=I need the toilet
 OnClick=Tap6
@@ -123,7 +123,7 @@ Canvas.Left=12
 Canvas.Top=372
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=I'm thirsty
 OnClick=Tap7
@@ -135,7 +135,7 @@ Canvas.Left=128
 Canvas.Top=372
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=I'm hungry
 OnClick=Tap8
@@ -147,7 +147,7 @@ Canvas.Left=244
 Canvas.Top=372
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=I'm too hot
 OnClick=Tap9
@@ -159,7 +159,7 @@ Canvas.Left=12
 Canvas.Top=500
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=I'm too cold
 OnClick=Tap10
@@ -171,7 +171,7 @@ Canvas.Left=128
 Canvas.Top=500
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=I'm tired
 OnClick=Tap11
@@ -183,7 +183,7 @@ Canvas.Left=244
 Canvas.Top=500
 Width=104
 Height=116
-FontSize=20
+FontSize=26
 TextWrapping=Wrap
 Content=Help please
 OnClick=Tap12
@@ -218,7 +218,7 @@ Height=54
 FontSize=14
 TextWrapping=Wrap
 Foreground=#51615F
-Text=One phrase per line, in the person's own words. A blank line hides that tile. Up to 12 tiles.
+Text=One tile per line: an emoji, a short word, then = and the words to speak. Example: Toilet = I need the toilet. Blank line hides a tile.
 
 @TextBox txtPhrases
 Parent=pSet
@@ -248,9 +248,24 @@ Style=background:#0F766E;color:#FFFFFF;border:0;border-radius:14px;font-weight:7
 @Script Opened
 Interpreter=lua
 <<LUA
-default = {"Yes", "No", "Please", "Thank you", "I'm in pain", "I need the toilet",
-           "I'm thirsty", "I'm hungry", "I'm too hot", "I'm too cold", "I'm tired", "Help please"}
-phrases = {}
+-- Each tile is one line:  <emoji> <short label shown> = <words spoken>
+-- A line with no "=" speaks its label; a line with no leading emoji shows just the word.
+default = {
+  "\240\159\145\141 Yes",
+  "\240\159\145\142 No",
+  "\240\159\153\143 Please",
+  "\240\159\152\138 Thanks = Thank you",
+  "\240\159\164\149 Pain = I'm in pain",
+  "\240\159\154\189 Toilet = I need the toilet",
+  "\240\159\165\164 Drink = I'm thirsty",
+  "\240\159\141\189 Food = I'm hungry",
+  "\240\159\165\181 Hot = I'm too hot",
+  "\240\159\165\182 Cold = I'm too cold",
+  "\240\159\152\180 Tired = I'm tired",
+  "\240\159\134\152 Help = Help please",
+}
+lines = {}
+spoken = {}
 last = ""
 
 function wrap(t, w)
@@ -264,6 +279,33 @@ function wrap(t, w)
   return table.concat(out, "\n")
 end
 
+function parse(s)
+  local emoji = ""
+  local first, remain = s:match("^(%S+)%s+(.*)$")
+  if first and first:byte(1) and first:byte(1) >= 240 then    -- a leading 4-byte char is the emoji
+    emoji = first; s = remain
+  end
+  local label, say = s:match("^(.-)%s*=%s*(.*)$")
+  if not label then label, say = s, s end
+  if say == nil or say == "" then say = label end
+  return emoji, label, say
+end
+
+function applyLine(i, line)
+  line = line or ""
+  lines[i] = line
+  if line:match("^%s*$") then
+    spoken[i] = ""
+    Vml("SetProperty", "btn" .. i, "Content", "")
+    Vml("SetProperty", "btn" .. i, "IsVisible", "false")
+    return
+  end
+  local e, l, say = parse(line)
+  spoken[i] = say
+  Vml("SetProperty", "btn" .. i, "Content", (e ~= "" and (e .. "\n") or "") .. wrap(l, 10))
+  Vml("SetProperty", "btn" .. i, "IsVisible", "true")
+end
+
 local saved = Vml("GetSetting", "talker_phrases") or ""
 local list = {}
 if saved ~= "" then
@@ -271,16 +313,10 @@ if saved ~= "" then
 else
   list = default
 end
-
-for i = 1, 12 do
-  local t = list[i] or ""
-  phrases[i] = t
-  Vml("SetProperty", "btn" .. i, "Content", wrap(t, 8))
-  Vml("SetProperty", "btn" .. i, "IsVisible", t ~= "" and "true" or "false")
-end
+for i = 1, 12 do applyLine(i, list[i] or "") end
 
 function Say(i)
-  local t = phrases[i] or ""
+  local t = spoken[i] or ""
   if t == "" then return end
   last = t
   Vml("SetProperty", "btnBanner", "Content", t)
@@ -370,7 +406,7 @@ LUA
 Interpreter=lua
 <<LUA
 local t = {}
-for i = 1, 12 do t[i] = phrases[i] or "" end
+for i = 1, 12 do t[i] = lines[i] or "" end
 while #t > 0 and (t[#t] == nil or t[#t] == "") do t[#t] = nil end
 Vml("SetProperty", "txtPhrases", "Text", table.concat(t, "\n"))
 Vml("SetProperty", "pSet", "IsVisible", "true")
@@ -383,11 +419,6 @@ local txt = Vml("GetProperty", "txtPhrases", "Text") or ""
 Vml("SetSetting", "talker_phrases", txt)
 local list = {}
 for line in (txt .. "\n"):gmatch("(.-)\n") do list[#list + 1] = line end
-for i = 1, 12 do
-  local s = list[i] or ""
-  phrases[i] = s
-  Vml("SetProperty", "btn" .. i, "Content", wrap(s, 8))
-  Vml("SetProperty", "btn" .. i, "IsVisible", s ~= "" and "true" or "false")
-end
+for i = 1, 12 do applyLine(i, list[i] or "") end
 Vml("SetProperty", "pSet", "IsVisible", "false")
 LUA
