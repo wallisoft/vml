@@ -225,21 +225,106 @@ Parent=pSet
 Canvas.Left=16
 Canvas.Top=114
 Width=328
-Height=428
+Height=366
 FontSize=18
 AcceptsReturn=true
 TextWrapping=Wrap
 
+@Button btnReviewLog
+Parent=pSet
+Canvas.Left=16
+Canvas.Top=490
+Width=328
+Height=46
+FontSize=17
+Content=Review the log
+OnClick=OpenLog
+Style=background:#FFFFFF;color:#0F766E;border:2px solid #0F766E;border-radius:14px;font-weight:700
+
 @Button btnDone
 Parent=pSet
 Canvas.Left=16
-Canvas.Top=558
+Canvas.Top=548
 Width=328
-Height=58
+Height=56
 FontSize=20
 Content=Save and close
 OnClick=SaveSettings
 Style=background:#0F766E;color:#FFFFFF;border:0;border-radius:14px;font-weight:700
+
+# --- the log (carer/family review), hidden until opened ---
+@Canvas pLog
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=360
+Height=652
+Background=#FFFFFF
+IsVisible=false
+
+@TextBlock lblLogHead
+Parent=pLog
+Canvas.Left=16
+Canvas.Top=18
+Width=328
+Height=30
+FontSize=22
+Foreground=#10211F
+Text=What was said
+
+@TextBlock lblLogHelp
+Parent=pLog
+Canvas.Left=16
+Canvas.Top=50
+Width=328
+Height=20
+FontSize=13
+Foreground=#51615F
+Text=Newest first. Kept on this tablet only.
+
+@TextBox txtLog
+Parent=pLog
+Canvas.Left=16
+Canvas.Top=78
+Width=328
+Height=404
+FontSize=15
+AcceptsReturn=true
+TextWrapping=Wrap
+IsReadOnly=true
+
+@Button btnSaveLog
+Parent=pLog
+Canvas.Left=16
+Canvas.Top=492
+Width=328
+Height=48
+FontSize=17
+Content=Save to a file (for family / trustees)
+OnClick=SaveLog
+Style=background:#0F766E;color:#FFFFFF;border:0;border-radius:14px;font-weight:700
+
+@Button btnClearLog
+Parent=pLog
+Canvas.Left=16
+Canvas.Top=550
+Width=158
+Height=44
+FontSize=16
+Content=Clear log
+OnClick=ClearLog
+Style=background:#FFFFFF;color:#B4531A;border:2px solid #E3C3B0;border-radius:14px;font-weight:700
+
+@Button btnBackLog
+Parent=pLog
+Canvas.Left=186
+Canvas.Top=550
+Width=158
+Height=44
+FontSize=16
+Content=Back
+OnClick=CloseLog
+Style=background:#FFFFFF;color:#10211F;border:2px solid #CFDAD9;border-radius:14px;font-weight:700
 
 # ============================================================================
 # Scripts. Opened runs when the form opens and defines what the taps share.
@@ -315,12 +400,25 @@ else
 end
 for i = 1, 12 do applyLine(i, list[i] or "") end
 
+function Log(text)
+  local line = os.date("%d %b  %H:%M") .. "   " .. text
+  local log = Vml("GetSetting", "talker_log") or ""
+  log = line .. "\n" .. log
+  local kept, n = {}, 0
+  for ln in (log .. "\n"):gmatch("(.-)\n") do
+    n = n + 1
+    if n <= 800 then kept[#kept + 1] = ln else break end
+  end
+  Vml("SetSetting", "talker_log", table.concat(kept, "\n"))
+end
+
 function Say(i)
   local t = spoken[i] or ""
   if t == "" then return end
   last = t
   Vml("SetProperty", "btnBanner", "Content", t)
   Vml("Speak", t)
+  Log(t)
 end
 LUA
 
@@ -421,4 +519,33 @@ local list = {}
 for line in (txt .. "\n"):gmatch("(.-)\n") do list[#list + 1] = line end
 for i = 1, 12 do applyLine(i, list[i] or "") end
 Vml("SetProperty", "pSet", "IsVisible", "false")
+LUA
+
+@Script OpenLog
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "txtLog", "Text", Vml("GetSetting", "talker_log") or "")
+Vml("SetProperty", "pSet", "IsVisible", "false")
+Vml("SetProperty", "pLog", "IsVisible", "true")
+LUA
+
+@Script SaveLog
+Interpreter=lua
+<<LUA
+local log = Vml("GetSetting", "talker_log") or ""
+if log == "" then log = "(nothing said yet)" end
+Vml("SaveFile", "shinewater-talker-log.txt", log)
+LUA
+
+@Script ClearLog
+Interpreter=lua
+<<LUA
+Vml("SetSetting", "talker_log", "")
+Vml("SetProperty", "txtLog", "Text", "")
+LUA
+
+@Script CloseLog
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "pLog", "IsVisible", "false")
 LUA
