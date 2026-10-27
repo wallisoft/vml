@@ -1386,10 +1386,13 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         return node
 
     def _design_node(self, name):
-        """A control as the DESIGNER holds it. find() picks the active scope, which after a Preview is the
-        running copy of the form - and that copy's controls carry no design_scripts (their code is in the
-        store). So for the script editor, look in the scope that actually holds a DesignSurface."""
-        for nodes in self.scopes.values():
+        """A control as the DESIGNER holds it. The form's controls live in a scope keyed "design:..."; look there.
+        find()/the active scope is unreliable here - after a Preview it's the running copy of the form, whose
+        controls carry no design_scripts (their code is in the store), so the script editor would read blanks."""
+        for key, nodes in self.scopes.items():
+            if str(key).startswith("design:") and name in nodes:
+                return nodes[name]
+        for nodes in self.scopes.values():                   # fallback: a scope that holds a DesignSurface node
             if name in nodes and any(n.type.name == "DesignSurface" for n in nodes.values()):
                 return nodes[name]
         return self._node(name)
