@@ -86,10 +86,11 @@ def steps():
 
     # ---- the window's edge
     win = w("Controls")
-    check("a plain form has no edge of its own", win.edge_name(), "")
+    from vml.theme import theme
+    check("a plain form has an edge all the same: 2px, a quiet grey", (win.edge_name(), win.edge.width_px), (theme().edge.lower(), 2))
     eng.cmd_SetProperty("Controls", "BorderBrush", "#1E3A8A"); settle()
     img = win.grab().toImage()
-    check("BorderBrush draws a one-pixel edge round the window", (win.edge_name(), img.pixelColor(0, 100).name(), img.pixelColor(img.width() - 1, 100).name(), img.pixelColor(100, img.height() - 1).name(), img.pixelColor(3, 100).name()),
+    check("BorderBrush draws its edge round the window (2px unless it says)", (win.edge_name(), img.pixelColor(0, 100).name(), img.pixelColor(img.width() - 1, 100).name(), img.pixelColor(100, img.height() - 1).name(), img.pixelColor(3, 100).name()),
           ("#1e3a8a", "#1e3a8a", "#1e3a8a", "#1e3a8a", "#ffffff"))
     check("...without moving or shrinking what is inside", (w("ControlsCanvas").width(), w("ControlsCanvas").x()), (win.width(), 0))
     eng.cmd_SetProperty("Controls", "BorderThickness", "0"); settle()
@@ -103,10 +104,14 @@ def steps():
 
     # ---- Visualised's own dialogs
     seen = {}
-    def press(label, typed=None):
+    def press(label, typed=None, tries=[0]):
+        tries[0] = 0
         def go():
             box = next((x for x in app.topLevelWidgets() if isinstance(x, dialogs.Box) and x.isVisible()), None)
-            if box is None:
+            if box is None:                                    # not on screen yet (a slower machine): look again
+                tries[0] += 1
+                if tries[0] < 100:
+                    QTimer.singleShot(100, go)
                 return
             seen["edge"], seen["text"], seen["buttons"] = box.edge.name(), box.text.text(), box.buttons
             seen["selectable"] = bool(box.text.textInteractionFlags() & Qt.TextSelectableByMouse)
@@ -129,9 +134,14 @@ def steps():
     check("a box is as wide as what it says, so one line stays one line", wide.text.heightForWidth(wide.text.minimumWidth()) <= wide.text.fontMetrics().lineSpacing() + 2)
     wide.resize(wide.sizeHint())
     shot = wide.grab().toImage()
-    check("its own title bar is the colour of its edge, so the frame goes all the way round",
-          (wide.bar.caption.text(), bool(wide.windowFlags() & Qt.FramelessWindowHint), {shot.pixelColor(x, y).name() for x, y in ((0, 0), (shot.width() - 1, 5), (40, 3), (0, shot.height() - 1), (shot.width() - 1, shot.height() - 1))}),
-          ("Import", True, {"#1e3a8a"}))
+    from vml.dialogs import SHADOW, ACCENT
+    mid = shot.width() // 2
+    check("drawn as a card: its own head, no desktop frame, the opener's colour along its top, see-through round it",
+          (wide.bar.caption.text(), bool(wide.windowFlags() & Qt.FramelessWindowHint), shot.pixelColor(mid, SHADOW + 1).name(),
+           shot.pixelColor(0, 0).alpha()),
+          ("Import", True, "#1e3a8a", 0))
+    check("its buttons sit on a pale band along the foot",
+          shot.pixelColor(SHADOW + 30, wide.footer.mapTo(wide, wide.footer.rect().topLeft()).y() + 6).name(), "#f7f8fa")
 
     # ---- on the design surface
     for kind in ("RadioButton", "Image", "DataGrid", "TreeView"):
@@ -156,6 +166,17 @@ def steps():
     print(f"\n{sum(ok)}/{len(ok)} passed")
     app.quit()
 
-QTimer.singleShot(400, steps)
+def guarded():
+    """Run the steps; if one raises, say what and stop, rather than leave the event loop running for ever."""
+    import traceback
+    try:
+        steps()
+    except Exception:
+        traceback.print_exc()
+        ok.append(False)
+        app.quit()
+
+
+QTimer.singleShot(400, guarded)
 app.exec()
 sys.exit(0 if all(ok) else 1)

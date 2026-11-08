@@ -4,6 +4,7 @@
 - [Your first app](How-To-Build-Your-First-Visualised-App)
 - [Several forms](How-To-Build-an-App-with-Several-Forms)
 - [Debugging](How-To-Debug-Your-Scripts)
+- [Python and C#](How-To-Script-in-Python-and-CSharp)
 - [Help and Markdown](How-To-Show-Help-and-Documents-with-Markdown)
 
 **Looks**

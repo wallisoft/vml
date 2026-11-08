@@ -799,7 +799,8 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
-        s.setTextZoom(100);                             // forms are drawn to the pixel: the phone's text size mustn't push them about
+        s.setTextZoom(120);                             // a form drawn for a computer, shrunk to a phone's width, reads small: its
+                                                        // words a fifth bigger (the boxes stay where they were drawn)
         s.setSupportMultipleWindows(false);
         device = new Device(this);
         web.addJavascriptInterface(device, "VisualisedDevice");

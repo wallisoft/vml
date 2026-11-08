@@ -10,9 +10,11 @@ end
 
 function ShowSurfaceMenu(...)
     local selected = Vml("GetProperty", "Surface", "Selected") ~= ""
-    for _, item in ipairs({"CtxEditScript", "CtxDuplicate", "CtxFront", "CtxBack", "CtxDelete"}) do
+    for _, item in ipairs({"CtxEditScript", "CtxCut", "CtxCopy", "CtxDuplicate", "CtxFront", "CtxBack", "CtxDelete"}) do
         Vml("SetMenuItemEnabled", item, selected)
     end
+    Vml("SetMenuItemEnabled", "CtxPaste", Vml("CanPaste") == "true")
+    Vml("SetMenuItemEnabled", "CtxAlign", Vml("GetProperty", "Surface", "SelectedAll"):find(",") ~= nil)   -- a group
     Vml("SetMenuItemEnabled", "CtxAddMenu", Vml("GetDesignMenu", "Surface") == "[]")
     Vml("ShowContextMenu", "SurfaceMenu")
 end
@@ -24,6 +26,7 @@ function SelectionChanged(...)
 end
 
 function DesignChanged(...)
+    Vml("UndoMark")
     Vml("SetSetting", "dirty", "true")
     Vml("RunScript", "UpdateTitle")
     Vml("RunScript", "ShowGeometry")
@@ -72,11 +75,18 @@ function DeleteSelected(...)
         Vml("SetStatusText", "Deleted " .. sel:sub(6))
         return
     end
-    Vml("DeleteControl", sel)
+    local all = Vml("GetProperty", "Surface", "SelectedAll")
+    local gone = 0
+    for name in string.gmatch(all ~= "" and all or sel, "[^,]+") do
+        if Vml("ControlExists", name) == "true" then       -- (one inside a frame went with the frame)
+            Vml("DeleteControl", name)
+            gone = gone + 1
+        end
+    end
     Vml("SetProperty", "Surface", "Selected", "")
     Vml("RunScript", "SelectionChanged")
     Vml("RunScript", "DesignChanged")
-    Vml("SetStatusText", "Deleted " .. sel)
+    Vml("SetStatusText", gone > 1 and ("Deleted " .. gone .. " controls") or ("Deleted " .. sel))
 end
 
 function DuplicateSelected(...)
@@ -92,4 +102,74 @@ end
 function SendSelectedToBack(...)
     local sel = Vml("GetProperty", "Surface", "Selected")
     if sel ~= "" then Vml("SendToBack", sel) end
+end
+
+-- ---------------------------------------------------------------- undo, redo, cut, copy, paste
+function UndoDesign(...)
+    if Vml("Undo") == "true" then
+        Vml("SetSetting", "dirty", "true")
+        Vml("RunScript", "UpdateTitle")
+        Vml("SetStatusText", "Undone")
+    else
+        Vml("SetStatusText", "Nothing to undo")
+    end
+end
+
+function RedoDesign(...)
+    if Vml("Redo") == "true" then
+        Vml("SetSetting", "dirty", "true")
+        Vml("RunScript", "UpdateTitle")
+        Vml("SetStatusText", "Redone")
+    else
+        Vml("SetStatusText", "Nothing to redo")
+    end
+end
+
+local function selected_control()
+    -- everything selected (a group), comma-separated; "" for nothing, or a menu
+    local sel = Vml("GetProperty", "Surface", "Selected")
+    if sel == "" or sel == "menubar" or sel:sub(1, 5) == "menu:" then return "" end
+    return Vml("GetProperty", "Surface", "SelectedAll")
+end
+
+local function described(names)
+    local n = select(2, names:gsub(",", "")) + 1
+    return n > 1 and (n .. " controls") or names
+end
+
+function CopySelected(...)
+    local sel = selected_control()
+    if sel == "" then return Vml("SetStatusText", "Select a control to copy") end
+    Vml("CopyControl", sel)
+    Vml("SetStatusText", "Copied " .. described(sel) .. ": Ctrl+V to paste")
+end
+
+function CutSelected(...)
+    local sel = selected_control()
+    if sel == "" then return Vml("SetStatusText", "Select a control to cut") end
+    Vml("CopyControl", sel)
+    Vml("RunScript", "DeleteSelected")
+    Vml("SetStatusText", "Cut " .. described(sel) .. ": Ctrl+V to paste")
+end
+
+function PasteControl(...)
+    local names = Vml("PasteControl")
+    Vml("SetStatusText", names ~= "" and ("Pasted " .. described(names)) or "Nothing to paste: copy a control first")
+end
+
+function PasteHere(...)
+    local names = Vml("PasteControl", Vml("GetSetting", "click_x"), Vml("GetSetting", "click_y"))
+    Vml("SetStatusText", names ~= "" and ("Pasted " .. described(names)) or "Nothing to paste: copy a control first")
+end
+
+function AlignGroup(...)
+    local how = (...) or "tidy"
+    if Vml("AlignControls", how) == "true" then
+        local done = {tidy = "Tidied up", left = "Left edges lined up", centre = "Centres lined up", right = "Right edges lined up",
+            top = "Tops lined up", middle = "Middles lined up", bottom = "Bottoms lined up", across = "Spaced evenly across",
+            down = "Spaced evenly down", width = "Made the same width", height = "Made the same height"}
+        Vml("SetStatusText", (done[how] or "Aligned") .. ": Ctrl+Z to undo")
+    else
+        Vml("SetStatusText", "Select two or more (draw a box round them, or Ctrl+click) to line them up")
+    end
 end

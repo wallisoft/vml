@@ -3,15 +3,21 @@
 # packages it asks for, if they're missing).
 #   curl -fsSL https://github.com/wallisoft/mountie-releases/releases/latest/download/install.sh | bash
 set -euo pipefail
-URL="https://github.com/wallisoft/mountie-releases/releases/latest/download/mountie-linux-x86_64.tar.gz"
+# RELEASE_TAG (set by Mountie's own updater): that release's files, a fix pre-release included; otherwise the latest
+if [ -n "${RELEASE_TAG:-}" ]; then
+  URL="https://github.com/wallisoft/mountie-releases/releases/download/$RELEASE_TAG/mountie-linux-x86_64.tar.gz"
+else
+  URL="https://github.com/wallisoft/mountie-releases/releases/latest/download/mountie-linux-x86_64.tar.gz"
+fi
 DEST="$HOME/.local/share/mountie"
 need=()
 command -v fusermount3 >/dev/null || need+=(fuse3)
 command -v sshfs >/dev/null || need+=(sshfs)
+command -v avahi-browse >/dev/null || need+=(avahi-utils)      # finds phones sharing themselves (the Phone tab)
 if [ ${#need[@]} -gt 0 ]; then
-  echo "Mountie uses ${need[*]} for drives in Files."
+  echo "Mountie uses ${need[*]} for drives in Files, and to find phones on your Wi-Fi."
   if command -v apt-get >/dev/null; then sudo apt-get install -y "${need[@]}" || echo "(carrying on without: install ${need[*]} later)"
-  elif command -v dnf >/dev/null; then sudo dnf install -y "${need[@]}" || true
+  elif command -v dnf >/dev/null; then sudo dnf install -y "${need[@]/avahi-utils/avahi-tools}" || true
   else echo "Please install: ${need[*]}"; fi
 fi
 pkill -x Mountie 2>/dev/null || true

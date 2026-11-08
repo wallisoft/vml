@@ -1,0 +1,44 @@
+# Mountie: what Bob builds, and where (see tools/bob/recipe.py)
+
+@Recipe Mountie
+Version=Mountie.vml:Version
+Project=Mountie.vmlproj
+Icon=mountie.png
+Company=Wallisoft
+Launcher=../../packaging/mountie/mountie.py
+Installer=../../packaging/mountie/mountie.iss
+Pip=paramiko
+Pip.Linux=mfusepy, python-xlib
+Pip.Windows=wsgidav, cheroot
+Nuitka=--include-package=paramiko
+Nuitka.Linux=--include-module=mfusepy --include-package=Xlib
+Nuitka.Windows=--include-package=wsgidav --include-package-data=wsgidav --include-package=cheroot
+Extras.Linux=../../packaging/mountie/install.sh
+PipOptional.Windows=winfspy: --include-package=winfspy
+
+@Msix Store
+Manifest=../../packaging/mountie/AppxManifest.xml
+Identity=tiny-web.mountie
+Publisher=CN=9D975A63-49FD-4D19-812E-240C9F578F4E
+PublisherDisplay=tiny-web
+Copy=Mountie.exe > MountieAtBoot.exe
+
+@Build Linux
+Machine=here
+Kind=compiled
+
+@Build Windows
+Machine=a8
+Kind=compiled
+
+@Build QuickExport
+Text=Quick export
+Machine=here
+Kind=export
+Platforms=linux, windows
+
+@Build GitHub
+Text=GitHub release
+Kind=github
+Tag=mountie-v{version}
+Workflow=Mountie release

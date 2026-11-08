@@ -73,7 +73,10 @@ class StatusBarWidget(QWidget):
         ink = qcolour(self.node.props.get("Foreground") or INK)
         fm, pad, h = self.fontMetrics(), self.PAD, self.height()
         texts = self.shown()
-        right = self.width()
+        right = self.width() - getattr(self, "reserve", 0)  # (room kept at the right end for the app bar, if it's there)
+        if getattr(self, "reserve", 0):
+            g.setPen(QColor(LINE))
+            g.drawLine(right, 5, right, h - 5)
         for t in reversed(texts[1:]):                      # the fixed panels, from the right
             w = fm.horizontalAdvance(t) + 2 * pad
             left = right - w

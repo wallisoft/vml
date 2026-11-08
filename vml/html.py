@@ -290,6 +290,10 @@ class Page:
                 return f'<textarea {attrs}{wrap} placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>{esc(p.get("Text", ""))}</textarea>'
             kind = "password" if str(p.get("IsPassword", "")).lower() == "true" else "text"
             return f'<input type="{kind}" {attrs} value="{esc(p.get("Text", ""))}" placeholder="{ph}" style="{";".join(css)}"{ro}{disabled}>'
+        if ctype == "CodeEditor":                               # (the desktop's code editor: a plain text area here)
+            ro = " readonly" if str(p.get("IsReadOnly", "")).lower() == "true" else ""
+            css += ["font-family:ui-monospace,Consolas,monospace", "white-space:pre", "tab-size:4"]
+            return f'<textarea {attrs} wrap="off" spellcheck="false" style="{";".join(css)}"{ro}{disabled}>{esc(p.get("Text", ""))}</textarea>'
         if ctype == "RadioButton":
             checked = " checked" if str(p.get("IsChecked", "")).lower() == "true" else ""
             group = esc(f"{self.by_id[self.by_id[cid][1]][3] if self.by_id[cid][1] in self.by_id else 'form'}.{p.get('GroupName', '')}")
@@ -363,6 +367,30 @@ class Page:
             size = ' size="6"' if ctype == "ListBox" else ""
             alt = ' class="alt"' if ctype == "ListBox" and str(p.get("AlternatingRows", "")).lower() == "true" else ""
             return f'<select {attrs}{size}{alt} style="{";".join(css)}"{disabled}>{opts}</select>'
+        if ctype == "TabStrip":                                 # vml/tabs.py: tabs along the top, the chosen page under them
+            pages = [k for k in kids if self.by_id[k][2] == "TabPage"]
+            sel = max(0, min(int(num(p.get("SelectedIndex"), 0)), len(pages) - 1)) if pages else 0
+            heads = "".join(f'<button type="button"{" class=on" if i == sel else ""}'
+                            f'{" style=display:none" if str(self.props.get(k, {}).get("IsVisible", "true")).lower() == "false" else ""}>'
+                            f'{esc(self.props.get(k, {}).get("Header") or self.by_id[k][3])}</button>' for i, k in enumerate(pages))
+            ref_size = (num(p.get("Width"), 320), num(p.get("Height"), 220) - 34)
+            body = "".join(self.render(k, "TabStrip", ref_size, [] if i == sel else ["display:none"]) for i, k in enumerate(pages))
+            accent = colour(p.get("Accent") or "#4F46E5")
+            return (f'<div {attrs} class="vtabs" data-sel="{sel}" style="--accent:{accent};{";".join(css)}">'
+                    f'<div class="vtabh">{heads}</div>{body}</div>')
+        if ctype == "TabPage":
+            css += ["position:absolute", "left:0", "right:0", "top:34px", "bottom:0"]
+            return f'<div {attrs} class="vtabp" style="{";".join(css)}">{inner("Frame", ref)}</div>'
+        if ctype == "Toolbar":                                  # a row of buttons: "words=Handler", | for a divider
+            from .tabs import toolbar_items
+            out, i = [], 0
+            for words, handler in toolbar_items(p.get("Items")):
+                if words == "|":
+                    out.append('<i class="sep"></i>')
+                    continue
+                out.append(f'<button type="button" data-i="{i}" data-run="{esc(handler)}">{esc(words)}</button>')
+                i += 1
+            return f'<div {attrs} class="vtool" style="{";".join(css)}">{"".join(out)}</div>'
         if ctype == "StatusBar":                                # vml/statusbar.py: panels split by |, {time} {date} kept current
             panels = [s.strip() for s in str(p.get("Panels") or "Ready").split("|")]
             if p.get("Text") not in (None, ""):
@@ -546,6 +574,7 @@ class Page:
             .replace("%%DATA%%", json.dumps(data).replace("</", "<\\/")) \
             .replace("%%DKJSON%%", json.dumps(dkjson).replace("</", "<\\/")).replace("%%WASMOON%%", WASMOON) \
             .replace("%%SOURCE%%", esc(self.path.name)).replace("%%BAR%%", self.bar_colour) \
+            .replace("%%ACCENT%%", colour(wp.get("Accent") if str(wp.get("Accent") or "").lower() not in ("", "system") else "#4F46E5")) \
             .replace("%%APP%%", self.app_tags(wp)) \
             .replace("%%BUNDLE%%", (self.bundle() if offline else "") + (self.marked() if self.uses_markdown(wp) else ""))
 
@@ -597,6 +626,11 @@ TEMPLATE = r"""<!DOCTYPE html>
 <style>
   html, body { margin: 0; height: 100%; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
   body.phone { overflow-x: hidden; }
+  /* the app's own accent (Accent= on the window): selections, ticks and the chosen row, not the device's colour */
+  :root { --accent: %%ACCENT%%; }
+  input, progress { accent-color: var(--accent); }
+  select option:checked { background: var(--accent) linear-gradient(0deg, var(--accent), var(--accent)); color: #fff; }
+  ::selection { background: var(--accent); color: #fff; }
   body { font: 13px system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif; color: #111827; background: %%BG%%; }
   #vml_window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
   /* on a screen with room to spare the form is shown as a window: its own size, in the middle, with an edge */
@@ -678,6 +712,15 @@ TEMPLATE = r"""<!DOCTYPE html>
   .vcal .gr span.on { background: #4F46E5; color: #fff; }
   .vcal .gr span.out { color: #D1D5DB; pointer-events: none; }
   .vlink { color: #2563EB; text-decoration: underline; cursor: pointer; }
+  .vtabs { box-sizing: border-box; }
+  .vtabh { display: flex; height: 34px; border-bottom: 1px solid #E5E7EB; padding-left: 4px; box-sizing: border-box; }
+  .vtabh button { border: none; background: none; padding: 0 14px; color: #6B7280; font: inherit; cursor: pointer; position: relative; }
+  .vtabh button.on { color: #111827; font-weight: 600; }
+  .vtabh button.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 3px; border-radius: 2px; background: var(--accent); }
+  .vtool { display: flex; align-items: center; gap: 2px; padding: 0 6px; background: #F9FAFB; border-bottom: 1px solid #E5E7EB; box-sizing: border-box; overflow: hidden; }
+  .vtool button { border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; background: transparent; font: inherit; cursor: pointer; white-space: nowrap; }
+  .vtool button:hover { background: rgba(79,70,229,0.08); border-color: rgba(79,70,229,0.25); }
+  .vtool .sep { width: 1px; height: 20px; background: #E5E7EB; margin: 0 4px; }
   .sbar { display: flex; align-items: center; background: #F3F4F6; color: #374151; border-top: 1px solid #D1D5DB; box-sizing: border-box; overflow: hidden; font-size: 12px; }
   .sbar span { padding: 0 10px; white-space: nowrap; border-left: 1px solid #D1D5DB; }
   .sbar span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; border-left: none; }
@@ -752,6 +795,20 @@ const truthy = v => ["true", "1", "yes"].includes(String(v).toLowerCase());
 const sbarFill = t => { if (!t.includes("{")) return t; const d = new Date(), hm = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
   dt = `${d.getDate()} ${d.toLocaleString("en-GB", { month: "short" })} ${d.getFullYear()}`;
   return t.replace(/\{datetime\}/g, `${dt} ${hm}`).replace(/\{date\}/g, dt).replace(/\{time\}/g, hm); };
+const tabPick = (t, i) => {
+  const heads = [...t.querySelectorAll(":scope > .vtabh > button")], pages = [...t.querySelectorAll(":scope > .vtabp")];
+  if (!pages.length) return false;
+  i = Math.max(0, Math.min(Number(i) || 0, pages.length - 1));
+  const moved = String(i) !== t.dataset.sel;
+  heads.forEach((h, k) => h.classList.toggle("on", k === i));
+  pages.forEach((pg, k) => pg.style.display = k === i ? "" : "none");
+  t.dataset.sel = String(i);
+  return moved;
+};
+const toolButtons = (t, items) => { let i = 0; t.innerHTML = String(items || "").split(",").map(s => s.trim()).filter(Boolean).map(s => {
+  if (s === "|") return '<i class="sep"></i>';
+  const [w, h = ""] = s.split("="), b = document.createElement("button");
+  b.type = "button"; b.dataset.i = String(i++); b.dataset.run = h.trim(); b.textContent = w.trim(); return b.outerHTML; }).join(""); };
 const sbarDraw = b => b.querySelectorAll("span").forEach(s => s.textContent = sbarFill(s.dataset.tpl || ""));
 let lastPointer = { x: 40, y: 40 }, lua = null;
 document.addEventListener("mousemove", e => lastPointer = { x: e.clientX, y: e.clientY }, true);
@@ -949,6 +1006,13 @@ const commands = {
       else if (prop === "Text") { e.dataset.md = value; if (!e.dataset.src) mdDraw(e, String(value).replace(/\\n/g, "\n")); }
       return "";
     }
+    if (e.matches(".vtabs") && prop === "SelectedIndex") { tabPick(e, value); return ""; }
+    if (e.matches(".vtabp") && prop === "Header") {
+      const strip = e.parentNode, k = [...strip.querySelectorAll(":scope > .vtabp")].indexOf(e), h = strip.querySelectorAll(":scope > .vtabh > button")[k];
+      if (h) h.textContent = String(value);
+      return "";
+    }
+    if (e.matches(".vtool") && prop === "Items") { toolButtons(e, value); return ""; }
     if (e.matches(".sbar") && (prop === "Text" || prop === "Panels")) {
       if (prop === "Text") { const s = e.querySelector("span"); if (s) { s.dataset.tpl = String(value); s.textContent = sbarFill(String(value)); } }
       else e.innerHTML = String(value || "Ready").split("|").map(t => `<span data-tpl="${t.trim().replace(/"/g, "&quot;")}"></span>`).join(""), sbarDraw(e);
@@ -993,6 +1057,13 @@ const commands = {
     else if (prop === "FontSize") e.style.fontSize = value + "px";
     else if (prop === "FontWeight") e.style.fontWeight = String({"Thin": 100, "ExtraLight": 200, "Light": 300, "Normal": 400, "Medium": 500, "SemiBold": 600, "Bold": 700, "ExtraBold": 800, "Black": 900}[value] || value || 400);
     else if (prop === "FontFamily") e.style.fontFamily = value;
+    else if (prop === "IsVisible" && e.matches(".vtabp")) {             // a page shown or not: its tab with it
+      const t = e.parentNode, k = [...t.querySelectorAll(":scope > .vtabp")].indexOf(e);
+      const head = t.querySelectorAll(":scope > .vtabh > button")[k];
+      if (head) head.style.display = truthy(value) ? "" : "none";
+      e.dataset.hidden = truthy(value) ? "" : "1";
+      e.style.display = truthy(value) && String(k) === t.dataset.sel ? "" : "none";
+    }
     else if (prop === "IsVisible") e.style.display = truthy(value) ? "" : "none";
     else if (prop === "IsEnabled") { const t = e.matches("label.cb") ? e.querySelector("input") : e; truthy(value) ? t.removeAttribute("disabled") : t.setAttribute("disabled", ""); }
     else if (prop === "IsChecked") e.querySelector("input").checked = truthy(value);
@@ -1033,6 +1104,8 @@ const commands = {
     const e = el(name);
     if (!e) return "";
     if (e.matches(".vmde") && prop === "Text") return e.querySelector("textarea").value;
+    if (e.matches(".vtabs") && prop === "SelectedIndex") return e.dataset.sel || "0";
+    if (e.matches(".vtabp") && prop === "Header") { const strip = e.parentNode, k = [...strip.querySelectorAll(":scope > .vtabp")].indexOf(e); return (strip.querySelectorAll(":scope > .vtabh > button")[k] || {}).textContent || ""; }
     if (e.matches(".sbar") && prop === "Text") return (e.querySelector("span") || {}).textContent || "";
     if (e.matches(".sbar") && prop === "Panels") return [...e.querySelectorAll("span")].map(s => s.dataset.tpl).join("|");
     if (e.matches(".vmd") && prop === "Text") return e._md ?? e.dataset.md ?? "";
@@ -1054,6 +1127,7 @@ const commands = {
     if (prop === "Source") return e.getAttribute("src") || "";
     if (prop === "SelectedIndex") return String(e.selectedIndex);
     if (prop === "SelectedItem") return e.selectedIndex >= 0 ? e.options[e.selectedIndex].text : "";
+    if (prop === "IsVisible" && e.matches(".vtabp")) return e.dataset.hidden === "1" ? "false" : "true";
     if (prop === "IsVisible") return e.style.display === "none" ? "false" : "true";
     if (prop === "IsEnabled") return (e.matches("label.cb") ? e.querySelector("input") : e).hasAttribute("disabled") ? "false" : "true";
     if (prop === "Width") return String(e.offsetWidth);
@@ -1077,6 +1151,15 @@ const commands = {
   ErrorDialog(msg, title) { alert(msg); return ""; },
   ConfirmDialog: (msg, title) => confirm(msg) ? "true" : "false",
   PromptDialog: (title = "", text = "", start = "") => prompt(text || title, start) ?? "",
+  // A question with your own answers (buttons: their captions with | between them). A page has only the browser's own
+  // boxes: two answers are OK/Cancel, more a numbered list to pick from. Returns the caption picked, or "".
+  ChoiceDialog(msg = "", title = "", buttons = "Yes|No|Cancel") {
+    const b = String(buttons).split("|").map(s => s.trim()).filter(Boolean);
+    if (b.length <= 2) return confirm(String(msg)) ? (b[0] || "OK") : (b[1] || "");
+    const got = prompt(String(msg) + "\n\n" + b.map((s, i) => `${i + 1}. ${s}`).join("\n") + "\n\nType its number:", "");
+    const n = parseInt(got, 10);
+    return n >= 1 && n <= b.length ? b[n - 1] : "";
+  },
   SetStatusText(t) { console.log("[status]", t); return ""; },
   ControlExists: name => el(name) ? "true" : "false",
   GetControlType: name => el(name)?.dataset.type ?? "",
@@ -1300,6 +1383,35 @@ const commands = {
     else if (handler) setTimeout(() => run(handler, [name, "error", "SSH drives need the computer app, or the phone app.", ""]), 0);
     return "";
   },
+  // This phone's storage as a drive on your computers (Mountie's "Share this phone"): on "1" starts a small SFTP
+  // server (user "phone", the password PhoneShareStatus shows), "0" stops it. handler gets ("on", status JSON),
+  // ("off", ""), ("error", why) or ("files", "") when the phone's Settings opened at All files access, to turn on
+  // first. In the Visualised app on a phone, or an app exported for Android.
+  PhoneShare(on = "1", handler = "") {
+    if (handler) onPhoneShare = String(handler);
+    if (!(DEV && DEV.phoneShare)) {
+      if (handler) setTimeout(() => run(handler, ["error", "Sharing a phone works in the phone app."]), 0);
+      return "";
+    }
+    const said = DEV.phoneShare(String(on) === "0" || String(on).toLowerCase() === "false" ? "0" : "1");
+    if (said === "files" && handler) setTimeout(() => run(handler, ["files", ""]), 0);
+    return said;
+  },
+  // {on, files, address, addresses, port, user, password, fingerprint, name, phone} as JSON; phone false off a phone.
+  PhoneShareStatus() {
+    if (!(DEV && DEV.phoneShareStatus)) return JSON.stringify({ phone: false, on: false });
+    const s = JSON.parse(DEV.phoneShareStatus()); s.phone = true; return JSON.stringify(s);
+  },
+  // A new password for sharing this phone: returns it (a computer with the old one has to be told the new one).
+  // Ask on this phone before a paired computer opens it: "1" (as it starts) or "0".
+  PhoneShareAsk(on = "1") { if (DEV && DEV.phoneShareAsk) DEV.phoneShareAsk(String(on) === "0" || String(on).toLowerCase() === "false" ? "0" : "1"); return ""; },
+  PhonePairCode() { return ""; },    // (a computer's: the code a phone scans to pair with it)
+  // Pair this phone with a computer, from the code its Mountie showed (scanned): "" when paired, or why not.
+  PhoneSharePair(code = "") { return DEV && DEV.phoneSharePair ? DEV.phoneSharePair(String(code)) : "Pairing works in the phone app."; },
+  // Forget a paired computer: it can't get in any more.
+  PhoneShareForget(name = "") { if (DEV && DEV.phoneShareForget) DEV.phoneShareForget(String(name)); return ""; },
+  PhonesNearby() { return "[]"; },   // (a computer finds phones: Mountie's Phone tab on the desktop)
+  PhoneSharePassword() { return DEV && DEV.phoneSharePassword ? DEV.phoneSharePassword() : ""; },
   DiskList() { return "[]"; },
   DiskInfo(path = "") { return "{}"; },
   FolderPreview(path = "") { return "{\"error\":\"Not in a browser\"}"; },
@@ -1649,7 +1761,7 @@ const commands = {
 };
 const DEV = window.VisualisedDevice || null;    // there when the page is running in the Visualised app on a phone
 let heard = "", flashed = "", flashing = null, watching = null, resume = null, paired = "", watched_ = "";
-let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false, onSshDrive = "", onSshTest = "";
+let asked = 0, onSms = "", onPush = "", onMessages = "", pushRelay = false, onSshDrive = "", onSshTest = "", onPhoneShare = "";
 // Visualised's own push service (OnPush with no firebase of the app's own; PushSend). The Firebase values are the
 // public ones every app carries; sending is done by tiny-web, never by the app.
 const PUSH_RELAY = "https://tiny-web.uk/api/push.php";
@@ -1699,6 +1811,7 @@ window.vmlFromPhone = (what, a = "", b = "") => {         // the phone app answe
     const p = b.split("|"), ok = p[0] === "ok";
     run(onSshTest, [a, ok ? "ok" : "error", ok ? p.slice(2).join("|") : p.slice(1).join("|"), ok ? p[1] : ""]);
   }
+  if (what === "phoneshare" && onPhoneShare) run(onPhoneShare, [a, b]);
   if (what === "sshdrive" && onSshDrive) { const i = b.indexOf("|"); run(onSshDrive, [a, i < 0 ? b : b.slice(0, i), i < 0 ? "" : b.slice(i + 1)]); }
   if (what.startsWith("fetch:") || what.startsWith("sms-sent:") || what.startsWith("contacts:") || what.startsWith("names:") || what.startsWith("number:") || what.startsWith("contact:")) {
     const id = what.slice(what.indexOf(":") + 1), h = waitingFor[id]; delete waitingFor[id];
@@ -2379,9 +2492,11 @@ function fitScreen() {
   document.body.classList.toggle("phone", narrow);
   document.body.classList.toggle("framed", roomy);
   if (roomy) {
-    SCALE = 1;
-    const high = Math.min(dh, window.innerHeight - 32);
-    w.style.cssText = `inset:auto;left:${Math.round((window.innerWidth - dw) / 2)}px;top:${Math.max(16, Math.round((window.innerHeight - high) / 2))}px;width:${dw}px;height:${high}px`;
+    // a browser window shorter than the form: the whole form a little smaller, never its foot cut off
+    const room = window.innerHeight - 32;
+    SCALE = dh > room ? room / dh : 1;
+    w.style.cssText = `inset:auto;left:${Math.round((window.innerWidth - dw * SCALE) / 2)}px;top:${Math.max(16, Math.round((window.innerHeight - dh * SCALE) / 2))}px;width:${dw}px;height:${dh}px` +
+      (SCALE < 1 ? `;transform-origin:0 0;transform:scale(${SCALE})` : "");
     document.querySelectorAll(".pbar").forEach(drawBar);
     return;
   }
@@ -2390,8 +2505,11 @@ function fitScreen() {
     return;
   }
   SCALE = window.innerWidth / dw;
-  const tall = Math.max(window.innerHeight / SCALE, VML.fit === "Width" ? dh : 0);
-  w.style.inset = "auto"; w.style.left = "0"; w.style.top = "0";
+  let tall = Math.max(window.innerHeight / SCALE, VML.fit === "Width" ? dh : 0), left = 0;
+  if (tall < dh) {                                   // a screen shorter than the form at that width: fit its height instead, centred
+    SCALE = window.innerHeight / dh; tall = dh; left = Math.round((window.innerWidth - dw * SCALE) / 2);
+  }
+  w.style.inset = "auto"; w.style.left = left + "px"; w.style.top = "0";
   w.style.width = dw + "px"; w.style.height = tall + "px";
   w.style.transformOrigin = "0 0"; w.style.transform = `scale(${SCALE})`;
   document.querySelectorAll(".pbar").forEach(drawBar);
@@ -2620,6 +2738,15 @@ function mdBox(source, title = "", editable = false, handler = "") {
 
 function wire() {
   document.querySelectorAll(".sbar").forEach(sbarDraw);
+  document.querySelectorAll(".vtabs").forEach(t => t.querySelector(".vtabh").addEventListener("click", ev => {
+    const b = ev.target.closest("button");
+    if (b && tabPick(t, [...b.parentNode.children].indexOf(b))) t.dispatchEvent(new Event("change"));   // SelectionChanged
+  }));
+  document.querySelectorAll(".vtool").forEach(t => t.addEventListener("click", ev => {                       // (before OnClick)
+    const b = ev.target.closest("button");
+    settings.toolbar_item = b ? b.textContent : ""; settings.toolbar_index = b ? b.dataset.i : "-1";
+    if (b && b.dataset.run) handle(b.dataset.run, t.dataset.name);
+  }, true));
   setInterval(() => document.querySelectorAll(".sbar").forEach(sbarDraw), 1000);
   document.querySelectorAll(".vcal").forEach(drawCal);
   document.querySelectorAll(".vmd[data-src], .vmd[data-md]").forEach(v => {

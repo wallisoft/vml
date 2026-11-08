@@ -35,7 +35,8 @@ LISTEN = "visualised.LISTEN_NOTIFICATIONS"   # not a permission: says the app ke
 DRIVES = "visualised.SSH_DRIVES"            # not a permission: says the app keeps SshDrives (SSH folders in the Files app)
 # Parts of the template only some apps keep: (the component's class, what the app must keep for it).
 OPTIONAL_PARTS = {"io.visualised.app.Arriving": "android.permission.RECEIVE_SMS", "io.visualised.app.Heard": LISTEN,
-                  "io.visualised.app.Booted": "android.permission.RECEIVE_BOOT_COMPLETED", "io.visualised.app.SshDrives": DRIVES}
+                  "io.visualised.app.Booted": "android.permission.RECEIVE_BOOT_COMPLETED", "io.visualised.app.SshDrives": DRIVES,
+                  "io.visualised.app.PhoneShare": "android.permission.MANAGE_EXTERNAL_STORAGE"}
 ANDROID = "http://schemas.android.com/apk/res/android"
 
 # What each thing a script can ask of a phone needs the app to declare (a name with no dots is android.permission.NAME). (Commands are named in scripts as
@@ -46,10 +47,10 @@ NEEDS = {
     "ACCESS_COARSE_LOCATION": ("GetLocation",),
     "RECORD_AUDIO": ("Listen",),
     "MODIFY_AUDIO_SETTINGS": ("Listen",),
-    "POST_NOTIFICATIONS": ("Notify", "RunInBackground", "WatchBluetooth", "OnPush"),
+    "POST_NOTIFICATIONS": ("Notify", "RunInBackground", "WatchBluetooth", "OnPush", "PhoneShare"),
     "VIBRATE": ("Vibrate", "Flash"),
-    "FOREGROUND_SERVICE": ("RunInBackground",),
-    "FOREGROUND_SERVICE_SPECIAL_USE": ("RunInBackground",),
+    "FOREGROUND_SERVICE": ("RunInBackground", "PhoneShare"),
+    "FOREGROUND_SERVICE_SPECIAL_USE": ("RunInBackground", "PhoneShare"),
     "WAKE_LOCK": ("RunInBackground", "KeepAwake", "OnPush"),
     "BLUETOOTH": ("BluetoothDevices", "WatchBluetooth", "BluetoothLog"),
     "BLUETOOTH_CONNECT": ("BluetoothDevices", "WatchBluetooth", "BluetoothLog"),
@@ -62,6 +63,7 @@ NEEDS = {
     PUSH: ("OnPush",),
     LISTEN: ("OnMessages",),
     DRIVES: ("SshMount",),
+    "MANAGE_EXTERNAL_STORAGE": ("PhoneShare",),
 }
 ALWAYS = ("INTERNET", "ACCESS_NETWORK_STATE")
 

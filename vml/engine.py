@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 from lupa import lua54
-from PySide6.QtCore import QEventLoop, Qt, QTimer, QUrl
+from PySide6.QtCore import QEventLoop, QRect, Qt, QTimer, QUrl
 from PySide6.QtGui import QCursor, QDesktopServices
 from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QVBoxLayout, QWidget
 
@@ -29,13 +29,17 @@ from .registry import (REGISTRY, ControlType, box_add, box_place, css_id, layout
                        truthy)
 from .design import DESIGN_DEFAULTS  # importing design also registers DesignSurface and PropertyGrid
 from . import statusbar  # noqa: F401  (registers StatusBar)
+from . import tabs  # noqa: F401  (registers TabStrip, TabPage, Toolbar)
 from . import pickers  # noqa: F401  (registers ColorPicker, DatePicker, TimePicker, NumberBox, ToggleSwitch)
 from . import mdview  # noqa: F401  (registers MarkdownView, MarkdownEditor)
+from . import codeedit  # noqa: F401  (registers CodeEditor)
 from .store import LUA_DIR, PARSER_LOG, Store
 from .data import DataCommands
 from .projects import ProjectCommands
 from .library import LibraryCommands
 from .systemcommands import SystemCommands
+from .stepping import SteppingCommands
+from .headmouse import HeadMouseCommands
 from . import dialogs, licence as licences
 
 
@@ -65,6 +69,49 @@ def Vml(command, *a):
 args = sys.argv[2:]
 """     # every Python script starts with this; argv[1] is the script name
 FROZEN = "__compiled__" in globals()      # running as a compiled (Nuitka) binary
+
+# Break mode in a Bash script: a DEBUG trap before each command, on one line before the script (so its lines keep
+# their numbers, less one). It decides here whether to stop; only a stop asks Visualised (vml DebugShellLine), and
+# waits for the answer: Continue, or a step. Its locals are the variables the script has made.
+BASH_DEBUG = ('__vml_n="$VML_DBG_NAME"; __vml_bp=" $VML_DBG_BREAKS "; __vml_m="$VML_DBG_MODE"; __vml_d=0; '
+              '__vml_v0=" $(compgen -v | tr \'\\n\' \' \') "; '
+              '__vml_t() { local __vml_l=$(( $1 - 1 )) __vml_dd=${#FUNCNAME[@]} __vml_s= __vml_x __vml_loc= __vml_a; '
+              'case "$__vml_m" in into) __vml_s=1;; over) (( __vml_dd <= __vml_d )) && __vml_s=1;; '
+              'out) (( __vml_dd < __vml_d )) && __vml_s=1;; esac; '
+              '[[ -z $__vml_s && "$__vml_bp" == *" $__vml_l "* ]] && __vml_s=1; [[ -z $__vml_s ]] && return 0; '
+              'for __vml_x in $(compgen -v); do [[ "$__vml_v0" == *" $__vml_x "* || $__vml_x == __vml* || $__vml_x == FUNCNAME || $__vml_x == BASH_* ]] && continue; '
+              '__vml_loc+="$__vml_x"$\'\\t\'string$\'\\t\'"${!__vml_x}"$\'\\n\'; done; '
+              '__vml_a=$(VML_TIMEOUT=0 vml DebugShellLine "$__vml_n" "$__vml_l" "$__vml_dd" "$__vml_loc" "${FUNCNAME[*]:1}"); '
+              '__vml_m=${__vml_a%%|*}; __vml_bp=" ${__vml_a#*|} "; __vml_bp=${__vml_bp//,/ }; __vml_d=$__vml_dd; }; '
+              'set -T; trap \'__vml_t $LINENO\' DEBUG')
+
+# Break mode in a PowerShell script: PowerShell's own breakpoints, one on every line, each asking whether to stop.
+# (Its state is global: a breakpoint's action runs in the script's scope, where $script: would be the script's own.)
+PS_DEBUG = r"""$global:__vml_n = $env:VML_DBG_NAME
+$global:__vml_bp = @($env:VML_DBG_BREAKS -split ' ' | Where-Object { $_ } | ForEach-Object { [int]$_ })
+$global:__vml_m = $env:VML_DBG_MODE
+$global:__vml_d = 0
+$global:__vml_v0 = @((Get-Variable).Name) + @('_', 'args', 'input', 'PSCmdlet', 'MyInvocation', 'PSBoundParameters', 'this', 'foreach', 'switch', 'PSItem')
+function __vml_t([int]$l) {
+    $dd = (Get-PSCallStack).Count
+    $s = $false
+    switch ($global:__vml_m) { 'into' { $s = $true } 'over' { $s = $dd -le $global:__vml_d } 'out' { $s = $dd -lt $global:__vml_d } }
+    if (-not $s -and ($global:__vml_bp -contains $l)) { $s = $true }
+    if (-not $s) { return }
+    $loc = @(Get-Variable -Scope 2 -ErrorAction SilentlyContinue | Where-Object { $global:__vml_v0 -notcontains $_.Name -and $_.Name -notlike '__vml*' -and $_.Value -isnot [System.Collections.IEnumerator] } |
+        ForEach-Object { "$($_.Name)`t$(if ($null -eq $_.Value) { 'null' } else { $_.Value.GetType().Name })`t$($_.Value)" }) -join "`n"
+    $fn = @(Get-PSCallStack | Select-Object -Skip 2 | ForEach-Object { $_.FunctionName } | Where-Object { $_ -and $_ -notlike '<*' }) -join ' '
+    $env:VML_TIMEOUT = '0'
+    $a = [string](vml DebugShellLine $global:__vml_n $l $dd $loc $fn)
+    $env:VML_TIMEOUT = ''
+    $parts = $a -split '\|', 2
+    $global:__vml_m = $parts[0]
+    $global:__vml_bp = @(($parts[1] -split ',') | Where-Object { $_ } | ForEach-Object { [int]$_ })
+    $global:__vml_d = $dd
+}
+$null = Set-PSBreakpoint -Script '@SCRIPT@' -Line (1..@LINES@) -Action { __vml_t $_.Line }
+& '@SCRIPT@' @args
+"""
 
 PLACEHOLDER = ControlType("Placeholder", make_box, container=True, add_child=box_add, place_child=box_place,
                           remove_child=layout_remove)
@@ -117,12 +164,27 @@ QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 """
 
 
-class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
+class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, SteppingCommands, HeadMouseCommands):
     log_line = staticmethod(log)
 
     def __init__(self, db_path=None, lua_paths=()):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(True)
+        # one look on every desktop: Qt's own Fusion style (in the desktop's light or dark), rather than whatever
+        # each desktop's Qt happens to pick (QT_STYLE_OVERRIDE or -style still win, for anyone who wants theirs)
+        if not os.environ.get("QT_STYLE_OVERRIDE") and "-style" not in sys.argv and not getattr(self.app, "_vml_styled", False):
+            self.app.setStyle("Fusion")
+            self.app._vml_styled = True
+        if sys.platform.startswith("win") and not getattr(self.app, "_vml_font", False):
+            self.app._vml_font = True
+            self._windows_font()
+        if not getattr(self.app, "_vml_accent", False):     # selections in Visualised's colour, not the computer's
+            self.app._vml_accent = True                     # accent (a window's Accent= gives an app its own; System,
+            from .registry import accent_palette, high_contrast   # the computer's)
+            from PySide6.QtGui import QPalette
+            self.app._vml_system_accent = self.app.palette().color(QPalette.Highlight).name()
+            if not high_contrast():                         # (high contrast on: the computer's colours, always)
+                self.app.setPalette(accent_palette(self.app.palette(), ""))
         if SCROLLBARS not in (self.app.styleSheet() or ""):
             self.app.setStyleSheet((self.app.styleSheet() or "") + SCROLLBARS)
         if db_path is None:
@@ -317,9 +379,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if modal or truthy(node.props.get("Modal", "false")):
             w.setWindowModality(Qt.ApplicationModal)
         theme = self.themes.get(node.scope) or {}
-        if hasattr(w, "set_edge") and not node.props.get("BorderBrush") and node.props.get("BorderThickness") in (None, "") \
-                and theme.get("Background"):
-            w.set_edge(theme["Background"], 1)               # an edge the colour of its menu bar
+        if hasattr(w, "set_title_bar") and not node.props.get("TitleBar"):
+            w.set_title_bar("Own")                             # our own title bar unless the form asks for the desktop's
+        if hasattr(w, "set_edge") and not node.props.get("BorderBrush") and node.props.get("BorderThickness") in (None, ""):
+            from .theme import theme as desktop                # every form has an edge, 2px, unless it says otherwise:
+            w.set_edge(theme.get("Background") or desktop().edge, 2)     # its menu bar's colour, else a quiet grey
         if hasattr(w, "closeEvent") and isinstance(w, QWidget):
             w.closing = lambda by_user=False: self._closing(node, by_user)
         try:
@@ -336,10 +400,28 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if is_designer(node.scope) and not getattr(w, "_f1", None):
             from PySide6.QtGui import QKeySequence, QShortcut
             w._f1 = QShortcut(QKeySequence("F1"), w, activated=self.help_here)          # help on what's selected
+        if node.props.get("OnResized") and hasattr(w, "set_title_bar"):     # (VB's Form_Resize: once it settles)
+            settle = QTimer(w)
+            settle.setSingleShot(True)
+            settle.setInterval(120)
+            settle.timeout.connect(lambda: self.fire(node, "OnResized", {"width": w.width(), "height": w.height() - w.bar_h()}))
+            w.on_resized = settle.start
+        if node.props.get("OnActivated") and hasattr(w, "set_title_bar"):   # (VB's Form_Activate: brought to the front)
+            w.on_activated = lambda: self.fire(node, "OnActivated", {})
         opening = bool(node.props.get("OnOpened"))
         if opening:
             w.setWindowOpacity(0.0)                          # build first, then appear: no half-drawn flash
-        w.show()
+        state = (node.props.get("WindowState") or "").lower()
+        if state == "auto":                                  # maximised on an HD screen or smaller, its own size on a bigger one
+            from PySide6.QtGui import QGuiApplication
+            scr = w.screen() or QGuiApplication.primaryScreen()
+            state = "maximized" if scr and scr.availableGeometry().width() <= 1920 else ""
+        if state in ("maximized", "maximised"):
+            w.showMaximized()
+        elif state == "fullscreen":
+            w.showFullScreen()
+        else:
+            w.show()
         if node.props.get("Resizable", "true").lower() == "false":
             w.setFixedSize(w.size())
         self.windows.append(node)
@@ -458,13 +540,15 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         t = self.themes.get(scope)
         if not t:
             return
-        bar_css, popup_css = theme_sheets(t)
-        bar = self._menubar(scope)
+        bar = self._menubar(scope)                      # (our menus draw themselves from the theme: vml/menus.py)
         if bar:
-            bar.widget.setStyleSheet(bar_css)
+            bar.widget.menu_theme = dict(t)
+            if hasattr(bar.widget, "set_height"):
+                bar.widget.set_height(float(t.get("Height") or 0))
+            bar.widget.update()
         for node in self.scopes.get(scope, {}).values():
             if getattr(node, "menu", None) is not None:
-                node.menu.setStyleSheet(popup_css)
+                node.menu.menu_theme = dict(t)
 
     # ================================================================ events
 
@@ -511,6 +595,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     def handle(self, handler, node):
         """Script name | Script(arg, ...) | a module's function, the same two ways | VmlCommand arg ... | Lua code."""
+        if self.held(handler):                               # a script is stopped at a breakpoint: events wait
+            return None
         if self.runnable(handler, node):
             return self.run_script(handler, node.name, origin=node)
         m = self.HANDLER_CALL.match(handler)
@@ -542,6 +628,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         so each form's globals are its own unless scripts deliberately share an instance."""
         self.luas = {}
         self.debugger, self._debug_labels = None, []
+        self._tap = None                                     # (a debugger in another process, attached: vml/debugger.py Tap)
+        self._stepping_init()                                # breakpoints and stepping (vml/stepping.py)
         self._run_scopes, self._running = set(), 0          # forms the designer is running, and what they opened
         self.lua_paths = [str(LUA_DIR), str(SYSTEM_DIR / "lua"), *extra_paths]
         self.lua = self.lua_state("")                       # the engine's own, for code with no form
@@ -557,6 +645,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 rt.execute("local d = ...; package.path = d .. '/?.lua;' .. package.path", d)
             self.luas[key] = rt
             self._load_modules(rt, key)                      # a project's modules: there for every one of its forms
+            if self.stepping_active():
+                self._hook_state(rt)                         # (breakpoints set: this form's Lua stops at them too)
         return rt
 
     def _lua_paths_add(self, *dirs):
@@ -586,10 +676,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         saved = (g.arg, g.args)
         try:
             g.arg = g.args = rt.table_from(list(args))
-            return rt.execute(code, *args)
+            return rt.execute(code, *args, name="=" + str(label))       # (named: breakpoints and errors say which script)
         except Exception as exc:
             log(f"script error in {label}: {exc}")
-            if self.debugger is not None:
+            if self.debugger is not None or self._tap is not None:
                 self.debug_record("script error", (label,), str(exc), error=True)
             return None
         finally:
@@ -654,7 +744,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             return "" if r is None else r
         except Exception as exc:
             log(f"script error in {name}: {exc}")
-            if self.debugger is not None:
+            if self.debugger is not None or self._tap is not None:
                 self.debug_record("script error", (name,), str(exc), error=True)
             return ""
         finally:
@@ -678,7 +768,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             r = self.lua_exec(content, args, label=name, origin=origin, key=self.lua_key(script=name))
             return "" if r is None else r
         if interp in ("bash", "sh"):
-            return self.shell(["bash", "-c", content, name, *map(str, args)], name, origin)
+            bash = self.bash_exe()
+            dbg = self.shell_debug(name)                     # (break mode: a DEBUG trap that stops where it should)
+            if dbg:
+                return self.shell([bash, "-c", BASH_DEBUG + "\n" + content, name, *map(str, args)], name, origin, extra=dbg)
+            return self.shell([bash, "-c", content, name, *map(str, args)], name, origin)
         if interp in ("csharp", "c#", "cs"):
             return self.run_csharp(content, args, name, origin)
         if interp in ("python", "python3", "py"):
@@ -686,15 +780,42 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             if not py:
                 log(f"{name}: Python isn't installed on this machine")
                 return ""
-            return self.shell([py, "-c", PYTHON_PRELUDE + content, name, *map(str, args)], name, origin)
+            return self.run_python(py, content, args, name, origin)
         if interp in ("powershell", "pwsh"):
             exe = shutil.which("pwsh") or shutil.which("powershell")
             if not exe:
                 log(f"{name}: PowerShell isn't installed on this machine")
                 return ""
+            dbg = self.shell_debug(name)
+            if dbg:                                          # (break mode: PowerShell's own breakpoints, on every line)
+                folder = Path(tempfile.mkdtemp(prefix="vml-ps-"))
+                script, wrapper = folder / f"{re.sub(r'[^A-Za-z0-9_]', '_', name)}.ps1", folder / "run.ps1"
+                script.write_text(content, encoding="utf-8-sig")
+                wrapper.write_text(PS_DEBUG.replace("@SCRIPT@", str(script).replace("'", "''"))
+                                   .replace("@LINES@", str(max(1, content.count("\n") + 1))), encoding="utf-8-sig")
+                try:
+                    return self.shell([exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(wrapper), *map(str, args)],
+                                      name, origin, extra=dbg)
+                finally:
+                    shutil.rmtree(folder, ignore_errors=True)
             return self.shell([exe, "-NoProfile", "-Command", content, *map(str, args)], name, origin)
         log(f"{name}: '{interp}' scripts aren't supported by this engine (Lua, Bash and PowerShell are)")
         return ""
+
+    def run_python(self, py, code, args, label, origin=None):
+        """A Python script: in the app's Python worker (vml/pyhost.py: its form's variables kept, break mode), or, if
+        that won't start, in a Python of its own as before."""
+        from .pyhost import PythonHost
+        if getattr(self, "_python", None) is None or self._python.python != py:
+            self._python = PythonHost(self, log, py)
+        self._script_stack.append(origin)
+        try:
+            return self._python.run(code, args, self.lua_key(script=label), label)
+        except Exception as exc:
+            log(f"{label}: the Python worker didn't start ({exc}): running it on its own")
+            return self.shell([py, "-c", PYTHON_PRELUDE + code, label, *map(str, args)], label, origin)
+        finally:
+            self._script_stack.pop()
 
     def run_csharp(self, code, args, label, origin=None):
         from . import csharp
@@ -750,43 +871,265 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 log(f"InstallDotnet: {exc}")
         return ""
 
-    def cmd_GetLanguages(self):
-        """The script languages this machine can run, for the script editor."""
+    # what each script language needs, where it isn't there yet: a winget package on Windows, a package on Linux
+    LANG_SETUP = {
+        "C#": ("Microsoft.DotNet.SDK.8", "the free .NET 8 SDK, from Microsoft (about 250 MB)",
+               {"apt": "dotnet-sdk-8.0", "dnf": "dotnet-sdk-8.0", "pacman": "dotnet-sdk", "zypper": "dotnet-sdk-8.0"},
+               "https://dotnet.microsoft.com/download/dotnet/8.0"),
+        "Bash": ("Git.Git", "Git for Windows, which brings Git Bash", {"apt": "bash", "dnf": "bash", "pacman": "bash"},
+                 "https://git-scm.com/download/win"),
+        "Python": ("Python.Python.3.12", "Python 3.12, from python.org",
+                   {"apt": "python3", "dnf": "python3", "pacman": "python", "zypper": "python3"},
+                   "https://www.python.org/downloads/"),
+        "PowerShell": ("Microsoft.PowerShell", "PowerShell 7, from Microsoft", {"snap": "powershell --classic"},
+                       "https://aka.ms/pwsh"),
+    }
+
+    @staticmethod
+    def _linux_installer():
+        """This Linux's package manager: apt, dnf, pacman or zypper (or snap, or None)."""
+        for tool in ("apt", "dnf", "pacman", "zypper"):
+            if shutil.which(tool):
+                return tool
+        return "snap" if shutil.which("snap") else None
+
+    def cmd_SetUpLanguage(self, label=""):
+        """Get a script language going that isn't there yet (the script editor asks when one is chosen that says
+        "needs ..."). C# with the SDK there: builds its host. On Windows: installs what it needs with winget, then
+        tells the script editor it's ready. On Linux: shows the command, on the clipboard (it needs sudo). A copy from
+        the Microsoft Store never installs other software itself: it opens the download page."""
         from . import csharp
-        langs = ["Lua", f"Shell ({self.cmd_GetShellName()})"]
-        if self.python_exe():
-            langs.append("Python")
-        if csharp.available():
-            langs.append("C#")
+        lang = (str(label).split() or ["Lua"])[0]
+        if lang == "C#" and csharp.status().get("sdk_ok"):
+            return self._lang_ready(lang) if self.cmd_CSharpSetup() == "" else ""
+        if lang not in self.LANG_SETUP:
+            return ""
+        package, what, linux, url = self.LANG_SETUP[lang]
+        store = "windowsapps" in sys.executable.lower()
+        if sys.platform.startswith("win") and shutil.which("winget") and not store:
+            if not self._yes(self.cmd_ConfirmDialog(f"{lang} scripts need {what}.\n\nInstall it now? Windows may ask "
+                                                    "you to allow it; it takes a minute or two.", f"Set up {lang}")):
+                return ""
+            return self._winget(lang, package)
+        tool = self._linux_installer() if sys.platform.startswith("linux") else None
+        if tool and tool in linux or (tool and lang == "PowerShell" and shutil.which("snap")):
+            pkg = linux.get(tool) or linux["snap"]
+            cmd = {"apt": "sudo apt install -y ", "dnf": "sudo dnf install -y ", "pacman": "sudo pacman -S --noconfirm ",
+                   "zypper": "sudo zypper install -y ", "snap": "sudo snap install "}[tool if tool in linux else "snap"] + pkg
+            self.cmd_ClipboardSet(cmd)
+            self.cmd_ErrorDialog(f"{lang} scripts need {what}. In a terminal:\n\n    {cmd}\n\n(It's on the clipboard, "
+                                 f"ready to paste.) Then choose {lang} again" + (" and it finishes setting up." if lang == "C#" else "."),
+                                 f"Set up {lang}")
+            return "shown"
+        if self._yes(self.cmd_ConfirmDialog(f"{lang} scripts need {what}.\n\nOpen its download page?", f"Set up {lang}")):
+            self.cmd_OpenUrl(url)
+        return "shown"
+
+    @staticmethod
+    def _yes(answer):
+        return answer is True or str(answer).lower() in ("true", "1", "yes")
+
+    def _winget(self, lang, package):
+        """Install with winget, out of sight, keeping the windows drawing; then finish (C#: build its host)."""
+        import tempfile
+        from .csharp import _hidden
+        out = tempfile.TemporaryFile()                       # (not a pipe: winget's progress could fill one and stall it)
+        try:
+            proc = subprocess.Popen(["winget", "install", "--id", package, "-e", "--silent", "--disable-interactivity",
+                                     "--accept-source-agreements", "--accept-package-agreements"],
+                                    stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **_hidden())
+        except OSError as exc:
+            self.cmd_ErrorDialog(f"Couldn't start winget: {exc}", f"Set up {lang}")
+            return ""
+        self._lang_hint(f"Installing {lang}... (Windows may ask you to allow it)")
+        self.cmd_SetStatusText(f"Installing what {lang} scripts need...")
+
+        def check():
+            if proc.poll() is None:
+                QTimer.singleShot(500, check)
+                return
+            out.seek(0)
+            said = "\n".join(l.strip() for l in out.read().decode("utf-8", "replace").replace("\r", "\n").split("\n")
+                             if l.strip() and not set(l.strip()) <= set("-\\|/ █▒"))
+            out.close()
+            log(f"winget {package}: exit {proc.returncode}\n{said[-2000:]}")
+            if proc.returncode not in (0, -1978335189, 0x8A15002B):      # (0x8A15002B: there already, nothing newer)
+                self._lang_hint(f"{lang} didn't install (winget said: {said.splitlines()[-1] if said else proc.returncode})")
+                self.cmd_SetStatusText(f"{lang} couldn't be installed")
+                return
+            if lang == "C#":
+                self._lang_hint("Setting up C# (about a minute, the first time)...")
+                if self.cmd_CSharpSetup() != "":
+                    self._lang_hint("The .NET SDK is installed, but C# couldn't be set up: see the log")
+                    return
+            self._lang_ready(lang)
+        QTimer.singleShot(500, check)
+        return "started"
+
+    def _lang_hint(self, text):
+        try:
+            self.cmd_SetProperty("lblHint", "Text", text)
+        except Exception:
+            pass
+        self.app.processEvents()
+
+    def _lang_ready(self, lang):
+        """A language is ready: the script editor's list says so, with it chosen."""
+        self.cmd_SetStatusText(f"{lang} scripts are ready")
+        try:
+            langs = json.loads(self.cmd_GetLanguages())
+            self.cmd_SetProperty("cboLang", "Items", ",".join(langs))
+            self.cmd_SetProperty("cboLang", "SelectedItem", next((l for l in langs if l.split()[0] == lang), langs[0]))
+            self._lang_hint(f"{lang} is ready: write away, and Run (F5) or set breakpoints as with Lua")
+        except Exception:
+            pass
+        return "ready"
+
+    def _windows_font(self):
+        """Windows' 9pt Segoe UI draws thin in Qt beside Ubuntu's: heavier (Windows 11's own Segoe UI Variable, at
+        semibold: drawn with ClearType it has Regular, Semibold and Bold, nothing between; Windows 10's Segoe UI,
+        hinted fully). VML_FONT_WEIGHT (100-900) sets it: 400 is Windows' regular."""
+        from PySide6.QtGui import QFont, QFontDatabase
+        try:
+            weight = int(os.environ.get("VML_FONT_WEIGHT") or 600)
+            f = QFont(self.app.font())
+            if weight != 400 and "Segoe UI Variable Text" in QFontDatabase.families():
+                f.setFamily("Segoe UI Variable Text")
+            f.setWeight(QFont.Weight(max(100, min(900, weight))))
+            f.setHintingPreference(QFont.PreferFullHinting)
+            self.app.setFont(f)
+        except Exception as exc:
+            log(f"font: {exc}")
+
+    def cmd_PhonesNearby(self, seconds="1.5"):
+        """Phones sharing themselves on this network (Mountie's Phone tab): JSON [{name, host, port, user}]."""
+        from . import mdns
+        try:
+            got = mdns.browse("_sftp-ssh._tcp", float(seconds or 2))
+        except OSError as exc:
+            log(f"PhonesNearby: {exc}")
+            got = []
+        out = [{"name": g["name"].replace("Mountie: ", "", 1), "host": g["host"], "port": g["port"],
+                "user": g["txt"].get("user", "phone")} for g in got if g["txt"].get("app") == "mountie"
+               or g["name"].startswith("Mountie: ")]
+        if not out:                                         # not heard (Windows keeps the mDNS port to itself; some
+            out = mdns.scan_for_phones()                    # routers drop it): look for one on this network instead
+        return json.dumps(out)
+
+    def cmd_PhonePairCode(self):
+        """Pairing a phone with this computer (Mountie's Phone tab): this computer's own key for phones, made the first
+        time (ECDSA P-256, which a phone's own crypto has), and the code the phone scans. JSON {code, key}: code is
+        "mountie:<computer> <public key>", key the private key's file, for the drive to log in with."""
+        import socket
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        path = Path.home() / ".vml" / "mountie" / "phone_ecdsa"
+        if not path.is_file():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            key = ec.generate_private_key(ec.SECP256R1())
+            path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+                                               serialization.NoEncryption()))
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+        key = serialization.load_ssh_private_key(path.read_bytes(), None)
+        blob = key.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).split()[1]
+        name = re.sub(r"[^\w .-]", "", socket.gethostname() or "computer")[:24] or "computer"
+        return json.dumps({"code": f"mountie:{name} {blob.decode()}", "key": str(path)})
+
+    def cmd_PhoneShareStatus(self):
+        """Sharing a phone's storage is a phone's (the phone app's PhoneShare): on a computer, not here."""
+        return json.dumps({"phone": False, "on": False})
+
+    def cmd_PhoneShare(self, on="1", handler=""):
+        return "Sharing a phone works in the phone app."
+
+    def cmd_GetLanguages(self):
+        """The script languages, for the script editor: all five, each saying what it still needs on this computer
+        when it isn't ready (a script can be written either way; it runs once its language is there)."""
+        from . import csharp
+        bash = self.bash_exe()
+        has_bash = os.path.isfile(bash) if os.path.isabs(bash) else bool(shutil.which("bash")) and not sys.platform.startswith("win")
+        langs = ["Lua",
+                 "Python" if self.python_exe() else "Python (needs installing)",
+                 "C#" if csharp.available() else "C# (needs setting up)",
+                 "Bash" if has_bash else "Bash (needs Git Bash)",
+                 "PowerShell" if (shutil.which("pwsh") or shutil.which("powershell") or os.path.isfile(r"C:\Program Files\PowerShell\7\pwsh.exe")) else "PowerShell (needs PowerShell 7)"]
+        if self.SHELL == "powershell":                       # (the computer's own shell first, after Lua)
+            langs.insert(1, langs.pop(4))
         return json.dumps(langs)
+
+    @staticmethod
+    def bash_exe():
+        """Bash: on Windows, Git's (Git Bash) before WSL's. WSL's bash is a Linux of its own: it can't see Visualised's
+        settings for the script, nor reach it to answer `vml` calls or stop in the debugger."""
+        if sys.platform.startswith("win"):
+            for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("ProgramFiles(x86)", ""),
+                         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")):
+                exe = os.path.join(base, "Git", "bin", "bash.exe") if base else ""
+                if exe and os.path.isfile(exe):
+                    return exe
+        return "bash"
 
     @staticmethod
     def python_exe():
         """The user's own Python (with their pip packages); the engine's, when running from source."""
         found = shutil.which("python3") or shutil.which("python")
+        if found and "windowsapps" in found.lower() and os.path.getsize(found) == 0 and not shutil.which("py"):
+            found = None                                     # (Windows' stand-in that only opens the Store)
+        if not found and sys.platform.startswith("win"):     # (installed since Visualised started: not on its PATH yet)
+            import glob
+            got = sorted(glob.glob(os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", "Python3*", "python.exe")))
+            found = got[-1] if got else None
         if found:
             return found
         return sys.executable if "python" in Path(sys.executable).name.lower() else None
 
-    def shell(self, argv, label="shell", origin=None, timeout=120):
+    def shell_debug(self, name):
+        """The environment a Bash or PowerShell script is debugged with, or None (no breakpoints in it, no step)."""
+        breaks = sorted(self.breaks.get(name, ()))
+        into = self.step is not None and self.step[0] == "into"
+        if not breaks and not into:
+            return None
+        return {"VML_DBG_NAME": name, "VML_DBG_BREAKS": " ".join(map(str, breaks)), "VML_DBG_MODE": "into" if into else ""}
+
+    def cmd_DebugShellLine(self, name, line, depth, locals_="", callers=""):
+        """A Bash or PowerShell script stopped at a line (its debug hook asks): shown in the debugger till Continue or
+        a Step; the answer is what it's to do next, "mode|breakpoints" (into|3,7)."""
+        stack = [f"{name}\t{line}\t"] + [f"{name}\t\t{fn}" for fn in str(callers).split() if fn]
+        self._stepping_pause(name, int(line), int(depth), str(locals_), "\n".join(stack))
+        self._shell_stepping = self.step is not None
+        return f"{self.step[0] if self.step else ''}|{','.join(str(n) for n in sorted(self.breaks.get(name, ())))}"
+
+    def shell(self, argv, label="shell", origin=None, timeout=120, extra=None):
         """Run a program, answering its `vml ...` calls while it runs (as the form that started it)."""
         self._script_stack.append(origin)
         try:
             with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
                 try:
-                    proc = subprocess.Popen(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=self.env)
+                    proc = subprocess.Popen(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
+                                            env=dict(self.env, **extra) if extra else self.env)
                 except Exception as exc:
                     log(f"{label}: {exc}")
                     return ""
                 started = time.time()
                 while proc.poll() is None:
+                    asked = time.time()
                     self.api.poll()
+                    if time.time() - asked > 1:              # (stopped in the debugger meanwhile: that time doesn't count)
+                        started += time.time() - asked
                     if time.time() - started > timeout:
                         proc.kill()
                         log(f"{label}: stopped after {timeout}s")
                         break
                     time.sleep(0.003)
                 self.api.poll()
+                if extra and getattr(self, "_shell_stepping", False):   # (stepped to its end: stop at the next Lua line)
+                    self._shell_stepping = False
+                    if self.step is not None:
+                        self.step = ("into", 0)
+                        self._hook_all()
                 out.seek(0)
                 err.seek(0)
                 stdout = out.read().decode(errors="replace")
@@ -801,7 +1144,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     def vml(self, command, *args):
         """Scripts' Vml(): forgiving. A bad call is logged and gives an empty result."""
-        if self.debugger is None:
+        if self.debugger is None and self._tap is None:
             try:
                 return self.vml_strict(command, *args)
             except Exception as exc:
@@ -822,7 +1165,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         running them (the designer opened as a project, say), or the debugger's "Designer's forms too" is ticked."""
         from .projects import is_designer
         scope = str(scope or "")
-        if self.debugger is not None and self.debugger.everything.isChecked():
+        if (self.debugger is not None and self.debugger.everything.isChecked()) or (self._tap is not None and self._tap.everything):
             return not scope
         if scope in self._run_scopes:
             return False
@@ -846,7 +1189,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         shown = ", ".join(str(a) if isinstance(a, (int, float)) and not isinstance(a, bool) else json.dumps("" if a is None else str(a), ensure_ascii=False)
                           for a in args)
         label = self._debug_labels[-1] if self._debug_labels else ""
-        self.debugger.record(self.debug_name(scope), label, f"{command}({shown})", result, error)
+        for d in (self.debugger, self._tap):
+            if d is not None:
+                d.record(self.debug_name(scope), label, f"{command}({shown})", result, error)
 
     HELP = "https://github.com/wallisoft/vml/wiki/"
 
@@ -904,6 +1249,84 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if node is not None and not node.type.name in ("DesignSurface", "PropertyGrid"):
             return self.cmd_Help("Reference-Controls", getattr(node, "template", None) or node.type.name)
         return self.cmd_Help("Reference")
+
+    # ---- a debugger in another process, attached to this app (vml/debugger.py: Tap, Remote)
+    def cmd_DebugTitle(self):
+        """What this app is, for a debugger's list of running apps."""
+        wins = [n for sc in self.scopes.values() for n in sc.values() if n.type.name == "Window" and n.parent is None
+                and n.widget is not None and n.widget.isVisible()]
+        title = next((str(n.props.get("Title") or n.name) for n in wins), "") or "an app with no window showing"
+        return f"{title}  (pid {os.getpid()})"
+
+    def cmd_DebugAttach(self, everything="false"):
+        """Start keeping a record of Vml() calls for an attached debugger to collect (DebugCalls)."""
+        from .debugger import Tap
+        if self._tap is None:
+            self._tap = Tap(lambda: setattr(self, "_tap", None))
+        self._tap.everything = str(everything).lower() == "true"
+        self._tap.touch()
+        return "true"
+
+    def cmd_DebugDetach(self):
+        self._tap = None
+        return "true"
+
+    def cmd_DebugCalls(self, since="0"):
+        """The calls recorded since a number: JSON {seq, rows}."""
+        if self._tap is None:
+            self.cmd_DebugAttach()
+        return json.dumps(self._tap.since(int(since or 0)))
+
+    def cmd_DebugStates(self):
+        """The forms with Lua running, for the Variables tab: JSON [[key, name]]."""
+        everything = self._tap is not None and self._tap.everything
+        return json.dumps([[k, self.debug_name(k)] for k in self.luas
+                           if k and (not self.debug_hidden(k) or (everything and k))])
+
+    def cmd_DebugLua(self, key, code, arg=""):
+        """Run Lua in one of this app's forms (the Variables tab); a table comes back as {name: "type<TAB>value"}."""
+        rt = self.luas.get(key)
+        if rt is None:
+            raise KeyError("that form isn't running Lua now")
+        r = rt.execute(code, arg) if arg != "" else rt.execute(code)
+        if hasattr(r, "items"):
+            return json.dumps({"table": {str(k): str(v) for k, v in r.items()}})
+        return json.dumps({"value": None if r is None else str(r)})
+
+    def cmd_DebugShared(self):
+        shared = getattr(getattr(self, "shared", None), "values", None)
+        return json.dumps(None if shared is None else {str(k): [type(v).__name__, repr(v)] for k, v in shared.items()})
+
+    def cmd_DebugApps(self):
+        """The other Visualised apps running now: JSON [{pid, title}], for "Attach to a running app"."""
+        from .api import running
+        return json.dumps([{"pid": a["pid"], "title": a["title"]} for a in running(os.getpid())])
+
+    def cmd_AttachDebugger(self, pid=""):
+        """Open a debugger on another running Visualised app (by its pid; none: choose from a list)."""
+        from .api import running
+        from .debugger import Debugger
+        apps = running(os.getpid())
+        if not apps:
+            self.cmd_InfoDialog("No other Visualised app is running just now.\n\nStart one (any .vml), then attach to it.",
+                                "Attach the debugger")
+            return ""
+        pick = next((a for a in apps if str(a["pid"]) == str(pid)), None)
+        if pick is None and len(apps) == 1:
+            pick = apps[0]                                   # (only one running: that's the one)
+        if pick is None:                                     # (a list in a dialog: a loose menu can't show on Wayland)
+            from PySide6.QtWidgets import QInputDialog
+            titles = [a["title"] for a in apps]
+            chosen, ok = QInputDialog.getItem(QApplication.activeWindow(), "Attach the debugger",
+                                              "Which running app?", titles, 0, False)
+            if not ok:
+                return ""
+            pick = apps[titles.index(chosen)]
+        win = Debugger(self, remote=pick)
+        self.__dict__.setdefault("_remotes", []).append(win)
+        win.show()
+        win.raise_()
+        return "true"
 
     def cmd_ShowDebugger(self):
         """Open the debugger: every Vml() call the running forms' scripts make, and their variables."""
@@ -1149,11 +1572,16 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         if out["store"]:                     # a copy from the Microsoft Store is kept up to date by the Store
             return json.dumps(out)
         try:
-            req = urllib.request.Request("https://api.github.com/repos/wallisoft/vml-releases/releases/latest",
+            # every release, the fixes too (pre-releases, made by Bob from a tested build): the newest wins
+            req = urllib.request.Request("https://api.github.com/repos/wallisoft/vml-releases/releases?per_page=20",
                                          headers={"User-Agent": f"Visualised/{__version__}"})
             with urllib.request.urlopen(req, timeout=6) as r:
-                out["latest"] = str(json.load(r).get("tag_name", "")).lstrip("v")
+                releases = [x for x in json.load(r) if not x.get("draft")]
             number = lambda v: tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+            best = max(releases, key=lambda x: number(str(x.get("tag_name", ""))) or (0,), default={})
+            out["tag"] = str(best.get("tag_name", ""))
+            out["latest"] = out["tag"].lstrip("v")
+            out["url"] = best.get("html_url") or out["url"]
             out["newer"] = bool(out["latest"]) and number(out["latest"]) > number(__version__)
         except Exception as exc:
             out["error"] = str(exc)
@@ -1317,7 +1745,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             exe = shutil.which("pwsh") or shutil.which("powershell")
             argv = [exe, "-NoProfile", "-Command", command] if exe else None
         else:
-            argv = shlex.split(command)
+            argv = shlex.split(command, posix=(os.name != "nt"))   # keep Windows path backslashes intact
         if not argv:
             log("RunProcess: no shell available")
             return ""
@@ -1448,8 +1876,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         ("Pickers", ["DatePicker", "TimePicker", "Calendar", "ColorPicker", "NumberBox", "Slider"]),
         ("Lists and data", ["ListBox", "DataGrid", "TreeView"]),
         ("Documents and media", ["MarkdownView", "MarkdownEditor", "Image", "Rectangle"]),
-        ("Bars", ["StatusBar", "ProgressBar"]),
-        ("Containers", ["Canvas", "Frame", "Border", "ScrollViewer"]),
+        ("Bars", ["Toolbar", "StatusBar", "ProgressBar"]),
+        ("Containers", ["Canvas", "Frame", "TabStrip", "TabPage", "Border", "ScrollViewer"]),
         ("Layout (advanced)", ["StackPanel", "DockPanel", "Grid"]),
         ("Behind the scenes", ["Timer"]),
     ]
@@ -1481,9 +1909,23 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         from PySide6.QtCore import QPoint
         page_pt = view.form.pos() + QPoint(int(float(x or 0)), int(float(y or 0)))
         container = view.container_at(page_pt) or surf
+        if ctype in ("Toolbar", "StatusBar"):          # these belong to the form itself, wherever it was right-clicked
+            container = surf
         if container is not surf:
             local = container.widget.mapFrom(view.page, page_pt)
             x, y = local.x(), local.y()
+        if ctype == "TabPage":                      # a page goes on the tab strip that was right-clicked, as its last tab
+            strip = container.parent if container.type.name == "TabPage" else container
+            if strip is None or strip.type.name != "TabStrip":
+                self.cmd_InfoDialog("Right-click on a tab strip to add a page to it.", "Add a page")
+                return ""
+            name = self._unique("TabPage")
+            self.cmd_CreateControl("TabPage", name, strip.name)
+            self.cmd_SetProperty(name, "Header", f"Tab {len(strip.widget.pages())}")
+            self.cmd_SetProperty(strip.name, "SelectedIndex", str(len(strip.widget.pages()) - 1))
+            surf.widget.select(name, user=True)
+            surf.widget.emit("OnChanged", {"selected_control": name})
+            return name
         name = self._unique(ctype)
         if self.cmd_CreateControl(ctype, name, container.name) == "Failed":
             return ""
@@ -1495,15 +1937,275 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 defaults[key] = name
         snap = surf.widget.snap
         defaults["Canvas.Left"], defaults["Canvas.Top"] = str(snap(float(x or 0))), str(snap(float(y or 0)))
+        box = container.widget if container is not surf else view.form
         if ctype == "StatusBar":                    # along the foot of the form, full width, staying there as it's resized
-            box = container.widget if container is not surf else view.form
             h = int(float(defaults.get("Height", 26)))
             defaults.update({"Canvas.Left": "0", "Canvas.Top": str(max(0, box.height() - h)), "Width": str(box.width())})
+        if ctype == "Toolbar":                      # along the top, full width
+            defaults.update({"Canvas.Left": "0", "Canvas.Top": "0", "Width": str(box.width())})
         for k, v in defaults.items():
             self.cmd_SetProperty(name, k, v)
+        if ctype == "TabStrip":                     # two pages to start with
+            for k in (1, 2):
+                page = self._unique("TabPage")
+                self.cmd_CreateControl("TabPage", page, name)
+                self.cmd_SetProperty(page, "Header", f"Tab {k}")
+            self.cmd_SetProperty(name, "SelectedIndex", "0")
         surf.widget.select(name, user=True)
         surf.widget.emit("OnChanged", {"selected_control": name})
         return name
+
+    # ---- Tools > Add a control: controls stacked down the form's left, for those who never right-click
+    STACK_GAP, STACK_COL = 8, 180
+
+    def cmd_AddStackedControl(self, ctype, surface="Surface"):
+        """Put a control on the form, stacked down the left: top first, each under the last one added (a new column
+        when the form's full), started again when the last one added has gone. Then drag it where it belongs."""
+        surf = self._surface(surface)
+        x, y, last = getattr(self, "_stack", (16, 16, ""))
+        if not last or self.find(last) is None:
+            x, y = 16, 16
+        name = self.cmd_AddDesignControl(ctype, x, y, surface)
+        if not name:
+            return ""
+        if ctype not in ("Toolbar", "StatusBar"):          # (those go along the top and foot, not in the stack)
+            node = self.find(name)
+            try:
+                h = int(float(node.props.get("Height") or 0))
+            except ValueError:
+                h = 0
+            h = h or (node.widget.height() if node.widget is not None else 30)
+            y += h + self.STACK_GAP
+            if y + 24 > surf.widget.form.height():
+                x, y = x + self.STACK_COL, 16
+            self._stack = (x, y, name)
+        self.cmd_SetStatusText(f"Added {name}")
+        return name
+
+    # ---- undo and redo: the whole design, as the VML it saves as, after each change (the save and open that are
+    # used every day, so a step back is exactly what was there). New and Open start the list again.
+    UNDO_MAX = 200
+
+    def _design_text(self, surface):
+        if not getattr(self, "_undo_file", None):
+            fd, self._undo_file = tempfile.mkstemp(prefix="vml-undo-", suffix=".vml")
+            os.close(fd)
+        self._hush = True                                  # (no "saved" in the log for this)
+        try:
+            self.cmd_ExportVml(surface, self._undo_file)
+        finally:
+            self._hush = False
+        return Path(self._undo_file).read_text(encoding="utf-8")
+
+    def _history(self, surface):
+        if not hasattr(self, "_undo"):
+            self._undo = {}
+        return self._undo.setdefault(surface, {"states": [], "at": -1})
+
+    def cmd_UndoReset(self, surface="Surface"):
+        """Start the undo list again from the design as it is (a new form, one just opened)."""
+        if getattr(self, "_restoring", False):
+            return ""
+        h = self._history(surface)
+        h["states"], h["at"] = [self._design_text(surface)], 0
+        return ""
+
+    def cmd_UndoMark(self, surface="Surface"):
+        """The design has changed: remember it, so Undo can come back to it (and forget what Redo had)."""
+        if getattr(self, "_restoring", False):
+            return ""
+        h = self._history(surface)
+        text = self._design_text(surface)
+        if h["states"] and h["states"][h["at"]] == text:          # (a click that only selected something)
+            return ""
+        if not h["states"]:
+            h["states"], h["at"] = [text], 0
+            return ""
+        del h["states"][h["at"] + 1:]
+        h["states"].append(text)
+        if len(h["states"]) > self.UNDO_MAX:
+            del h["states"][0]
+        h["at"] = len(h["states"]) - 1
+        return ""
+
+    def cmd_CanUndo(self, surface="Surface"):
+        return "true" if self._history(surface)["at"] > 0 else "false"
+
+    def cmd_CanRedo(self, surface="Surface"):
+        h = self._history(surface)
+        return "true" if 0 <= h["at"] < len(h["states"]) - 1 else "false"
+
+    def cmd_Undo(self, surface="Surface"):
+        h = self._history(surface)
+        if h["at"] <= 0:
+            return ""
+        h["at"] -= 1
+        return self._restore(surface, h["states"][h["at"]])
+
+    def cmd_Redo(self, surface="Surface"):
+        h = self._history(surface)
+        if h["at"] >= len(h["states"]) - 1:
+            return ""
+        h["at"] += 1
+        return self._restore(surface, h["states"][h["at"]])
+
+    def _restore(self, surface, text):
+        surf = self._surface(surface)
+        selected = str(self.cmd_GetProperty(surf.name, "Selected") or "")
+        group = [n for n in str(self.cmd_GetProperty(surf.name, "SelectedAll") or "").split(",") if n]
+        Path(self._undo_file).write_text(text, encoding="utf-8")
+        self._restoring, self._hush = True, True
+        try:
+            self.cmd_ImportVml(self._undo_file, surface)
+            keep = [n for n in (group or [selected]) if n and self.find(n) is not None]   # (a group stays a group)
+            surf.widget.select_group(keep)
+            surf.widget.emit("OnChanged", {"selected_control": keep[0] if keep else ""})
+        finally:
+            self._restoring, self._hush = False, False
+        return "true"
+
+    # ---- cut, copy and paste: a control (and whatever's inside it), its properties and its scripts. On the
+    # clipboard as text too, so it pastes into another Visualised designer.
+    CLIP_MARK = "VML-CONTROLS:"
+
+    def _control_spec(self, node):
+        ctype = getattr(node, "template", None) or node.type.name
+        spec = {"type": ctype, "name": node.name,
+                "props": {k: v for k, v in node.props.items() if k not in ("Name", "X", "Y")},
+                "scripts": {ev: list(s) for ev, s in getattr(node, "design_scripts", {}).items()}, "children": []}
+        if node.type.container and not getattr(node, "template", None):
+            spec["children"] = [self._control_spec(k) for k in node.children]
+        return spec
+
+    def cmd_CopyControl(self, names):
+        """Copy controls (and what's inside them) for Paste: one name, or several comma-separated (a group).
+        One that's inside another being copied goes with it, not twice."""
+        nodes = [self.find(n.strip()) for n in str(names or "").split(",")
+                 if n.strip() and not n.strip().startswith("menu:") and n.strip() != "menubar"]
+        nodes = [n for n in nodes if n is not None]
+        def inside(n, others):
+            p = n.parent
+            while p is not None:
+                if p in others:
+                    return True
+                p = p.parent
+            return False
+        nodes = [n for n in nodes if not inside(n, nodes)]
+        if not nodes:
+            return ""
+        self._clip, self._pastes = [self._control_spec(n) for n in nodes], 0
+        self.cmd_ClipboardSet(self.CLIP_MARK + json.dumps(self._clip))
+        return "true"
+
+    def _clip_spec(self):
+        text = self.cmd_ClipboardGet() or ""
+        if text.startswith(self.CLIP_MARK):
+            try:
+                spec = json.loads(text[len(self.CLIP_MARK):])
+                spec = spec if isinstance(spec, list) else [spec]
+                if spec != getattr(self, "_clip", None):
+                    self._clip, self._pastes = spec, 0
+            except ValueError:
+                pass
+        return getattr(self, "_clip", None)
+
+    def cmd_CanPaste(self):
+        return "true" if self._clip_spec() else "false"
+
+    def _make_from_spec(self, spec, parent):
+        name = self._unique(spec["type"])
+        if self.cmd_CreateControl(spec["type"], name, parent) == "Failed":
+            return ""
+        for k, v in spec["props"].items():
+            if k in ("Text", "Content") and v == spec["name"]:   # (a button still called Button1 becomes Button2)
+                v = name
+            self.cmd_SetProperty(name, k, v)
+        for event, (interp, code) in spec.get("scripts", {}).items():
+            self.cmd_SetDesignScript(name, event, interp, code)
+        for kid in spec.get("children", []):
+            self._make_from_spec(kid, name)
+        return name
+
+    def cmd_PasteControl(self, x="", y="", surface="Surface"):
+        """Paste what was copied: where the form was right-clicked (x, y), or a step down and right of the original.
+        A group keeps its shape. What's pasted is selected (all of it), and its names are the answer, comma-separated."""
+        specs = self._clip_spec()
+        if not specs:
+            return ""
+        surf = self._surface(surface)
+        specs = json.loads(json.dumps(specs))
+        pos = lambda s, k: int(float(s["props"].get(k, 0) or 0))
+        if x not in ("", None) and y not in ("", None):             # the group's top-left goes where it was clicked
+            left, top = min(pos(s, "Canvas.Left") for s in specs), min(pos(s, "Canvas.Top") for s in specs)
+            dx, dy = surf.widget.snap(float(x)) - left, surf.widget.snap(float(y)) - top
+        else:
+            self._pastes = getattr(self, "_pastes", 0) + 1
+            dx = dy = 16 * self._pastes
+        for s in specs:
+            s["props"]["Canvas.Left"], s["props"]["Canvas.Top"] = str(pos(s, "Canvas.Left") + dx), str(pos(s, "Canvas.Top") + dy)
+        names = [n for n in (self._make_from_spec(s, surf.name) for s in specs) if n]
+        if names:
+            surf.widget.select_group(names)
+            surf.widget.emit("OnChanged", {"selected_control": names[0]})
+        return ",".join(names)
+
+    # ---- lining a group up (right-click > Align): left, centre, right, top, middle, bottom; spaced evenly; the
+    # same size; or Tidy, which makes a neat column (or a row, if they're spread across) with even gaps
+    ALIGN_GAP = 8
+
+    def cmd_AlignControls(self, how, surface="Surface"):
+        surf = self._surface(surface)
+        view = surf.widget
+        nodes = view.group()
+        if len(nodes) < 2:
+            return ""
+        how = str(how).lower()
+        r = {n.name: QRect(n.host.geometry()) for n in nodes}
+        left, top = min(g.left() for g in r.values()), min(g.top() for g in r.values())
+        right, bottom = max(g.right() for g in r.values()), max(g.bottom() for g in r.values())
+        sized = {}
+        if how == "tidy":                                 # the way they mostly run (by their middles): a column, or a row
+            xs, ys = [g.center().x() for g in r.values()], [g.center().y() for g in r.values()]
+            how = "row" if (max(xs) - min(xs)) > (max(ys) - min(ys)) else "column"
+        if how == "column":
+            y = top
+            for n in sorted(nodes, key=lambda n: (r[n.name].top(), r[n.name].left())):
+                r[n.name].moveTo(left, y)
+                y += r[n.name].height() + self.ALIGN_GAP
+        elif how == "row":
+            x = left
+            for n in sorted(nodes, key=lambda n: (r[n.name].left(), r[n.name].top())):
+                r[n.name].moveTo(x, top)
+                x += r[n.name].width() + self.ALIGN_GAP
+        elif how in ("left", "right", "centre", "center"):
+            mid = (left + right) // 2
+            for g in r.values():
+                g.moveLeft(left if how == "left" else right - g.width() + 1 if how == "right" else mid - g.width() // 2)
+        elif how in ("top", "bottom", "middle"):
+            mid = (top + bottom) // 2
+            for g in r.values():
+                g.moveTop(top if how == "top" else bottom - g.height() + 1 if how == "bottom" else mid - g.height() // 2)
+        elif how in ("across", "down"):                    # the first and last stay; the gaps between come out even
+            key = (lambda n: r[n.name].left()) if how == "across" else (lambda n: r[n.name].top())
+            order = sorted(nodes, key=key)
+            span = (lambda g: g.width()) if how == "across" else (lambda g: g.height())
+            room = (right - left + 1 if how == "across" else bottom - top + 1) - sum(span(r[n.name]) for n in order)
+            gap, at = room / (len(order) - 1), (left if how == "across" else top)
+            for n in order:
+                g = r[n.name]
+                g.moveLeft(round(at)) if how == "across" else g.moveTop(round(at))
+                at += span(g) + gap
+        elif how in ("width", "height"):                    # the same size as the one the properties show
+            first = r[nodes[0].name]
+            for n in nodes[1:]:
+                sized[n.name] = (first.width(), r[n.name].height()) if how == "width" else (r[n.name].width(), first.height())
+        else:
+            return ""
+        for name, (w, h) in sized.items():
+            self.cmd_SetProperty(name, "Width", str(w))
+            self.cmd_SetProperty(name, "Height", str(h))
+        view.commit_group({name: QRect(max(0, g.x()), max(0, g.y()), g.width(), g.height()) for name, g in r.items()})
+        return "true"
 
     def cmd_DuplicateControl(self, name):
         node = self._node(name)
@@ -1613,9 +2315,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.menu_scripts = {}
         surf.design_scripts, surf.form_scripts = {}, {}
         surf.export_names, surf.carried = {}, []
-        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
+        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp", "OnResized", "OnActivated"):
             surf.props.pop(ev, None)
-        for prop in ("FormBorder", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight",
+        for prop in ("FormBorder", "FormBorderThickness", "FormTitleBar", "FormTitleBackground", "FormResizable", "FormModal", "FormMinWidth", "FormMinHeight", "FormMaxWidth", "FormMaxHeight",
                      *(p for _, p in self.APP_KEYS)):
             if surf.props.get(prop):                         # the last form's window options don't carry over
                 self.cmd_SetProperty(surf.name, prop, "")
@@ -1623,8 +2325,10 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.widget.set_menu([])
         surf.widget.apply_menu_settings()
         for k, v in (("FormName", "Form1"), ("FormTitle", "Form1"), ("FormWidth", "640"), ("FormHeight", "480"),
-                     ("FormBackground", "#ffffff")):
+                     ("FormBackground", "#ffffff"), ("FormTitleBar", "Own")):    # a new form wears its own title bar
             self.cmd_SetProperty(surf.name, k, v)
+        if not getattr(self, "_importing", False):
+            self.cmd_UndoReset(surf.name)
 
     # What a form says about the app it is, in its @Window, and the designer's name for each: read when a form is
     # opened and written back when it is saved, so a form keeps its version, picture and the rest through the designer.
@@ -1638,7 +2342,9 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         form, canvas = g("FormName", "Form1"), g("FormName", "Form1") + "Canvas"
         menu = surf.widget.menu_items
         mh = surf.widget.menu_h()
-        out = [f"# {form}: designed in the VML designer", "", f"@Window {form}", f"Title={g('FormTitle', form)}",
+        # the #! line lets a form run as a program on Linux and macOS once it's made executable (chmod +x): left to
+        # the user, as with any script. Windows and VML itself read it as a comment.
+        out = ["#!/usr/bin/env vml", f"# {form}: designed in the VML designer", "", f"@Window {form}", f"Title={g('FormTitle', form)}",
                f"Width={g('FormWidth', 640)}", f"Height={int(float(g('FormHeight', 480))) + mh}", ""]
         settings = {k: v for k, v in surf.widget.menu_settings.items() if v not in ("", None)}
         if menu:
@@ -1653,10 +2359,13 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         out += [f"@Canvas {canvas}", f"Parent={form + 'Root' if menu else form}", f"Background={g('FormBackground', '#ffffff')}"]
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
-                          ("BorderBrush", "FormBorder"), *self.APP_KEYS,
-                          ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp")):
+                          ("BorderBrush", "FormBorder"), ("BorderThickness", "FormBorderThickness"), ("TitleBar", "FormTitleBar"), ("TitleBackground", "FormTitleBackground"),
+                          *self.APP_KEYS,
+                          ("OnOpened", "OnOpened"), ("OnClosing", "OnClosing"), ("OnKeyDown", "OnKeyDown"), ("OnKeyUp", "OnKeyUp"),
+                          ("OnResized", "OnResized"), ("OnActivated", "OnActivated")):
             v = str(surf.props.get(prop, "") or "")
-            if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false"):
+            if v and not (key == "Resizable" and v == "true") and not (key == "Modal" and v == "false") \
+                    and not (key == "TitleBar" and v == "Own"):
                 end = out.index("", out.index(f"@Window {form}"))   # the end of the window's own lines
                 out.insert(end, f"{key}={v}")
         first = ["Canvas.Left", "Canvas.Top", "Width", "Height"]
@@ -1718,15 +2427,28 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             if carry:
                 out.insert(out.index("", out.index(f"@Window {form}")), f"LinkPass={carry}")
         Path(os.path.expanduser(path)).write_text("\n".join(out) + "\n", encoding="utf-8")
-        log(f"saved {len(everything)} controls to {path}")
+        if not getattr(self, "_hush", False):
+            log(f"saved {len(everything)} controls to {path}")
         return True
 
     def cmd_ImportVml(self, path, surface="Surface"):
         """Open a VML form for editing: its Window becomes the form, its Canvas's controls the design."""
+        self._importing = True
+        try:
+            done = self._import_vml(path, surface)
+        finally:
+            self._importing = False
+        if done is not False:
+            self.cmd_UndoReset(surface)                     # (a form just opened: nothing to undo yet)
+        return done
+
+    def _import_vml(self, path, surface="Surface"):
         surf = self._surface(surface)
         rows, props, scripts = self.store.parse_form(os.path.expanduser(path))
         while PARSER_LOG:
-            log(PARSER_LOG.pop(0))
+            line = PARSER_LOG.pop(0)
+            if not getattr(self, "_hush", False):        # (an undo or redo opens the design quietly)
+                log(line)
         window = next((r for r in rows if r[2] == "Window"), None)
         canvas = next((r for r in rows if window and r[1] == window[0] and r[2] == "Canvas"), None)
         if window is not None and canvas is None:            # a form with a menu: Window > DockPanel > Canvas
@@ -1809,9 +2531,12 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
             self.cmd_SetProperty(surf.name, k, v)
         for key, prop in (("Resizable", "FormResizable"), ("Modal", "FormModal"), ("MinWidth", "FormMinWidth"),
                           ("MinHeight", "FormMinHeight"), ("MaxWidth", "FormMaxWidth"), ("MaxHeight", "FormMaxHeight"),
-                          ("BorderBrush", "FormBorder"), *self.APP_KEYS):
+                          ("BorderBrush", "FormBorder"), ("BorderThickness", "FormBorderThickness"), ("TitleBar", "FormTitleBar"), ("TitleBackground", "FormTitleBackground"),
+                          *self.APP_KEYS):
             if wp.get(key):
                 self.cmd_SetProperty(surf.name, prop, wp[key])
+        if not wp.get("TitleBar"):
+            self.cmd_SetProperty(surf.name, "FormTitleBar", "Own")        # (our own title bar is the default now)
         count, placed = 0, {canvas[0]: surf.name}
         for cid, parent_id, ctype, name in rows:               # parents always come before their children
             if parent_id not in placed:
@@ -1836,7 +2561,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
                 if v in scripts:
                     used.add(v)
         surf.design_scripts = {}
-        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"):
+        for ev in ("OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp", "OnResized", "OnActivated"):
             handler = wp.get(ev)
             if handler and handler in scripts:
                 surf.design_scripts[ev] = scripts[handler]
@@ -1846,7 +2571,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         surf.form_scripts = {n: v for n, v in scripts.items() if n not in used}
         if hasattr(surf.widget, "arrange_layers"):
             surf.widget.arrange_layers(fresh=True)
-        log(f"opened {path}: {count} controls")
+        if not getattr(self, "_hush", False):
+            log(f"opened {path}: {count} controls")
         if notes:
             said = [f"Converted from a panel layout: {notes['controls']} controls placed, {notes['frames']} panels kept as "
                     f"frames, {notes['dissolved']} layout-only panels removed."]
@@ -1874,10 +2600,11 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         """Bring a form made in another tool onto the design surface, using an importer from the library. kind: the
         importer's name ("WinForms", "VB6"), or "" to go by the file's ending. Returns "true" if it opened; the
         setting import_notes then says what was and was not brought across. (Pro.)"""
-        if not self.needs("import", "Importing forms from other tools"):
-            return ""
         source = Path(os.path.expanduser(str(path)))
         name = self.importer_for(kind, source)
+        free = bool(name and (self.importers().get(str(name).lower()) or {}).get("free"))   # (VB: free, the way in)
+        if not free and not self.needs("import", "Importing forms from other tools"):
+            return ""
         if name is None:
             raise ValueError(f"there's no importer for {kind or source.suffix or 'that kind of file'}")
         result = self.run_importer(name, "ImportForm", source.resolve().as_posix(), "") if source.is_file() \
@@ -2097,7 +2824,8 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
 
     @staticmethod
     def _lang_label(interp):
-        return {"lua": "Lua", "csharp": "C#", "python": "Python"}.get(interp, "Shell")
+        return {"lua": "Lua", "csharp": "C#", "python": "Python", "bash": "Bash", "sh": "Bash",
+                "powershell": "PowerShell", "pwsh": "PowerShell"}.get(interp, "Bash")
 
     def cmd_GetShellName(self):
         return "PowerShell" if self.SHELL == "powershell" else "Bash"
@@ -2110,7 +2838,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         node = self._node(name)
         scripts = getattr(node, "design_scripts", {})
         if node.type.name == "DesignSurface":                # the form itself: the window's events
-            events = ["OnOpened", "OnClosing", "OnKeyDown", "OnKeyUp"]
+            events = ["OnOpened", "OnClosing", "OnResized", "OnActivated", "OnKeyDown", "OnKeyUp"]
             return json.dumps([{"name": e, "has_script": e in scripts} for e in events])
         events = sorted(e for e, hook in node.type.events.items() if hook is not None)
         if "OnClick" in events:                       # the one people want first, as in VB
@@ -3195,6 +3923,73 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands):
         """Take a photo with the phone's camera and put it in an Image, then run handler. A computer asks for a
         picture file instead."""
         return self.cmd_PickPhoto(image, handler)
+
+    # --- Tools: the apps in the tools folder (~/.vml/tools), on the designer's Tools menu
+    def tools_folder(self):
+        return Path(os.path.expanduser("~")) / ".vml" / "tools"
+
+    def cmd_ToolsList(self):
+        """The tools, as JSON [{name, path}]: each .vml or .vmlproj in the tools folder, and each folder in it that
+        holds a .vmlproj or a .vml (a link to an app's folder will do: ln -s ~/projects/x/apps/bob ~/.vml/tools/Bob)."""
+        import json
+        found, root = [], self.tools_folder()
+        try:
+            entries = sorted(root.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            entries = []                                     # (no tools folder yet: Bob may still be there)
+        for p in entries:
+            if p.name.startswith("."):
+                continue
+            if p.is_file() and p.suffix.lower() in (".vml", ".vmlproj"):
+                found.append({"name": p.stem, "path": str(p)})
+            elif p.is_dir():
+                inside = sorted(p.glob("*.vmlproj")) or sorted(p.glob(f"{p.name}.vml"), key=str) or \
+                    sorted([q for q in p.glob("*.vml") if q.stem.lower() == p.name.lower()]) or sorted(p.glob("*.vml"))
+                if inside:
+                    found.append({"name": p.name, "path": str(inside[0])})
+        for t in found:                                      # a form's own title, when it has one ("Bob build tool")
+            try:
+                head = Path(t["path"]).read_text(encoding="utf-8", errors="replace")[:4000]
+                m = re.search(r"^Title=(.+)$", head, re.M) if t["path"].lower().endswith(".vml") else None
+                if m and m.group(1).strip():
+                    t["name"] = m.group(1).strip()
+            except OSError:
+                pass
+        if not any(Path(t["path"]).name == "Bob.vml" for t in found):  # Bob, wherever Visualised's source is
+            here = Path(__file__).resolve().parent.parent
+            repo = Path(os.path.expanduser(os.environ.get("BOB_REPO") or "~/projects/vml-github"))
+            for root in (here, repo):
+                bob = root / "apps" / "bob" / "Bob.vml"
+                if bob.is_file() and (root / "tools" / "bob" / "run.py").is_file():
+                    found.insert(0, {"name": "Bob build tool", "path": str(bob), "builtin": True})
+                    break
+        return json.dumps(found)
+
+    def cmd_ToolsFolder(self):
+        """The tools folder (made if it isn't there yet)."""
+        root = self.tools_folder()
+        root.mkdir(parents=True, exist_ok=True)
+        return str(root)
+
+    def cmd_RunApp(self, path, project=""):
+        """Start a form or project as an app of its own, in its own process: it carries on if this one closes.
+        project: the project (or form) the designer has open, for a tool to work on: it finds it in VML_PROJECT."""
+        p = Path(os.path.expanduser(str(path)))
+        if not p.exists():
+            return ""
+        argv = [sys.executable, str(p)] if FROZEN else [sys.executable, "-m", "vml", str(p)]
+        env = dict(os.environ)
+        if project:
+            env["VML_PROJECT"] = str(project)
+        if not FROZEN:                                       # (from the source: it needs to find the vml package)
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent) + os.pathsep + env.get("PYTHONPATH", "")
+        try:
+            subprocess.Popen(argv, cwd=str(p.parent), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+            return "true"
+        except OSError as exc:
+            log(f"RunApp: {exc}")
+            return ""
 
     def cmd_FileOpenDialog(self, title="Open", ext="", start=""):
         kinds = [e.strip().lstrip(".") for e in str(ext).split(",") if e.strip()]       # "vml", or "vb,cs" for several

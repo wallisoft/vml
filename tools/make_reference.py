@@ -82,6 +82,7 @@ DESCRIBE = {
     "HorizontalScrollBarVisibility": "When the sideways scroll bar shows.", "VerticalScrollBarVisibility": "When the up-and-down scroll bar shows.",
     "Thickness": "How wide the bar is, in pixels.",
     "Modal": "Opened as a dialog: the rest of the app waits until it closes.",
+    "WindowState": "How it opens on a computer: Normal (its own size), Maximized, FullScreen, or Auto: maximised on an HD screen (1920 wide) or smaller, its own size on a bigger one.",
     "PhoneFit": "On a phone: Fit scales the form to the screen's width; None leaves it at its own size.",
     "Background": "Its background colour.", "Foreground": "Its text colour.", "BorderBrush": "Its edge's colour.",
     "Class": "The names of shared @Style styles it takes, space-separated.", "Style": "CSS for this control alone.",
@@ -109,6 +110,10 @@ PER_CONTROL = {
     ("MarkdownView", "Source"): "Where its Markdown comes from instead: a file, a web address, or help:Page for a page of Visualised's help. Links in it open in place.",
     ("MarkdownEditor", "Text"): "The Markdown written in it.",
     ("MarkdownEditor", "ShowPreview"): "How the Markdown looks, shown beside it as you type.",
+    ("CodeEditor", "Text"): "The code in it.",
+    ("CodeEditor", "Language"): "What it's coloured as: Lua, Python, Shell or CSharp.",
+    ("CodeEditor", "Breakpoints"): "The lines with a breakpoint, \"3, 12\": a click in the margin sets or clears one.",
+    ("CodeEditor", "CurrentLine"): "A line to show in yellow (where a script is stopped), 0 for none.",
 }
 
 

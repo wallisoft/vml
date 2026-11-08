@@ -104,6 +104,46 @@ TOOLS = [
 ]
 
 
+# the apps' own APIs (vml/appapi.py: an api.vml beside each app): Bob, Pat... asked through the same assistant
+TOOLS += [
+    ("apps", "The Visualised apps that can be asked things (Bob builds, Pat posts and keeps the books...), and what "
+             "each can be asked: its commands, their parameters and their level. look: only reads. do: changes things "
+             "here, harmlessly. ask: goes out into the world or can't be undone, so ask the person first.", _schema({})),
+    ("app_call", "Ask an app one of its commands (see apps). For an 'ask' command, first tell the person exactly what "
+                 "it will do and get their yes, then pass yes=true. A slow one (a build) answers with a job: follow it "
+                 "with app_job.",
+     {"type": "object", "properties": {"app": {"type": "string", "description": "The app (from apps), e.g. pat"},
+                                       "command": {"type": "string", "description": "The command, e.g. report"},
+                                       "args": {"type": "object", "description": "Its parameters, by name"},
+                                       "yes": {"type": "boolean", "description": "The person said yes to this exact "
+                                                                                 "action (needed for 'ask' commands)"}},
+      "required": ["app", "command"]}),
+    ("app_job", "A slow command started by app_call (a build): still going? how it ended, and its last lines. "
+                "With no job, the recent ones.", _schema({"job": ("string", "The job's id")})),
+]
+
+
+def _apps_list():
+    from . import appapi
+    return json.dumps(appapi.describe(), indent=1)
+
+
+def _app_call(app, command, args=None, yes=False):
+    from . import appapi
+    try:
+        return json.dumps(appapi.call(app, command, args or {}, yes=bool(yes)), indent=1, ensure_ascii=False)
+    except appapi.ApiError as e:
+        raise Problem(str(e))
+
+
+def _app_job(job=""):
+    from . import appapi
+    try:
+        return json.dumps(appapi.job(job) if job else appapi.jobs(), indent=1, ensure_ascii=False)
+    except appapi.ApiError as e:
+        raise Problem(str(e))
+
+
 class Problem(Exception):
     pass
 
@@ -302,6 +342,9 @@ DO = {"publish_site": publish_site, "vml_onl_status": vml_onl_status, "list_apps
       "check_app": check_app, "export_web": export_web, "build_apk": build_apk}
 
 
+DO.update({"apps": _apps_list, "app_call": _app_call, "app_job": _app_job})
+
+
 def handle(msg):
     """One JSON-RPC message in; the reply out (None for a notification)."""
     method, mid = msg.get("method", ""), msg.get("id")
@@ -313,7 +356,8 @@ def handle(msg):
                   "capabilities": {"tools": {}},
                   "serverInfo": {"name": "visualised", "version": __version__},
                   "instructions": "Visualised makes desktop, web and Android apps from .vml forms with Lua scripts. "
-                                  "Start with list_apps or new_app; after changing a form, run check_app."}
+                                  "Start with list_apps or new_app; after changing a form, run check_app. "
+                                  "The apps themselves (Bob, Pat...) can be asked things too: apps, then app_call."}
     elif method == "ping":
         result = {}
     elif method == "tools/list":

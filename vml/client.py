@@ -36,7 +36,8 @@ def call(command, *args):
     if ep is None:
         raise ConnectionError("no VML engine is running")
     host, port, token = ep
-    with socket.create_connection((host, port), timeout=30) as s:
+    wait = float(os.environ.get("VML_TIMEOUT") or 30) or None   # (VML_TIMEOUT=0: as long as it takes: a script stopped in the debugger)
+    with socket.create_connection((host, port), timeout=wait) as s:
         s.sendall((json.dumps({"token": token, "cmd": command, "args": [str(a) for a in args]}) + "\n").encode())
         data = b""
         while not data.endswith(b"\n"):

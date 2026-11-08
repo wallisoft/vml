@@ -1,0 +1,25 @@
+# TopCat: what Bob builds, and where (see tools/bob/recipe.py)
+
+@Recipe TopCat
+Version=TopCat.vml:Version
+Project=TopCat.vmlproj
+Icon=topcat.png
+Company=Wallisoft
+Launcher=launch.py
+Installer=../../packaging/topcat/topcat.iss
+# the agent travels inside the app, so a fresh machine needs nothing else: the exe is both window and agent
+Nuitka=--include-data-file=tools/topcat/agent.py=topcat/agent.py
+
+@Build Linux
+Machine=here
+Kind=compiled
+
+@Build Windows
+Machine=a8
+Kind=compiled
+
+@Build QuickExport
+Text=Quick export
+Machine=here
+Kind=export
+Platforms=linux, windows

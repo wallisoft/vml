@@ -29,7 +29,7 @@ PLACEMENT_ORDER = {"Canvas.Left": 0, "Canvas.Top": 1, "Anchor": 2}
 HIDDEN_IN_GRID = {"X", "Y", "Name", "IsHitTestVisible", "Focusable"}
 HANDLE = 7
 PAGE_MARGIN = 28
-TITLE_H = 30                 # the pretend window title bar above the form
+TITLE_H = 34                 # the pretend window title bar above the form (as tall as our own)
 
 
 def inert(widget):
@@ -60,6 +60,16 @@ class Overlay(QWidget):
                "BottomLeft": (r.left(), r.bottom()), "Left": (r.left(), cy)}
         return {k: QRect(x - HANDLE // 2, y - HANDLE // 2, HANDLE, HANDLE) for k, (x, y) in pts.items()}
 
+    def group_box(self):
+        """Round a group (several selected): the blue box that holds them, following them as they move."""
+        g = self.view.group()
+        if len(g) < 2:
+            return None
+        box = QRect()
+        for n in g:
+            box = box.united(self.rect_of(n))
+        return box.adjusted(-6, -6, 6, 6)
+
     def form_grip(self):
         f = self.view.form.geometry()
         return QRect(f.right() - 4, f.bottom() - 4, 10, 10)
@@ -69,7 +79,9 @@ class Overlay(QWidget):
         container = container or self.view.node
         for node in reversed(container.children):
             if node.host.isVisible() and self.rect_of(node).contains(pos):
-                if node.type.name in ("Frame", "Canvas"):           # a page or a frame: what's inside it first
+                if node.type.name in ("Frame", "Canvas", "TabPage"):    # a page or a frame: what's inside it first
+                    return self.hit(pos, node) or node
+                if node.type.name == "TabStrip":                    # the page showing, then the strip (its tabs)
                     return self.hit(pos, node) or node
                 return node
         return None
@@ -95,6 +107,19 @@ class Overlay(QWidget):
                 p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
                 p.setBrush(Qt.NoBrush)
                 p.drawRect(g.adjusted(0, 0, -1, -1))
+        box = self.group_box()
+        if box is not None and self.mode != "band":       # the group's box: there until a click on the form clears it
+            p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+            p.setBrush(QColor(37, 99, 235, 22))
+            p.drawRoundedRect(box, 4, 4)
+        for other in v.group()[1:]:                      # the rest of a group: outlined, no handles
+            p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+            p.setBrush(QColor(37, 99, 235, 18))
+            p.drawRect(self.rect_of(other).adjusted(-1, -1, 0, 0))
+        if self.mode == "band" and getattr(self, "band", None) is not None:   # the selection box being drawn
+            p.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
+            p.setBrush(QColor(37, 99, 235, 28))
+            p.drawRect(self.band)
         sel = v.selected_node()
         if sel is not None:
             r = self.rect_of(sel)
@@ -116,38 +141,84 @@ class Overlay(QWidget):
                     p.drawLine(cx, r.bottom(), cx, f.bottom())
             p.setPen(QPen(QColor("#2563eb"), 1))
             p.setBrush(QColor("white"))
-            for h in self.handles(r).values():
+            for h in (self.handles(r).values() if not v.extra else ()):    # (a group moves; one control resizes)
                 p.drawRect(h)
+        self.paint_title_bar(p)
+        self.paint_edge(p)
         p.setPen(QPen(QColor("#9ca3af"), 1))
         p.setBrush(QColor("#9ca3af"))
         p.drawRect(self.form_grip())
-        self.paint_title_bar(p)
         p.end()
 
+    def paint_edge(self, p):
+        """The form's edge, over its outermost pixels as it is when it runs (so a status bar along the foot sits
+        inside it), and round the title bar too."""
+        colour_, width = getattr(self.view, "form_edge", (None, 0))
+        if colour_ is None or width <= 0:
+            return
+        v, f = self.view, self.view.form.geometry()
+        bar = str(v.node.props.get("FormTitleBar") or "Own") != "None"
+        top = f.top() - v.menu_h() - TITLE_H if bar else f.top() - v.menu_h()
+        r = QRect(f.left(), top, f.width(), f.bottom() - top + 1)
+        p.save()
+        p.setPen(Qt.NoPen)
+        p.setBrush(colour_)
+        for band in (QRect(r.left(), r.top(), r.width(), width), QRect(r.left(), r.bottom() - width + 1, r.width(), width),
+                     QRect(r.left(), r.top(), width, r.height()), QRect(r.right() - width + 1, r.top(), width, r.height())):
+            p.drawRect(band)
+        p.restore()
+
     def paint_title_bar(self, p):
-        """A window title bar above the form, so it looks like the window it will become."""
+        """A window title bar above the form, drawn as this desktop draws one (or as the form's own, TitleBar=Own),
+        so the form looks like the window it will become."""
+        from .registry import paint_caption
+        from .theme import theme
+        t = theme()
         v, f = self.view, self.view.form.geometry()
         bar = QRect(f.left(), f.top() - v.menu_h() - TITLE_H, f.width(), TITLE_H)
-        p.setPen(QPen(QColor("#9ca3af"), 1))
-        p.setBrush(QColor("#f3f4f6"))
-        p.drawRect(bar.adjusted(0, 0, -1, 0))
+        mode = str(v.node.props.get("FormTitleBar") or "Own")
+        if mode == "None":                               # no title bar: just where it would be, faintly
+            p.setPen(QPen(QColor("#9ca3af"), 1, Qt.DashLine))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(bar.adjusted(0, 0, -1, 0))
+            p.drawText(bar.adjusted(12, 0, 0, 0), Qt.AlignVCenter | Qt.AlignLeft, "(no title bar)")
+            return
+        bg = QColor(str(v.node.props.get("FormTitleBackground") or t.title_bg)) if mode == "Own" else QColor(t.title_bg)
+        ink = QColor("#111827") if 0.299 * bg.red() + 0.587 * bg.green() + 0.114 * bg.blue() > 150 else QColor("#FFFFFF")
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        top = 0 if mode == "Own" else max(t.corners)     # (rounded at the top, as the desktop rounds its windows)
+        r = float(max(t.corners[0], 0))
+        from PySide6.QtGui import QPainterPath
+        from PySide6.QtCore import QRectF
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(bar).adjusted(0, 0, 0, r), r, r)
+        p.setClipRect(bar)
+        p.drawPath(path)
+        p.setClipping(False)
         title = str(v.node.props.get("FormTitle") or v.node.props.get("FormName") or "Form1")
-        p.setPen(QColor("#111827"))
-        p.drawText(bar.adjusted(12, 0, -120, 0), Qt.AlignVCenter | Qt.AlignLeft, title)
+        font = p.font()
+        font.setBold(True)
+        p.setFont(font)
+        p.setPen(ink)
+        if t.title_align == "center":
+            p.drawText(bar.adjusted(100, 0, -100, 0), Qt.AlignCenter, title)
+        else:
+            p.drawText(bar.adjusted(12, 0, -150, 0), Qt.AlignVCenter | Qt.AlignLeft, title)
+        font.setBold(False)
+        p.setFont(font)
+        p.restore()
         resizable = str(v.node.props.get("FormResizable", "true")).lower() != "false"
-        x = bar.right() - 36
-        for glyph in ("close", "max", "min"):
-            r = QRect(x, bar.top() + 7, 16, 16)
-            p.setPen(QPen(QColor("#9ca3af") if glyph == "max" and not resizable else QColor("#374151"), 1.4))
-            if glyph == "close":
-                p.drawLine(r.left() + 3, r.top() + 3, r.right() - 3, r.bottom() - 3)
-                p.drawLine(r.right() - 3, r.top() + 3, r.left() + 3, r.bottom() - 3)
-            elif glyph == "max":
-                p.setBrush(Qt.NoBrush)
-                p.drawRect(r.adjusted(3, 3, -3, -3))
-            else:
-                p.drawLine(r.left() + 3, r.center().y() + 3, r.right() - 3, r.center().y() + 3)
-            x -= 36
+        gnome = t.host in ("gnome", "linux")
+        w = 34 if gnome else 46
+        x = bar.right() - w - (4 if gnome else 0)
+        for kind in ("close", "max", "min"):
+            if kind == "max" and not resizable:
+                continue
+            paint_caption(p, QRect(x, bar.top(), w, bar.height()), kind, ink)
+            x -= w
 
     def geometry_moved(self):
         self.view.emit("OnGeometry", {})
@@ -176,7 +247,7 @@ class Overlay(QWidget):
                              if anchor_set(n.props.get("Anchor")) != {"Top", "Left"}]
             return
         sel = v.selected_node()
-        if e.button() == Qt.LeftButton and sel is not None:
+        if e.button() == Qt.LeftButton and sel is not None and not v.extra:
             for name, r in self.handles(self.rect_of(sel)).items():
                 if r.adjusted(-2, -2, 2, 2).contains(pos):
                     self.mode, self.handle, self.orig = "resize", name, QRect(sel.host.geometry())
@@ -194,6 +265,42 @@ class Overlay(QWidget):
                 act.menu().popup(v.menubar.mapToGlobal(geo.bottomLeft()))
             return
         node = self.hit(pos)
+        if node is not None and node.type.name == "TabStrip" and e.button() == Qt.LeftButton:
+            tab = node.widget.tab_at(node.widget.mapFrom(v.page, pos))
+            if tab >= 0:                                         # a tab: show its page, to design on
+                node.widget.select(tab)
+                v.engine.cmd_SetProperty(node.name, "SelectedIndex", str(tab))
+                page = node.widget.pages()[tab]
+                v.select(page.name, user=True)
+                self.update()
+                return
+        adding = bool(e.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier))
+        box = self.group_box()
+        in_group = box is not None and ((node is not None and node.name in [n.name for n in v.group()])
+                                        or (node is None and box.contains(pos)))
+        if e.button() == Qt.RightButton and in_group:          # right-click on the group: the menu, group kept
+            fpos = pos - v.form.pos()
+            v.engine.store.set_setting("click_x", fpos.x())
+            v.engine.store.set_setting("click_y", fpos.y())
+            v.emit("OnContextMenu", {"click_x": fpos.x(), "click_y": fpos.y()})
+            return
+        if e.button() == Qt.LeftButton and not adding and node is None and in_group:   # inside its box: move it
+            held = v.selected_node()
+            self.mode, self.orig = "move", QRect(held.host.geometry())
+            self.origs = {n.name: QRect(n.host.geometry()) for n in v.group()}
+            return
+        if e.button() == Qt.LeftButton and adding and node is not None:      # Ctrl or Shift: in or out of the group
+            v.toggle(node.name)
+            self.mode = None
+            return
+        if e.button() == Qt.LeftButton and node is not None and node.name in [n.name for n in v.group()]:
+            names = [n.name for n in v.group()]                                 # (dragging a group: keep it,
+            names.remove(node.name)                                             #  the one held shown first)
+            v.select_group([node.name] + names)
+            self.mode = "move"
+            self.origs = {n.name: QRect(n.host.geometry()) for n in v.group()}
+            self.orig = QRect(node.host.geometry())
+            return
         v.select(node.name if node else "", user=True)
         fpos = pos - v.form.pos()
         v.engine.store.set_setting("click_x", fpos.x())
@@ -202,6 +309,9 @@ class Overlay(QWidget):
             v.emit("OnContextMenu", {"click_x": fpos.x(), "click_y": fpos.y()})
         elif node is not None:
             self.mode, self.orig = "move", QRect(node.host.geometry())
+            self.origs = {node.name: QRect(self.orig)}
+        elif v.form.geometry().contains(pos):                  # the form itself: draw a box round what to select
+            self.mode, self.band = "band", QRect(pos, pos)
 
     def mouseMoveEvent(self, e):
         pos, v = e.position().toPoint(), self.view
@@ -224,10 +334,17 @@ class Overlay(QWidget):
                     node.host.setGeometry(x, y, w, h)
                 else:
                     node.host.move(x, y)
+        elif self.mode == "band":
+            self.band = QRect(self.start, pos).normalized()
         elif self.mode == "move":
             node = v.selected_node()
             if node is not None:
-                node.host.move(max(0, snap(self.orig.x() + d.x())), max(0, snap(self.orig.y() + d.y())))
+                x, y = max(0, snap(self.orig.x() + d.x())), max(0, snap(self.orig.y() + d.y()))
+                dx, dy = x - self.orig.x(), y - self.orig.y()       # (the group moves by what the one dragged moved)
+                for n in v.group():
+                    o = getattr(self, "origs", {}).get(n.name, self.orig if n is node else None)
+                    if o is not None:
+                        n.host.move(max(0, o.x() + dx), max(0, o.y() + dy))
         elif self.mode == "resize":
             node = v.selected_node()
             if node is not None:
@@ -252,6 +369,19 @@ class Overlay(QWidget):
         v, mode = self.view, self.mode
         self.mode = None
         node = v.selected_node()
+        if mode == "band":
+            band, self.band = self.band, None
+            inside = [n for n in v.node.children if n.host.isVisible() and band.contains(self.rect_of(n))]
+            if not inside:                                     # (only part-way over some: those)
+                inside = [n for n in v.node.children if n.host.isVisible() and band.intersects(self.rect_of(n))] \
+                    if band.width() > 4 or band.height() > 4 else []
+            v.select_group([n.name for n in inside])
+            self.update()
+            return
+        if mode == "move" and v.extra:                         # a group: each one where it was dropped, one change
+            v.commit_group({n.name: n.host.geometry() for n in v.group()},
+                           {k: o for k, o in getattr(self, "origs", {}).items()})
+            return
         if mode == "form":
             v.commit_form()
         elif mode in ("move", "resize") and node is not None:
@@ -269,6 +399,10 @@ class Overlay(QWidget):
     def mouseDoubleClickEvent(self, e):
         node = self.hit(e.position().toPoint())
         self.mode = None
+        if e.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier):     # (Ctrl+clicking quickly: still in and out)
+            if node is not None:
+                self.view.toggle(node.name)
+            return
         self.view.select(node.name if node else "", user=True)   # whatever was double-clicked; nothing = the form
         self.view.emit("OnDoubleClick", {"selected_control": node.name if node else ""})
 
@@ -277,7 +411,16 @@ class Overlay(QWidget):
         node = v.selected_node()
         step = v.grid if e.modifiers() & Qt.ShiftModifier else 1
         moves = {Qt.Key_Left: (-step, 0), Qt.Key_Right: (step, 0), Qt.Key_Up: (0, -step), Qt.Key_Down: (0, step)}
-        if node is not None and e.key() in moves:
+        if node is not None and e.key() in moves and v.extra:
+            dx, dy = moves[e.key()]
+            geos = {}
+            for n in v.group():
+                g = n.host.geometry()
+                g.moveTo(max(0, g.x() + dx), max(0, g.y() + dy))
+                geos[n.name] = g
+            v.commit_group(geos)
+            self.geometry_moved()
+        elif node is not None and e.key() in moves:
             dx, dy = moves[e.key()]
             g = node.host.geometry()
             g.moveTo(max(0, g.x() + dx), max(0, g.y() + dy))
@@ -294,17 +437,21 @@ class SurfaceView(QScrollArea):
         super().__init__()
         self.node, self.engine = node, node.engine
         self.handlers, self.selected, self.grid, self.show_grid, self.snap_on = {}, "", 8, True, True
+        self.extra = []                          # more selected with it (a box drawn round them, or Ctrl+click)
         self.setWidgetResizable(False)
         self.setFrameShape(QFrame.NoFrame)
         self.page = QWidget()
         self.page.setObjectName("DesignPage")
-        self.page.setStyleSheet("#DesignPage { background: #d4d7dd; }")
+        from .theme import theme
+        desk = "#1C1C1E" if theme().dark else "#E6E9EE"     # the desk the form sits on: quieter than a form, and its bar
+        self.page.setStyleSheet(f"#DesignPage {{ background: {desk}; }}")
         self.form = QWidget(self.page)
         self.form.setObjectName("DesignForm")
         self.form.setAttribute(Qt.WA_StyledBackground, True)
         self.form.move(PAGE_MARGIN, PAGE_MARGIN + TITLE_H)
         self.menu_items, self.menu_settings = [], {}
-        self.menubar = QMenuBar(self.page)                  # the designed form's menu, shown as it will look
+        from .menus import VmlMenuBar
+        self.menubar = VmlMenuBar(self.page)                # the designed form's menu, shown as it will look
         self.menubar.setNativeMenuBar(False)
         self.menubar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.menubar.hide()
@@ -312,7 +459,7 @@ class SurfaceView(QScrollArea):
         self.setWidget(self.page)
         vp = self.viewport()                     # a palette colour, not a stylesheet: it can't cascade into the form
         pal = vp.palette()
-        pal.setColor(vp.backgroundRole(), QColor("#d4d7dd"))
+        pal.setColor(vp.backgroundRole(), QColor(desk))
         vp.setPalette(pal)
         vp.setAutoFillBackground(True)
         self.set_form_bg("#ffffff")
@@ -334,17 +481,53 @@ class SurfaceView(QScrollArea):
         while True:
             nxt = None
             for n in reversed(container.children):
-                if n is exclude or n.type.name not in ("Frame", "Canvas") or not n.host.isVisible():
+                if n is exclude or n.type.name not in ("Frame", "Canvas", "TabStrip", "TabPage") or not n.host.isVisible():
                     continue
                 if self.overlay.rect_of(n).contains(page_pos):
                     nxt = n
                     break
             if nxt is None:
                 return found
+            if nxt.type.name == "TabStrip":                 # (a strip itself holds only pages: look in the one showing)
+                container = nxt
+                continue
             found = container = nxt
 
-    def select(self, name, user=False):
+    def group(self):
+        """Everything selected: the one the properties show first, then the rest of the group."""
+        names = [self.selected] + [n for n in self.extra if n != self.selected] if self.selected else []
+        found = {n.name: n for n in self.walk()}
+        return [found[n] for n in names if n in found]
+
+    def select_group(self, names):
+        names = [n for n in names if n]
+        self.extra = names[1:]
+        self.select(names[0] if names else "", user=True, keep_group=True)
+        self.overlay.update()
+
+    def toggle(self, name):
+        names = [n.name for n in self.group()]
+        if name in names:
+            names.remove(name)
+        else:
+            names.append(name)
+        self.select_group(names)
+
+    def commit_group(self, geos, origs=None):
+        """Several moved together: their new places, as one change (one step for Undo)."""
+        e = self.engine
+        for name, g in geos.items():
+            if origs is not None and origs.get(name) == g:
+                continue
+            e.cmd_SetProperty(name, "Canvas.Left", str(g.x()))
+            e.cmd_SetProperty(name, "Canvas.Top", str(g.y()))
+        self.overlay.update()
+        self.emit("OnChanged", {"selected_control": self.selected})
+
+    def select(self, name, user=False, keep_group=False):
         name = name or ""
+        if not keep_group:
+            self.extra = []
         changed = name != self.selected
         self.selected = name
         self.bring_forward(self.selected_node())
@@ -506,7 +689,8 @@ class SurfaceView(QScrollArea):
                 continue
             has_kids = i + 1 < len(items) and int(items[i + 1].get("level", 0)) > level
             if has_kids or level == 0:
-                menu = QMenu(it.get("text") or "", target)
+                from .menus import VmlMenu
+                menu = VmlMenu(it.get("text") or "", target)
                 menu.installEventFilter(self._menu_filter(menu))
                 act = target.addMenu(menu)
                 parents[level] = menu
@@ -523,11 +707,10 @@ class SurfaceView(QScrollArea):
     def apply_menu_settings(self):
         """The bar's colours, as the running form will show them (a MenuTheme)."""
         st = {k: v for k, v in self.menu_settings.items() if v and k != "OpenOnHover"}
-        if st:
-            bar_css, popup_css = theme_sheets(st)
-            self.menubar.setStyleSheet(bar_css + popup_css)
-        else:
-            self.menubar.setStyleSheet("")
+        self.menubar.menu_theme = st or None                # (its drop-downs ask the bar: vml/menus.py)
+        self.menubar.set_height(num(st.get("Height"), 0) if st else 0)
+        self.menubar.update()
+        self.set_form_bg(None)                              # (the edge follows the bar's colour)
         self.overlay.update()
 
     def reopen_menu_for(self, name):
@@ -580,8 +763,15 @@ class SurfaceView(QScrollArea):
         """The form's background (None: leave it as it is), and its edge, in its own colour if it has one."""
         if value is not None or not hasattr(self, "form_bg"):
             self.form_bg = colour(value or "#ffffff")
-        edge = colour(self.node.props.get("FormBorder") or "#9ca3af")
-        self.form.setStyleSheet(f"#DesignForm {{ background: {self.form_bg}; border: 1px solid {edge}; }}")
+        from .theme import theme                           # the edge it will have when it runs: 3px unless it says,
+        p = self.node.props                                 # its own colour, else its menu bar's, else the accent
+        edge = colour(p.get("FormBorder") or (self.menu_settings.get("Background") if getattr(self, "menu_settings", None) else "")
+                      or theme().edge)
+        width = int(num(p.get("FormBorderThickness"), 2)) if p.get("FormBorderThickness") not in (None, "") else 2
+        self.form_edge = (QColor(edge), width)              # drawn over the form's outermost pixels, as it is when it runs
+        self.form.setStyleSheet(f"#DesignForm {{ background: {self.form_bg}; border: none; }}")
+        if hasattr(self, "overlay"):
+            self.overlay.update()
 
     def commit(self, node, g, resized=False):
         e = self.engine
@@ -654,6 +844,7 @@ def surface_remove(parent, child):
     child.host.setParent(None)
     if view.selected == child.name:
         view.selected = ""
+    view.extra = [n for n in view.extra if n != child.name]
     view.overlay.update()
 
 
@@ -693,6 +884,10 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
           Prop("FormBackground", "colour", "Form", default="#ffffff", apply=lambda n, v: n.widget.set_form_bg(v)),
           Prop("FormBorder", "colour", "Form", apply=lambda n, v: n.widget.set_form_bg(None)),    # an edge round the window
           Prop("FormResizable", "bool", "Form", default="true", apply=lambda n, v: n.widget.overlay.update()),
+          Prop("FormBorderThickness", "number", "Form"),                       # the edge's width (1 if not set)
+          Prop("FormTitleBar", "choice", "Form", options=("System", "Own", "None"), default="Own",
+               apply=lambda n, v: n.widget.overlay.update()),               # Own: the desktop's colours, FormBorder round it all
+          Prop("FormTitleBackground", "colour", "Form", apply=lambda n, v: n.widget.overlay.update()),
           Prop("FormModal", "bool", "Form", default="false"),
           Prop("FormMinWidth", "number", "Form"), Prop("FormMinHeight", "number", "Form"),
           Prop("FormMaxWidth", "number", "Form"), Prop("FormMaxHeight", "number", "Form"),
@@ -705,7 +900,10 @@ register(ControlType("DesignSurface", make_surface, container=True, add_child=su
           Prop("ShowGrid", "bool", "Behaviour", default="true", apply=set_show_grid),
           Prop("SnapToGrid", "bool", "Behaviour", default="true", apply=set_snap),
           Prop("Selected", "text", "Behaviour", apply=lambda n, v: n.widget.select(str(v or "")),
-               read=lambda n: n.widget.selected)])
+               read=lambda n: n.widget.selected),
+          # everything selected, comma-separated (a box drawn round several, or Ctrl+click): set it to choose a group
+          Prop("SelectedAll", "text", "Behaviour", apply=lambda n, v: n.widget.select_group([s.strip() for s in str(v or "").split(",")]),
+               read=lambda n: ",".join(k.name for k in n.widget.group()))])
 REGISTRY["DesignSurface"].design_only = True
 
 
@@ -1055,7 +1253,8 @@ class GridView(QScrollArea):
 
     def pick_style(self, prop, ed, button):
         """Style: a menu of ready-made looks (each replaces the Style). Class: the form's @Style names, ticked on and off."""
-        menu = QMenu(button)
+        from .menus import VmlMenu
+        menu = VmlMenu(button)
         if prop == "Style":
             for label, css in STYLE_PRESETS:
                 act = menu.addAction(label)
@@ -1172,4 +1371,6 @@ DESIGN_DEFAULTS = {
     "MarkdownView": {"Text": "Some **Markdown**, shown as a page.", "Width": "300", "Height": "200"},
     "MarkdownEditor": {"Width": "460", "Height": "240"},
     "StatusBar": {"Panels": "Ready|{date}|{time}", "Height": "26", "Background": "#F3F4F6", "Anchor": "Bottom,Left,Right"},
+    "Toolbar": {"Items": "📄 New, 📂 Open, 💾 Save", "Height": "34", "Background": "#F9FAFB", "Anchor": "Top,Left,Right"},
+    "TabStrip": {"Width": "320", "Height": "220"},
 }

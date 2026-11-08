@@ -93,6 +93,16 @@ def crashed(exc_type, exc, tb):
 
 
 sys.excepthook = crashed
+try:                                             # a crash inside Qt (no Python error to catch): where it was, in faults.log
+    import faulthandler
+    (Path.home() / ".vml").mkdir(parents=True, exist_ok=True)
+    _fl = Path.home() / ".vml" / "faults.log"
+    _faults = open(_fl, "a" if not _fl.exists() or _fl.stat().st_size < 200_000 else "w", encoding="utf-8")
+    _faults.write(f"--- started {__import__('time').strftime('%Y-%m-%d %H:%M:%S')}  {' '.join(sys.argv)}\n")
+    _faults.flush()
+    faulthandler.enable(_faults, all_threads=True)
+except Exception:
+    pass
 from vml.__main__ import main  # noqa: E402  (the package, not this file: packages win the import)
 
 try:

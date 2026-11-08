@@ -1,0 +1,39 @@
+@Window PyDemo
+Title=Python break mode
+Width=320
+Height=160
+
+@Canvas c
+Parent=PyDemo
+
+@Button btn
+Parent=c
+Canvas.Left=20
+Canvas.Top=20
+Width=120
+Height=32
+Content=Add up
+OnClick=Calc
+
+@TextBlock lbl
+Parent=c
+Canvas.Left=20
+Canvas.Top=70
+Width=280
+Height=24
+Text=
+
+@Script Calc
+Interpreter=python
+<<PY
+def square(n):
+    r = n * n
+    return r
+
+runs = globals().get("runs", 0) + 1
+total = 0
+for i in range(1, 4):
+    total += square(i)
+Vml("SetProperty", "lbl", "Text", f"Total {total}, run {runs}")
+print(total)
+PY

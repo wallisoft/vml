@@ -188,6 +188,7 @@ class LibraryCommands:
                     "project_title": p.get("ProjectTitle") or (p.get("Title") or head[3]) + " project",
                     "project_files": exts(p.get("ProjectFiles")) if "ImportProject" in scripts else [],
                     "description": p.get("Description", ""), "builtin": builtin,
+                    "free": builtin and str(p.get("Free", "")).lower() in ("true", "1", "yes"),   # (only ours can say so)
                     "exports": [n for n in ("ExportForm", "ExportProject") if n in scripts]}
         return found
 

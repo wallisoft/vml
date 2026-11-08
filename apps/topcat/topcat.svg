@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="10.8 1.0 114.9 114.9">
+  <!-- TopCat: a gentleman's top hat, lilac (it holds its own on dark and light), leaning in as the others do -->
+  <defs>
+    <linearGradient id="silk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9F8BC9"/><stop offset="0.35" stop-color="#C9B8EC"/><stop offset="0.6" stop-color="#A893D6"/><stop offset="1" stop-color="#7A64AE"/>
+    </linearGradient>
+    <linearGradient id="brim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#A893D6"/><stop offset="1" stop-color="#5B4A8B"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(64 64) rotate(-14) translate(-64 -64)">
+    <!-- the brim, curled up at the sides -->
+    <path d="M10 86 C6 78 12 74 20 78 C34 84 94 84 108 78 C116 74 122 78 118 86 C112 98 88 102 64 102 C40 102 16 98 10 86 Z"
+          fill="url(#brim)" stroke="#0F172A" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M18 80 C34 87 94 87 110 80" fill="none" stroke="#CBD5E1" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+    <!-- the crown, a touch wider at the top -->
+    <path d="M34 86 L30 22 C30 14 98 14 98 22 L94 86 C84 92 44 92 34 86 Z"
+          fill="url(#silk)" stroke="#0F172A" stroke-width="2.6" stroke-linejoin="round"/>
+    <ellipse cx="64" cy="21" rx="34" ry="7.5" fill="#B6A3E0" stroke="#0F172A" stroke-width="2.6"/>
+    <path d="M42 30 L45 78" fill="none" stroke="#E2E8F0" stroke-width="3.2" stroke-linecap="round" opacity="0.55"/>
+    <!-- the band -->
+    <path d="M32.6 66 C44 71 84 71 95.4 66 L94.5 80 C84 86 44 86 33.5 80 Z" fill="#4C1D95" stroke="#0F172A" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M36 70 C48 74 80 74 92 70" fill="none" stroke="#8B5CF6" stroke-width="2" opacity="0.8"/>
+  </g>
+</svg>

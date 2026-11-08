@@ -11,6 +11,7 @@
 Title=Visualised
 Width=1180
 Height=760
+WindowState=Auto
 OnOpened=DesignerInit
 OnClosing=DesignerClosing
 
@@ -249,6 +250,44 @@ OnClick=DesignerExit
 Parent=MenuBar
 Text=Edit
 
+@MenuItem EditUndo
+Parent=Edit
+Text=Undo
+Shortcut=Ctrl+Z
+OnClick=UndoDesign
+
+@MenuItem EditRedo
+Parent=Edit
+Text=Redo
+Shortcut=Ctrl+Y
+OnClick=RedoDesign
+
+@MenuItem EditSepUndo
+Parent=Edit
+IsSeparator=true
+
+@MenuItem EditCut
+Parent=Edit
+Text=Cut
+Shortcut=Ctrl+X
+OnClick=CutSelected
+
+@MenuItem EditCopy
+Parent=Edit
+Text=Copy
+Shortcut=Ctrl+C
+OnClick=CopySelected
+
+@MenuItem EditPaste
+Parent=Edit
+Text=Paste
+Shortcut=Ctrl+V
+OnClick=PasteControl
+
+@MenuItem EditSepClip
+Parent=Edit
+IsSeparator=true
+
 @MenuItem EditScript
 Parent=Edit
 Text=Edit Script...
@@ -386,6 +425,10 @@ OnClick=ProjectRemove
 Parent=Project
 Text=Rename Project...
 OnClick=ProjectRename
+
+@MenuItem Tools
+Parent=MenuBar
+Text=Tools
 
 @MenuItem Settings
 Parent=MenuBar
@@ -560,6 +603,96 @@ IsSeparator=true
 Parent=SurfaceMenu
 Text=Edit Script...
 OnClick=EditScript
+
+@MenuItem CtxAlign
+Parent=SurfaceMenu
+Text=Align
+
+@MenuItem CtxAlignTidy
+Parent=CtxAlign
+Text=Tidy up (a neat column or row)
+OnClick=AlignGroup(tidy)
+
+@MenuItem CtxAlignSep1
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignLeft
+Parent=CtxAlign
+Text=Left edges
+OnClick=AlignGroup(left)
+
+@MenuItem CtxAlignCentre
+Parent=CtxAlign
+Text=Centres
+OnClick=AlignGroup(centre)
+
+@MenuItem CtxAlignRight
+Parent=CtxAlign
+Text=Right edges
+OnClick=AlignGroup(right)
+
+@MenuItem CtxAlignSep2
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignTop
+Parent=CtxAlign
+Text=Tops
+OnClick=AlignGroup(top)
+
+@MenuItem CtxAlignMiddle
+Parent=CtxAlign
+Text=Middles
+OnClick=AlignGroup(middle)
+
+@MenuItem CtxAlignBottom
+Parent=CtxAlign
+Text=Bottoms
+OnClick=AlignGroup(bottom)
+
+@MenuItem CtxAlignSep3
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignAcross
+Parent=CtxAlign
+Text=Space evenly across
+OnClick=AlignGroup(across)
+
+@MenuItem CtxAlignDown
+Parent=CtxAlign
+Text=Space evenly down
+OnClick=AlignGroup(down)
+
+@MenuItem CtxAlignSep4
+Parent=CtxAlign
+IsSeparator=true
+
+@MenuItem CtxAlignWidth
+Parent=CtxAlign
+Text=Same width
+OnClick=AlignGroup(width)
+
+@MenuItem CtxAlignHeight
+Parent=CtxAlign
+Text=Same height
+OnClick=AlignGroup(height)
+
+@MenuItem CtxCut
+Parent=SurfaceMenu
+Text=Cut
+OnClick=CutSelected
+
+@MenuItem CtxCopy
+Parent=SurfaceMenu
+Text=Copy
+OnClick=CopySelected
+
+@MenuItem CtxPaste
+Parent=SurfaceMenu
+Text=Paste Here
+OnClick=PasteHere
 
 @MenuItem CtxDuplicate
 Parent=SurfaceMenu

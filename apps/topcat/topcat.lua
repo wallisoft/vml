@@ -1,0 +1,245 @@
+-- TopCat: this machine's side. The agent (tools/topcat/agent.py, a background service) answers TopCat's hub with
+-- this machine's apps; this window shows it working: on or off, who asked what, and a build's lines as they come.
+-- A module of the TopCat project: every script in TopCat.vml can use what's here.
+
+local json = require("dkjson")
+
+TopCat = { rows = {}, size = -1, job = nil, on = nil }
+
+local function set(n, p, v) Vml("SetProperty", n, p, v) end
+local function get(n, p) return Vml("GetProperty", n, p) or "" end
+local function trim(s) return ((s or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+local function cell(s) return (tostring(s or ""):gsub("[|;\n]", " ")) end
+local HOME = os.getenv("HOME") or os.getenv("USERPROFILE") or "."
+local CONF = HOME .. "/.config/topcat/agent.json"
+local CACHE = HOME .. "/.cache/topcat"
+local JOBS = HOME .. "/.cache/vml/jobs"
+
+local HUB_DEFAULT = "https://api.tiny-web.uk/topcat.php"
+
+-- read/write a file ourselves (the same on Linux and Windows)
+local function read(path) return Vml("FileRead", path) or "" end
+local function write(path, text) return Vml("FileWrite", path, text) end
+
+-- how to run the agent to switch it on/off/round, or follow a job: python + agent, from agent.json
+TopCat.conf = {}
+local function agent(args, into, after)
+  local py, a = TopCat.conf.python, TopCat.conf.agent
+  if not py or not a then return "" end
+  return Vml("RunProcess", '"' .. py .. '" "' .. a .. '" ' .. args, into or "", after or "", "none")
+end
+
+-- First run on this machine: ask for the hub, a name for this machine and its key, write them, and start the agent.
+-- No command line, no repo: the agent travels inside TopCat, and conf.python/agent already say how to call it.
+function TopCat.Setup()
+  local c = TopCat.conf
+  local host = (os.getenv("COMPUTERNAME") or trim(read("/etc/hostname")) or ""):lower()
+  local machine = Vml("PromptDialog", "Set up this machine", "A short name for this machine (callers use it):",
+                      c.machine ~= "" and c.machine or host, "")
+  if trim(machine) == "" then return false end
+  local token = Vml("PromptDialog", "Set up this machine",
+                    "This machine's key, from TopCat's hub (keep it secret):", "", "true")
+  if trim(token) == "" then return false end
+  local hub = Vml("PromptDialog", "Set up this machine", "TopCat hub address (leave as-is unless you host your own):",
+                  c.hub ~= "" and c.hub or HUB_DEFAULT, "")
+  if trim(hub) == "" then hub = HUB_DEFAULT end
+  c.machine, c.token, c.hub = trim(machine), trim(token), trim(hub)
+  c.level = TopCat.level or "ask"
+  if not write(CONF, json.encode(c, { indent = true })) then
+    set("StatusBar", "Text", "Couldn't save the settings (" .. CONF .. ").")
+    return false
+  end
+  agent("--install")                                          -- registers the agent to start at login, and starts it now
+  set("StatusBar", "Text", "Set up as " .. c.machine .. ": starting the agent…")
+  return true
+end
+
+function TopCat.Opened()
+  local conf = json.decode(read(CONF)) or {}
+  TopCat.conf = conf
+  TopCat.level = (conf.level == "look" or conf.level == "do" or conf.level == "ask") and conf.level or "ask"
+  TopCat.ShowLevel()
+  if not conf.token then
+    set("lblState", "Text", "This machine isn't set up yet — tick \"Let TopCat in\" to begin.")
+  end
+  set("chkBoot", "IsChecked", Vml("GetSetting", "at_boot") == "on" and "true" or "false")
+  TopCat.shell = (conf.shell == true or conf.shell == "always") and "always" or (conf.shell == "session" and "session" or "off")
+  TopCat.ShowShell()
+  if conf.token then agent("--on") end                        -- opening TopCat lets it in; untick to shut it out
+  TopCat.Tick()
+  set("tmr", "IsEnabled", "true")
+  if Vml("LaunchedAtBoot") == "true" and TopCat.inTray then Vml("HideForm", "TopCat") end
+end
+
+-- the tray: the hat, with the switch and the level on its menu
+local LEVELS = { { "look", "look" }, { "do", "look and do" }, { "ask", "do and ask" } }
+function TopCat.TrayUpdate()
+  local levels = {}
+  for _, l in ipairs(LEVELS) do levels[#levels + 1] = (TopCat.level == l[1] and "✓ " or "    ") .. l[2] end
+  local menu = { "Open TopCat", "-", (TopCat.on and "✓ " or "    ") .. "Let TopCat in",
+                 "Callers may>" .. table.concat(levels, ";"), "-", "Exit" }
+  local tip = TopCat.on and ("TopCat: on" .. (TopCat.machine and (", " .. TopCat.machine) or "")) or "TopCat: off"
+  TopCat.inTray = (Vml("Tray", tip, table.concat(menu, "|"), "TopCatTray") or "") == ""
+end
+
+function TopCat.Tray(args)
+  local what = (args or {})[1] or ""
+  if what == "open" or what == "Open TopCat" then
+    Vml("ShowForm", "TopCat")
+  elseif what == "Exit" then
+    Vml("Quit")
+  elseif what:find("Let TopCat in", 1, true) then
+    set("chkOn", "IsChecked", TopCat.on and "false" or "true")
+    TopCat.Toggle()
+  elseif what:sub(1, 12) == "Callers may>" then
+    for i, l in ipairs(LEVELS) do
+      if what:match(l[2] .. "%s*$") then
+        TopCat.level = l[1]
+        TopCat.Level()
+      end
+    end
+  end
+end
+
+function TopCat.Boot()
+  local on = get("chkBoot", "IsChecked") == "true"
+  local now = Vml("StartAtBoot", tostring(on))
+  if now == "on" or now == "off" then Vml("SetSetting", "at_boot", now) else set("StatusBar", "Text", now) end
+end
+
+-- every second and a half: on or off, anything new, the followed job's lines. The agent writes state.json each
+-- loop (within the last minute means it's running); we read it ourselves, so this is the same on every system.
+function TopCat.Tick()
+  local st = json.decode(read(CACHE .. "/state.json")) or {}
+  local running = st.at and (os.time() - math.floor(st.at)) < 60 and true or false
+  local on = running and st.on and true or false
+  TopCat.machine = st.machine
+  if TopCat.on ~= running then
+    TopCat.on = running
+    TopCat.TrayUpdate()
+    TopCat.quiet = true
+    set("chkOn", "IsChecked", running and "true" or "false")
+    TopCat.quiet = false
+  end
+  set("dot", "Background", on and "#16A34A" or (running and "#F59E0B" or "#9CA3AF"))
+  if on then
+    set("lblState", "Text", "Connected as " .. (st.machine or "?") .. " to " .. ((st.hub or ""):match("//([^/]+)") or "the hub"))
+  elseif running then
+    set("lblState", "Text", "Trying to reach the hub" .. ((st.why or "") ~= "" and (": " .. st.why) or "…"))
+  else
+    set("lblState", "Text", "Off: nobody can ask this machine anything.")
+  end
+  local log = read(CACHE .. "/log.jsonl")
+  if #log ~= TopCat.size then
+    TopCat.size = #log
+    TopCat.Log(log)
+  end
+end
+
+function TopCat.Log(log)
+  local rows, items = {}, {}
+  for line in (log or ""):gmatch("[^\n]+") do
+    local r = json.decode(line)
+    if r then table.insert(rows, 1, r) end
+  end
+  while #rows > 80 do table.remove(rows) end
+  for _, r in ipairs(rows) do
+    local args = {}
+    for k, v in pairs(r.args or {}) do args[#args + 1] = k .. "=" .. tostring(v) end
+    items[#items + 1] = table.concat({ cell(os.date("%H:%M:%S", math.floor(r.at or 0))), cell(r.caller),
+      cell(r.app .. " " .. r.command .. (#args > 0 and (" " .. table.concat(args, " ")) or "")), cell(r.level), cell(r.said) }, "|")
+  end
+  local first = #TopCat.rows == 0
+  local news = rows[1] and (not TopCat.rows[1] or rows[1].id ~= TopCat.rows[1].id)
+  TopCat.rows = rows
+  set("grdLog", "Items", table.concat(items, ";"))
+  if news and not first then
+    local r = rows[1]
+    set("StatusBar", "Text", (r.caller ~= "" and r.caller or "Someone") .. " asked " .. r.app .. " " .. r.command .. ": " .. (r.said or ""))
+    if r.job then TopCat.Watch(r.job) end                 -- (a build just started: show it as it goes)
+  end
+end
+
+function TopCat.Picked()
+  local r = TopCat.rows[(tonumber(get("grdLog", "SelectedIndex")) or -1) + 1]
+  if r and r.job then TopCat.Watch(r.job) end
+end
+
+function TopCat.Watch(job)
+  local id = tostring(job):gsub("[^%w%-]", "")
+  if TopCat.proc then Vml("CancelProcess", TopCat.proc) end
+  TopCat.job = id
+  set("lstJob", "Items", "")
+  set("lblJob", "Text", "Job " .. id .. ": going…")
+  set("lblJob", "Foreground", "#B45309")
+  -- the agent streams the job's lines, as they come, until it ends (the same on every system)
+  TopCat.proc = agent("--follow " .. id, "lstJob", "TopCatJobDone")
+end
+
+function TopCat.JobDone()
+  local id = TopCat.job
+  if not id then return end
+  local code = trim(read(JOBS .. "/" .. id .. ".exit"))
+  if code == "" then return end                         -- (stopped by picking another one)
+  set("lblJob", "Text", "Job " .. id .. ": " .. (code == "0" and "finished, all good" or ("ended badly (exit " .. code .. ")")))
+  set("lblJob", "Foreground", code == "0" and "#16A34A" or "#B91C1C")
+  TopCat.proc = nil
+end
+
+function TopCat.Toggle()
+  if TopCat.quiet then return end
+  local want = get("chkOn", "IsChecked") == "true"
+  if want and not TopCat.conf.token then                       -- first time in: set this machine up, then it's on
+    if not TopCat.Setup() then
+      TopCat.quiet = true
+      set("chkOn", "IsChecked", "false")                       -- cancelled: leave it off
+      TopCat.quiet = false
+      return
+    end
+    TopCat.on = nil
+    TopCat.Tick()
+    return
+  end
+  agent(want and "--on" or "--off")
+  set("StatusBar", "Text", want and "Letting TopCat in: the agent is starting." or "Shut out: the agent is stopped, and won't start at login.")
+  TopCat.on = nil
+  TopCat.Tick()
+end
+
+-- the shell: off unless you say (for this session, or always); even then, each command needs your yes
+-- the colours: green, the least; orange, more (but still asks); red, things change without asking
+local GREEN, ORANGE, RED = "#16A34A", "#D97706", "#DC2626"
+local SHELL_LOOK = { off = { "Shell: off", GREEN }, session = { "Shell: this session", ORANGE },
+                     always = { "Shell: always on", RED } }
+local LEVEL_LOOK = { look = { "Callers: look", GREEN }, ["do"] = { "Callers: look and do", RED },
+                     ask = { "Callers: do and ask", ORANGE } }
+local function paint(btn, s)
+  set(btn, "Content", s[1] .. "     ▾")
+  set(btn, "Background", s[2])
+end
+function TopCat.ShowLevel() paint("btnLevel", LEVEL_LOOK[TopCat.level or "ask"]) end
+
+function TopCat.LevelNext()
+  TopCat.level = ({ look = "do", ["do"] = "ask", ask = "look" })[TopCat.level or "ask"]
+  TopCat.Level()
+end
+function TopCat.ShowShell() paint("btnShell", SHELL_LOOK[TopCat.shell or "off"]) end
+
+function TopCat.Shell()
+  TopCat.shell = ({ off = "session", session = "always", always = "off" })[TopCat.shell or "off"]
+  agent("--set shell " .. TopCat.shell)                       -- the agent writes it and restarts itself
+  TopCat.ShowShell()
+  set("StatusBar", "Text", ({ off = "No shell: callers can only ask this machine's apps.",
+    session = "Shell on until this computer restarts: each command still needs your yes.",
+    always = "Shell always on: each command still needs your yes. Click again to turn it off." })[TopCat.shell])
+end
+
+function TopCat.Level()
+  local lv = TopCat.level or "ask"
+  TopCat.ShowLevel()
+  TopCat.TrayUpdate()
+  agent("--set level " .. lv)
+  set("StatusBar", "Text", ({ look = "Look only: callers can read, never change anything.",
+    ["do"] = "Look and do: callers can change things here, but nothing that goes out or can't be undone.",
+    ask = "Everything, but anything that goes out or can't be undone needs your yes, each time." })[lv])
+end

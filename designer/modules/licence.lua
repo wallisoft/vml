@@ -18,8 +18,9 @@ function ApplyLicence(...)
     for _, imp in ipairs(require("dkjson").decode(Vml("GetImporters"))) do
         for item, title in pairs({["FileImport_" .. imp.name] = imp.title, ["FileImportProject_" .. imp.name] = imp.project_title}) do
             if Vml("ControlExists", item) == "true" then
-                Vml("SetMenuItemEnabled", item, paid and "true" or "false")
-                Vml("SetMenuItemText", item, title .. "..." .. (paid and "" or "   (Pro)"))
+                local open = paid or imp.free                -- (Visual Basic's are free for everyone: the way in)
+                Vml("SetMenuItemEnabled", item, open and "true" or "false")
+                Vml("SetMenuItemText", item, title .. "..." .. (open and "" or "   (Pro)"))
             end
         end
     end
