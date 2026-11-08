@@ -2,11 +2,12 @@
 
 A licence key is a short signed statement issued by tiny-web.uk when someone buys Visualised Pro or Enterprise:
 
-    VSL1-<payload, base64url>.<signature, base64url>        payload:  tier|seats|id|issued|expires|name
+    VSL1-<payload, base64url>.<signature, base64url>        payload:  tier|seats|id|issued|expires|name|grants
 
 It is checked here with the public half of the signing key, so it needs no account and no internet, and nobody can
 make one without the private half, which never leaves the server. `expires` (YYYYMMDD) is empty for a licence that
-does not run out. The check is plain Python (Ed25519 as published in RFC 8032), so Visualised needs nothing extra
+does not run out. `grants` is a space-separated list of extra packs a pass unlocks (e.g. `headmouse` for a free AAC
+or student pass), so a Community key can carry one capability without being Pro; it lapses with the licence. The check is plain Python (Ed25519 as published in RFC 8032), so Visualised needs nothing extra
 installed to do it.
 """
 import base64
@@ -24,9 +25,10 @@ PREFS_FILE = Path(os.environ.get("VML_PREFS") or Path.home() / ".vml" / "prefs.j
 
 TIERS = ("community", "pro", "enterprise")
 TIER_NAMES = {"community": "Community", "pro": "Pro", "enterprise": "Enterprise"}
-# What each feature needs. Community designs, runs, saves and shares VML, and puts a form on the web as a page;
+# What each feature needs by tier. Community designs, runs, saves and shares VML, and puts a form on the web as a page;
 # turning one into a program of its own (a Windows, Linux or Android app), or bringing one in from elsewhere, is Pro.
-FEATURES = {"export": "pro", "import": "pro"}
+# A licence's `grants` can also unlock a feature regardless of tier - a free AAC or student pass granting "headmouse".
+FEATURES = {"export": "pro", "import": "pro", "headmouse": "pro"}
 
 # ---------------------------------------------------------------- Ed25519 signature check (RFC 8032), nothing else
 _P = 2 ** 255 - 19
@@ -113,12 +115,14 @@ def read_licence(key, public_key=None):
         payload, signature = (_unb64(part) for part in key[5:].split("."))
         if not verify(bytes.fromhex(public_key), payload, signature):
             return None
-        fields = payload.decode("utf-8").split("|") + ["", ""]
-        tier, seats, licence_id, issued, expires, name = fields[:6]
-        if tier not in ("pro", "enterprise"):
+        fields = payload.decode("utf-8").split("|") + ["", "", ""]
+        tier, seats, licence_id, issued, expires, name, grants = fields[:7]
+        grants = grants.split() if grants else []
+        if tier not in ("pro", "enterprise") and not grants:
             return None
         return {"tier": tier, "seats": int(seats or 1), "id": licence_id, "issued": issued, "expires": expires,
-                "name": name, "key": key, "expired": bool(expires) and expires < time.strftime("%Y%m%d")}
+                "name": name, "grants": grants, "key": key,
+                "expired": bool(expires) and expires < time.strftime("%Y%m%d")}
     except Exception:
         return None
 
@@ -145,9 +149,10 @@ def current():
     one all mean Community."""
     info = read_licence(load_prefs().get("licence_key", ""))
     if not info:
-        return {"tier": "community", "name": "", "id": "", "issued": "", "expires": "", "expired": False, "key": ""}
+        return {"tier": "community", "name": "", "id": "", "issued": "", "expires": "", "expired": False,
+                "grants": [], "key": ""}
     if info["expired"]:
-        return dict(info, tier="community", was=info["tier"])
+        return dict(info, tier="community", grants=[], was=info["tier"])
     return info
 
 
@@ -175,6 +180,13 @@ def link_pass(fetch=True):
     return got
 
 
-def allows(feature, tier=None):
-    tier = tier or current()["tier"]
-    return TIERS.index(tier) >= TIERS.index(FEATURES.get(feature, "community"))
+def allows(feature, tier=None, grants=None):
+    """True if the feature is permitted - by tier, or by an explicit grant on the licence
+    (a free AAC/student pass unlocks "headmouse" without Pro). No args judges the licence in force."""
+    if tier is None or grants is None:
+        info = current()
+        if tier is None:
+            tier = info["tier"]
+        if grants is None:
+            grants = info.get("grants", [])
+    return feature in (grants or []) or TIERS.index(tier) >= TIERS.index(FEATURES.get(feature, "community"))

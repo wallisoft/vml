@@ -40,6 +40,7 @@ from .library import LibraryCommands
 from .systemcommands import SystemCommands
 from .stepping import SteppingCommands
 from .headmouse import HeadMouseCommands
+from .packs import PackCommands
 from . import dialogs, licence as licences
 
 
@@ -164,7 +165,7 @@ QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 """
 
 
-class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, SteppingCommands, HeadMouseCommands):
+class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, SteppingCommands, HeadMouseCommands, PackCommands):
     log_line = staticmethod(log)
 
     def __init__(self, db_path=None, lua_paths=()):

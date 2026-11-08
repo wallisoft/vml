@@ -478,6 +478,12 @@ class HeadMouseCommands:
     def cmd_HeadMouse(self, action="start", mode="cursor"):
         action = (action or "start").strip().lower()
         if action == "start":
+            try:
+                from . import packs
+                if packs.available("headmouse") == "missing":
+                    return "needs-pack:headmouse"   # app prompts to unlock/install the pack
+            except Exception:
+                pass
             ht = self._hm()
             if ht and ht.running():
                 return "1"
