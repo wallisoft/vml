@@ -1,0 +1,392 @@
+# ============================================================================
+# Andy — the head-mouse, as a Visualised app.
+#
+#   Look to move the pointer; rest on a spot, open your mouth, or blink to
+#   click. Andy drives the real desktop cursor, so it works with everything —
+#   and any other VML app can embed the same head-mouse off the engine's
+#   Face/HeadMouse commands (Mia's talker does exactly that).
+#
+#   The camera libraries (MediaPipe + OpenCV) ride in a separate "Head-mouse"
+#   pack so the base runtime stays light. The first time you start, Andy offers
+#   to fetch it — free under an AAC/accessibility pass, Pro otherwise.
+#
+#   Made with Visualised.  Code: dual-licensed (open + commercial), Wallisoft.
+# ============================================================================
+
+@Window Andy
+Title=Andy
+Version=0.1.0
+Width=360
+Height=600
+AppBar=true
+Accent=#0D9488
+About=Andy — a webcam head-mouse for hands-free control. Rest, mouth-open or blink to click. Part of the Mia assistive kit. Made with Visualised.
+UpdateFrom=https://visualised.org/downloads/Andy.vml
+OnOpened=Start
+
+@Canvas c
+Parent=Andy
+Background=#F0FDFA
+
+# --- header band ---
+@Rectangle head
+Parent=c
+Canvas.Left=0
+Canvas.Top=0
+Width=360
+Height=92
+Fill=#0F766E
+Style=background:linear-gradient(160deg,#14B8A6 0%,#0F766E 100%)
+
+@TextBlock lblTitle
+Parent=c
+Canvas.Left=20
+Canvas.Top=18
+Width=320
+Height=32
+FontSize=22
+FontWeight=Bold
+Foreground=#FFFFFF
+Text=Andy · head-mouse
+
+@TextBlock lblStatus
+Parent=c
+Canvas.Left=20
+Canvas.Top=56
+Width=320
+Height=24
+FontSize=13
+Foreground=#CCFBF1
+Text=Off — press Start to begin
+
+# --- the big start/stop ---
+@Button btnStart
+Parent=c
+Canvas.Left=20
+Canvas.Top=110
+Width=320
+Height=56
+FontSize=18
+Content=Start head-mouse
+OnClick=ToggleRun
+Style=background:#0D9488;color:#fff;border:none;border-radius:16px;font-weight:700
+
+# --- how to click ---
+@TextBlock lblTrig
+Parent=c
+Canvas.Left=20
+Canvas.Top=180
+Width=320
+Height=18
+FontSize=12
+Foreground=#0F766E
+Text=How to click
+
+@Button btnDwell
+Parent=c
+Canvas.Left=20
+Canvas.Top=200
+Width=100
+Height=44
+FontSize=13
+Content=Rest on it
+OnClick=TrigDwell
+Style=background:#0D9488;color:#fff;border:none;border-radius:12px;font-weight:700
+
+@Button btnJaw
+Parent=c
+Canvas.Left=130
+Canvas.Top=200
+Width=100
+Height=44
+FontSize=13
+Content=Open mouth
+OnClick=TrigJaw
+Style=background:#fff;color:#0F766E;border:2px solid #99F6E4;border-radius:12px;font-weight:700
+
+@Button btnBlink
+Parent=c
+Canvas.Left=240
+Canvas.Top=200
+Width=100
+Height=44
+FontSize=13
+Content=Eyes shut
+OnClick=TrigBlink
+Style=background:#fff;color:#0F766E;border:2px solid #99F6E4;border-radius:12px;font-weight:700
+
+# --- re-centre / pause ---
+@Button btnRecentre
+Parent=c
+Canvas.Left=20
+Canvas.Top=258
+Width=155
+Height=46
+FontSize=14
+Content=Re-centre
+OnClick=Recentre
+Style=background:#fff;color:#0F766E;border:2px solid #0D9488;border-radius:12px;font-weight:700
+
+@Button btnPause
+Parent=c
+Canvas.Left=185
+Canvas.Top=258
+Width=155
+Height=46
+FontSize=14
+Content=Pause
+OnClick=TogglePause
+Style=background:#fff;color:#0F766E;border:2px solid #0D9488;border-radius:12px;font-weight:700
+
+# --- steadiness preset (one-tap tuning for different users) ---
+@TextBlock lblRecipe
+Parent=c
+Canvas.Left=20
+Canvas.Top=320
+Width=320
+Height=18
+FontSize=12
+Foreground=#0F766E
+Text=Steadiness
+
+@Button btnSteady
+Parent=c
+Canvas.Left=20
+Canvas.Top=340
+Width=100
+Height=42
+FontSize=13
+Content=Steady
+OnClick=RecipeSteady
+Style=background:#fff;color:#0F766E;border:2px solid #99F6E4;border-radius:12px
+
+@Button btnTremor
+Parent=c
+Canvas.Left=130
+Canvas.Top=340
+Width=100
+Height=42
+FontSize=13
+Content=Tremor
+OnClick=RecipeTremor
+Style=background:#fff;color:#0F766E;border:2px solid #99F6E4;border-radius:12px
+
+@Button btnMinimal
+Parent=c
+Canvas.Left=240
+Canvas.Top=340
+Width=100
+Height=42
+FontSize=13
+Content=Minimal
+OnClick=RecipeMinimal
+Style=background:#fff;color:#0F766E;border:2px solid #99F6E4;border-radius:12px
+
+@TextBlock lblHint
+Parent=c
+Canvas.Left=20
+Canvas.Top=398
+Width=320
+Height=60
+TextWrapping=Wrap
+FontSize=12
+Foreground=#5EEAD4
+Text=Tip: F9 re-centres at any time. Open mouth and the dwell-pause were the most usable at Shinewater.
+
+# --- the pack-unlock panel (hidden until the first Start needs it) ---
+@Canvas pPack
+Parent=Andy
+Background=#0F766E
+Canvas.Left=0
+Canvas.Top=0
+Width=360
+Height=600
+IsVisible=false
+
+@TextBlock lblPackTitle
+Parent=pPack
+Canvas.Left=28
+Canvas.Top=120
+Width=304
+Height=34
+FontSize=20
+FontWeight=Bold
+Foreground=#FFFFFF
+Text=One-time setup
+
+@TextBlock lblPackBody
+Parent=pPack
+Canvas.Left=28
+Canvas.Top=166
+Width=304
+Height=150
+TextWrapping=Wrap
+FontSize=14
+Foreground=#CCFBF1
+Text=The head-mouse needs its camera pack (MediaPipe + OpenCV). It downloads once, then works offline. Free with an AAC or student pass; Pro otherwise.
+
+@Button btnInstall
+Parent=pPack
+Canvas.Left=28
+Canvas.Top=330
+Width=304
+Height=52
+FontSize=16
+Content=Install the head-mouse pack
+OnClick=InstallPack
+Style=background:#fff;color:#0F766E;border:none;border-radius:14px;font-weight:700
+
+@Button btnPackClose
+Parent=pPack
+Canvas.Left=28
+Canvas.Top=392
+Width=304
+Height=44
+FontSize=14
+Content=Not now
+OnClick=PackClose
+Style=background:transparent;color:#CCFBF1;border:1px solid #5EEAD4;border-radius:12px
+
+# --- status poll (only on while running) ---
+@Timer tmrStatus
+Parent=c
+Interval=400
+IsEnabled=false
+OnTick=Poll
+
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+running = false
+method = "dwell"
+
+-- reflect the chosen trigger on the three buttons
+function paintTrig()
+  local on  = "background:#0D9488;color:#fff;border:none;border-radius:12px;font-weight:700"
+  local off = "background:#fff;color:#0F766E;border:2px solid #99F6E4;border-radius:12px;font-weight:700"
+  Vml("SetProperty", "btnDwell", "Style", method == "dwell" and on or off)
+  Vml("SetProperty", "btnJaw",   "Style", method == "jaw"   and on or off)
+  Vml("SetProperty", "btnBlink", "Style", method == "blink" and on or off)
+end
+
+paintTrig()
+Vml("SetProperty", "lblStatus", "Content", "Off — press Start to begin")
+LUA
+
+@Script ToggleRun
+Interpreter=lua
+<<LUA
+if running then
+  Vml("HeadMouse", "stop")
+  running = false
+  Vml("SetProperty", "tmrStatus", "IsEnabled", "false")
+  Vml("SetProperty", "btnStart", "Content", "Start head-mouse")
+  Vml("SetProperty", "lblStatus", "Content", "Off — press Start to begin")
+  return
+end
+local r = Vml("HeadMouse", "start")
+if r == "needs-pack:headmouse" then
+  Vml("SetControlVisible", "pPack", "true")
+  return
+end
+running = true
+Vml("SetProperty", "tmrStatus", "IsEnabled", "true")
+Vml("SetProperty", "btnStart", "Content", "Stop head-mouse")
+Vml("SetProperty", "lblStatus", "Content", "Starting the camera…")
+LUA
+
+@Script TrigDwell
+Interpreter=lua
+<<LUA
+method = "dwell"; Vml("HeadSet", "clickMethod", "dwell"); paintTrig()
+LUA
+
+@Script TrigJaw
+Interpreter=lua
+<<LUA
+method = "jaw"; Vml("HeadSet", "clickMethod", "jaw"); paintTrig()
+LUA
+
+@Script TrigBlink
+Interpreter=lua
+<<LUA
+method = "blink"; Vml("HeadSet", "clickMethod", "blink"); paintTrig()
+LUA
+
+@Script Recentre
+Interpreter=lua
+<<LUA
+Vml("HeadMouse", "recentre")
+Vml("SetProperty", "lblStatus", "Content", "Re-centred — look straight ahead")
+LUA
+
+@Script TogglePause
+Interpreter=lua
+<<LUA
+paused = not paused
+Vml("HeadSet", "paused", paused and "1" or "0")
+Vml("SetProperty", "btnPause", "Content", paused and "Resume" or "Pause")
+LUA
+
+@Script RecipeSteady
+Interpreter=lua
+<<LUA
+Vml("HeadSet", "recipe", "steady")
+Vml("SetProperty", "lblStatus", "Content", "Steadiness: steady")
+LUA
+
+@Script RecipeTremor
+Interpreter=lua
+<<LUA
+Vml("HeadSet", "recipe", "tremor")
+Vml("SetProperty", "lblStatus", "Content", "Steadiness: tremor-friendly")
+LUA
+
+@Script RecipeMinimal
+Interpreter=lua
+<<LUA
+Vml("HeadSet", "recipe", "minimal")
+Vml("SetProperty", "lblStatus", "Content", "Steadiness: minimal movement")
+LUA
+
+@Script Poll
+Interpreter=lua
+<<LUA
+if not running then return end
+local f = json.decode(Vml("HeadMouse", "read") or "") or {}
+if f.click then
+  Vml("SetProperty", "lblStatus", "Content", "● click")
+elseif (f.face or 0) == 0 then
+  Vml("SetProperty", "lblStatus", "Content", "No face — move into the camera's view")
+else
+  Vml("SetProperty", "lblStatus", "Content", "Tracking — look to move, " ..
+      (method == "jaw" and "open your mouth" or method == "blink" and "shut your eyes" or "rest") .. " to click")
+end
+LUA
+
+@Script InstallPack
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "lblPackBody", "Content", "Downloading the head-mouse pack… this runs once.")
+local r = Vml("Pack", "install", "headmouse")
+if r == "" or r == "ok" then
+  Vml("SetControlVisible", "pPack", "false")
+  Vml("HeadMouse", "start")
+  running = true
+  Vml("SetProperty", "tmrStatus", "IsEnabled", "true")
+  Vml("SetProperty", "btnStart", "Content", "Stop head-mouse")
+elseif r == "locked" then
+  Vml("SetProperty", "lblPackBody", "Content", "This is a Pro capability. It's free with an AAC or student pass — get one in a moment at tiny-host.uk, then press Install again.")
+else
+  Vml("SetProperty", "lblPackBody", "Content", "Couldn't install: " .. r .. "\nCheck the connection and try again.")
+end
+LUA
+
+@Script PackClose
+Interpreter=lua
+<<LUA
+Vml("SetControlVisible", "pPack", "false")
+LUA
