@@ -451,13 +451,42 @@ def win_injector():
     return WinInjector()
 
 
+def lin_injector():
+    """Linux OS-cursor via the engine's shared uinput injector (also Kato's actuator).
+    Needs the installer's /dev/uinput udev rule; returns None if that isn't granted,
+    so the app falls back to events-only. Works on X11 and Wayland alike - the virtual
+    device sits below the compositor, so Wayland raises no permission prompt."""
+    from .uinput_inject import UinputInjector, available
+    if not available():
+        return None
+    ui = UinputInjector(log=lambda m: None)
+
+    class LinInjector:
+        def move_abs(self, nx, ny):
+            nx = 0.0 if nx < 0 else 1.0 if nx > 1 else nx
+            ny = 0.0 if ny < 0 else 1.0 if ny > 1 else ny
+            ui.move(int(nx * 65535), int(ny * 65535), 65536, 65536)   # absolute device over 0..65535
+        def click(self):
+            ui.button("left", True); ui.button("left", False)
+        def user_moved(self):
+            return False          # uinput can't read the real cursor, so no step-aside on Linux yet
+        def sync(self):
+            pass
+    return LinInjector()
+
+
 def _injector():
     """The OS-cursor injector for this platform, or None (events-only).
-    Windows: SendInput. Linux/mac cursor-drive is a follow-up (uinput / CGEvent);
-    until then those platforms run events-only and the app moves its own focus."""
+    Windows: SendInput. Linux: the shared uinput injector (X11 + Wayland). mac
+    cursor-drive (CGEvent) is a follow-up; it runs events-only until then."""
     if sys.platform.startswith("win"):
         try:
             return win_injector()
+        except Exception:
+            return None
+    if sys.platform.startswith("linux"):
+        try:
+            return lin_injector()
         except Exception:
             return None
     return None
