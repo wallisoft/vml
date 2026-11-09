@@ -1,0 +1,418 @@
+# ============================================================================
+# Mia — look to talk.
+#
+#   A communication board for someone who can't use their hands. Look around
+#   the tiles; the one you rest on lights up; rest / open your mouth / blink and
+#   Mia speaks it aloud. Touch works too, for a carer setting it up.
+#
+#   The head-tracking is the engine's — Mia only consumes the cursor+click
+#   events (Face), so it needs no camera code of its own and drives no OS
+#   pointer; it just lights its own tiles. Same head-mouse engine Andy uses.
+#
+#   Made with Visualised.  Part of the Mia assistive kit, Wallisoft.
+# ============================================================================
+
+@Window Mia
+Title=Mia
+Version=0.1.0
+Width=484
+Height=660
+AppBar=true
+Accent=#7C3AED
+About=Mia — a look-to-talk communication board. Rest, open your mouth or blink to speak a tile. Made with Visualised.
+UpdateFrom=https://visualised.org/downloads/Mia.vml
+OnOpened=Start
+
+@Canvas c
+Parent=Mia
+Background=#1E1B2E
+
+@TextBlock lblBanner
+Parent=c
+Canvas.Left=16
+Canvas.Top=18
+Width=360
+Height=40
+FontSize=22
+FontWeight=Bold
+Foreground=#EDE9FE
+Text=Choose a tile to talk
+
+@Button btnHead
+Parent=c
+Canvas.Left=360
+Canvas.Top=16
+Width=108
+Height=44
+FontSize=14
+Content=Look to talk
+OnClick=ToggleHead
+Style=background:#7C3AED;color:#fff;border:none;border-radius:12px;font-weight:700
+
+# --- the 12 tiles (3 across, 4 down) ---
+@Button Tap1
+Parent=c
+Canvas.Left=16
+Canvas.Top=88
+Width=148
+Height=112
+FontSize=19
+Content=Yes
+OnClick=Say1
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap2
+Parent=c
+Canvas.Left=170
+Canvas.Top=88
+Width=148
+Height=112
+FontSize=19
+Content=No
+OnClick=Say2
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap3
+Parent=c
+Canvas.Left=324
+Canvas.Top=88
+Width=148
+Height=112
+FontSize=19
+Content=Hello
+OnClick=Say3
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap4
+Parent=c
+Canvas.Left=16
+Canvas.Top=206
+Width=148
+Height=112
+FontSize=19
+Content=Thank you
+OnClick=Say4
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap5
+Parent=c
+Canvas.Left=170
+Canvas.Top=206
+Width=148
+Height=112
+FontSize=19
+Content=Please
+OnClick=Say5
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap6
+Parent=c
+Canvas.Left=324
+Canvas.Top=206
+Width=148
+Height=112
+FontSize=19
+Content=Help me
+OnClick=Say6
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap7
+Parent=c
+Canvas.Left=16
+Canvas.Top=324
+Width=148
+Height=112
+FontSize=19
+Content=Hungry
+OnClick=Say7
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap8
+Parent=c
+Canvas.Left=170
+Canvas.Top=324
+Width=148
+Height=112
+FontSize=19
+Content=Thirsty
+OnClick=Say8
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap9
+Parent=c
+Canvas.Left=324
+Canvas.Top=324
+Width=148
+Height=112
+FontSize=19
+Content=Toilet
+OnClick=Say9
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap10
+Parent=c
+Canvas.Left=16
+Canvas.Top=442
+Width=148
+Height=112
+FontSize=19
+Content=It hurts
+OnClick=Say10
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap11
+Parent=c
+Canvas.Left=170
+Canvas.Top=442
+Width=148
+Height=112
+FontSize=19
+Content=More
+OnClick=Say11
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@Button Tap12
+Parent=c
+Canvas.Left=324
+Canvas.Top=442
+Width=148
+Height=112
+FontSize=19
+Content=All done
+OnClick=Say12
+Style=background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700
+
+@TextBlock lblSpoken
+Parent=c
+Canvas.Left=16
+Canvas.Top=566
+Width=452
+Height=40
+FontSize=18
+Foreground=#C4B5FD
+Text=
+
+# --- the pack-unlock panel (first look-to-talk needs the camera pack) ---
+@Canvas pPack
+Parent=Mia
+Background=#4C1D95
+Canvas.Left=0
+Canvas.Top=0
+Width=484
+Height=660
+IsVisible=false
+
+@TextBlock lblPackTitle
+Parent=pPack
+Canvas.Left=32
+Canvas.Top=150
+Width=420
+Height=36
+FontSize=22
+FontWeight=Bold
+Foreground=#FFFFFF
+Text=One-time setup
+
+@TextBlock lblPackBody
+Parent=pPack
+Canvas.Left=32
+Canvas.Top=198
+Width=420
+Height=160
+TextWrapping=Wrap
+FontSize=15
+Foreground=#EDE9FE
+Text=Look-to-talk needs its camera pack (MediaPipe + OpenCV). It downloads once, then works offline. Free with an AAC pass. You can still touch the tiles without it.
+
+@Button btnInstall
+Parent=pPack
+Canvas.Left=32
+Canvas.Top=372
+Width=420
+Height=54
+FontSize=16
+Content=Install the head-mouse pack
+OnClick=InstallPack
+Style=background:#fff;color:#4C1D95;border:none;border-radius:14px;font-weight:700
+
+@Button btnPackClose
+Parent=pPack
+Canvas.Left=32
+Canvas.Top=436
+Width=420
+Height=46
+FontSize=14
+Content=Not now — I'll touch the tiles
+OnClick=PackClose
+Style=background:transparent;color:#EDE9FE;border:1px solid #A78BFA;border-radius:12px
+
+@Timer tmrHead
+Parent=c
+Interval=100
+IsEnabled=false
+OnTick=HeadTick
+
+# ============================================================================
+
+@Script Start
+Interpreter=lua
+<<LUA
+json = require("dkjson")
+phrases = {"Yes","No","Hello","Thank you","Please","Help me",
+           "Hungry","Thirsty","Toilet","It hurts","More","All done"}
+headOn = false
+hTile, hStill = 0, 0
+HI   = "background:#7C3AED;color:#fff;border:3px solid #DDD6FE;border-radius:16px;font-weight:700"
+BASE = "background:#312E51;color:#fff;border:2px solid #4C4870;border-radius:16px;font-weight:700"
+
+function clearHi()
+  for i = 1, 12 do Vml("SetProperty", "Tap" .. i, "Style", BASE) end
+end
+
+function say(n)
+  local t = phrases[n]
+  if t and t ~= "" then
+    Vml("SetProperty", "lblSpoken", "Text", t)
+    Vml("Speak", t)
+  end
+end
+LUA
+
+@Script Say1
+Interpreter=lua
+<<LUA
+say(1)
+LUA
+
+@Script Say2
+Interpreter=lua
+<<LUA
+say(2)
+LUA
+
+@Script Say3
+Interpreter=lua
+<<LUA
+say(3)
+LUA
+
+@Script Say4
+Interpreter=lua
+<<LUA
+say(4)
+LUA
+
+@Script Say5
+Interpreter=lua
+<<LUA
+say(5)
+LUA
+
+@Script Say6
+Interpreter=lua
+<<LUA
+say(6)
+LUA
+
+@Script Say7
+Interpreter=lua
+<<LUA
+say(7)
+LUA
+
+@Script Say8
+Interpreter=lua
+<<LUA
+say(8)
+LUA
+
+@Script Say9
+Interpreter=lua
+<<LUA
+say(9)
+LUA
+
+@Script Say10
+Interpreter=lua
+<<LUA
+say(10)
+LUA
+
+@Script Say11
+Interpreter=lua
+<<LUA
+say(11)
+LUA
+
+@Script Say12
+Interpreter=lua
+<<LUA
+say(12)
+LUA
+
+@Script ToggleHead
+Interpreter=lua
+<<LUA
+if headOn then
+  headOn = false
+  Vml("SetProperty", "tmrHead", "IsEnabled", "false")
+  Vml("HeadMouse", "stop")
+  clearHi()
+  Vml("SetProperty", "btnHead", "Content", "Look to talk")
+  Vml("SetProperty", "lblBanner", "Text", "Choose a tile to talk")
+  return
+end
+-- events mode: the tracker runs and detects clicks, but drives no OS cursor
+local r = Vml("HeadMouse", "start", "events")
+if r == "needs-pack:headmouse" then
+  Vml("SetControlVisible", "pPack", "true")
+  return
+end
+headOn = true
+hTile, hStill = 0, 0
+Vml("SetProperty", "tmrHead", "IsEnabled", "true")
+Vml("SetProperty", "btnHead", "Content", "Stop")
+Vml("SetProperty", "lblBanner", "Text", "Look at a tile and rest on it")
+LUA
+
+@Script HeadTick
+Interpreter=lua
+<<LUA
+if not headOn then return end
+local f = json.decode(Vml("HeadMouse", "read") or "") or {}
+if (f.face or 0) == 0 then return end
+local function cl(v) if v < 0 then return 0 elseif v > 0.999 then return 0.999 else return v end end
+local col = math.floor(cl(f.x) * 3)
+local row = math.floor(cl(f.y) * 4)
+local tile = row * 3 + col + 1
+if tile ~= hTile then
+  clearHi()
+  Vml("SetProperty", "Tap" .. tile, "Style", HI)
+  hTile = tile ; hStill = 0
+end
+-- the engine detects the click (dwell/mouth/blink); speak the lit tile
+if f.click then
+  say(hTile)
+end
+LUA
+
+@Script InstallPack
+Interpreter=lua
+<<LUA
+Vml("SetProperty", "lblPackBody", "Content", "Downloading the head-mouse pack… this runs once.")
+local r = Vml("Pack", "install", "headmouse")
+if r == "" or r == "ok" then
+  Vml("SetControlVisible", "pPack", "false")
+  Vml("SetProperty", "btnHead", "Content", "Look to talk")
+elseif r == "locked" then
+  Vml("SetProperty", "lblPackBody", "Content", "This is a Pro capability — free with an AAC pass. Get one at tiny-host.uk, then press Install again. You can touch the tiles meanwhile.")
+else
+  Vml("SetProperty", "lblPackBody", "Content", "Couldn't install: " .. r .. "\nCheck the connection and try again.")
+end
+LUA
+
+@Script PackClose
+Interpreter=lua
+<<LUA
+Vml("SetControlVisible", "pPack", "false")
+LUA
