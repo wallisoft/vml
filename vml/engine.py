@@ -3721,6 +3721,50 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         """The phone's torch, on or off. Nothing happens on a computer."""
         return ""
 
+    # --- Head mouse: hands-free, in-app control. The runtime (the web and phone builds) reads this state and
+    #     does the camera work; on a plain computer these are no-ops. OS-level cursor control is out of scope.
+    def _hm(self):
+        if not hasattr(self, "_headmouse"):
+            self._headmouse = {"on": False, "mode": "dwell", "speed": 30, "osk": False, "recentre": False}
+        return self._headmouse
+
+    def cmd_HeadMouse(self, on="true"):
+        """Hands-free head control: with it on, the camera follows the person's head and whichever control they
+        rest on is chosen for them -- no touch, no mouse, no keyboard. It is all worked out on the device and no
+        video ever leaves it. In the web and phone builds, where there is a camera; nothing happens on a computer
+        without one. Give the form big, well-spaced buttons and this turns it into an accessible app anyone can
+        drive by looking -- a communication board, a quiz, a remote. It controls this app only, not the computer."""
+        self._hm()["on"] = str(on).lower() in ("1", "true", "yes", "on")
+        return ""
+
+    def cmd_HeadMouseMode(self, mode="dwell"):
+        """How a control is chosen while head control is on: "dwell" (rest on it for a moment), "blink",
+        "mouth" (open the mouth), or "sound" (make any noise). Default "dwell"."""
+        self._hm()["mode"] = str(mode).lower()
+        return ""
+
+    def cmd_HeadMouseSpeed(self, percent="30"):
+        """How far the head must move to reach across the screen, as a percentage of a full sweep: 30 means a
+        small, restful movement covers the whole form. Lower asks for even less movement. Default 30."""
+        try:
+            self._hm()["speed"] = max(5, min(100, int(float(percent))))
+        except ValueError:
+            pass
+        return ""
+
+    def cmd_Recentre(self):
+        """Take wherever the head is pointing right now as the new centre. Call it once the person has settled,
+        or wire it to a button (or a resting spot) they can rest on to re-centre themselves whenever they drift."""
+        self._hm()["recentre"] = True
+        return ""
+
+    def cmd_OnScreenKeyboard(self, on="true"):
+        """Show a head-selectable on-screen keyboard so a hands-free user can type into the focused text box.
+        Letters and word-predictions are chosen the same way as controls (see HeadMouseMode). In the web and
+        phone builds; nothing happens on a computer, which has its own keyboard."""
+        self._hm()["osk"] = str(on).lower() in ("1", "true", "yes", "on")
+        return ""
+
     def cmd_Speak(self, text=""):
         """Say some text out loud, where there is a voice to say it with."""
         try:

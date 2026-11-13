@@ -1014,7 +1014,88 @@ window.addEventListener("focus", () => {              // another page of the app
   }
 });
 
+/* ---- Head mouse: hands-free, in-app control. Reuses the Mia tracker. Lazy: nothing loads until HeadMouse "on". ---- */
+const HM_SEL = 'button,[role="button"],a[href],input:not([type=hidden]),select,textarea,[data-type="Button"],[data-type="MenuItem"],[data-type="CheckBox"],[data-type="RadioButton"],[data-type="ToggleSwitch"],.ti,tbody tr';
+let hm = null;
+function hmCtl() {
+  if (hm) return hm;
+  hm = { on:false, mode:"dwell", speed:30, raf:0, video:null, land:null,
+    centre:{x:0.5,y:0.42}, centreScale:0, cur:{x:0.5,y:0.5}, pending:false,
+    hoverEl:null, hoverStart:0, cooldownUntil:0, blinkStart:0, blinkFired:false,
+    gain(){ return Math.max(1, 100/Math.max(5,Math.min(100,this.speed))); } };
+  const st = document.createElement("style");
+  st.textContent = ".hm-hot{outline:3px solid var(--accent,#4F46E5)!important;outline-offset:-2px}.hm-fire{filter:brightness(1.35)}";
+  document.head.appendChild(st);
+  const c = document.createElement("div"); c.id = "vml_hmcursor";
+  c.style.cssText = "position:fixed;z-index:2147483000;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;border:3px solid var(--accent,#4F46E5);box-shadow:0 0 0 2px #fff,0 2px 8px rgba(0,0,0,.4);pointer-events:none;left:50%;top:50%;display:none";
+  document.body.appendChild(c); hm.cursor = c;
+  return hm;
+}
+function hmTargetAt(px, py) {
+  const el = document.elementFromPoint(px, py); if (!el) return null;
+  const t = el.closest(HM_SEL); const win = document.getElementById("vml_window");
+  return (t && win && win.contains(t)) ? t : null;
+}
+function hmFire(el) { const h = hmCtl(), now = performance.now(); if (!el || now < h.cooldownUntil) return;
+  h.cooldownUntil = now + 750;
+  for (const type of ["pointerdown","mousedown","mouseup","click"])
+    el.dispatchEvent(new MouseEvent(type, { bubbles:true, cancelable:true, view:window }));
+  el.classList.add("hm-fire"); setTimeout(() => el.classList.remove("hm-fire"), 180);
+}
+async function hmStart() { const h = hmCtl(); if (h.on) return; h.on = true;
+  try {
+    if (window.__HM_FAKE) { h.land = window.__HM_FAKE; h.video = { currentTime:0 }; }
+    else {
+      const { FaceLandmarker, FilesetResolver } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14");
+      const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+      h.land = await FaceLandmarker.createFromOptions(fs, { baseOptions:{ modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" }, runningMode:"VIDEO", numFaces:1, outputFaceBlendshapes:true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"user" } });
+      h.video = document.createElement("video"); h.video.srcObject = stream; h.video.muted = true; h.video.playsInline = true; await h.video.play();
+    }
+    h.cursor.style.display = "block"; h.pending = true; h.raf = requestAnimationFrame(hmLoop);
+  } catch (e) { console.warn("HeadMouse:", (e && e.message) || e); h.on = false; }
+}
+function hmStop() { const h = hmCtl(); h.on = false; cancelAnimationFrame(h.raf);
+  if (h.cursor) h.cursor.style.display = "none";
+  if (h.video && h.video.srcObject) h.video.srcObject.getTracks().forEach(t => t.stop());
+  if (h.hoverEl) { h.hoverEl.classList.remove("hm-hot"); h.hoverEl = null; } }
+function hmLoop() { const h = hmCtl(); if (!h.on) return;
+  let res = null; try { res = h.land.detectForVideo(h.video, performance.now()); } catch (e) {}
+  if (res && res.faceLandmarks && res.faceLandmarks[0]) {
+    const lm = res.faceLandmarks[0], nose = lm[1], nx = 1 - nose.x, ny = nose.y;
+    const top = lm[10], chin = lm[152], d = Math.hypot(top.x - chin.x, top.y - chin.y) || 0.33;
+    if (!h.centreScale) h.centreScale = d;
+    if (h.pending) { h.centreScale = d; h.centre = { x:nx, y:ny }; h.pending = false; }
+    let f = h.centreScale / d; f = Math.min(3, Math.max(0.4, f)); const g = h.gain();
+    const tx = Math.min(1, Math.max(0, 0.5 + (nx - h.centre.x) * g * f)), ty = Math.min(1, Math.max(0, 0.5 + (ny - h.centre.y) * g * f));
+    h.cur.x += (tx - h.cur.x) * 0.35; h.cur.y += (ty - h.cur.y) * 0.35;
+    const px = h.cur.x * innerWidth, py = h.cur.y * innerHeight;
+    h.cursor.style.left = px + "px"; h.cursor.style.top = py + "px";
+    const el = hmTargetAt(px, py);
+    if (el !== h.hoverEl) { if (h.hoverEl) h.hoverEl.classList.remove("hm-hot"); h.hoverEl = el; h.hoverStart = performance.now(); if (el) el.classList.add("hm-hot"); }
+    const cats = (res.faceBlendshapes && res.faceBlendshapes[0]) ? res.faceBlendshapes[0].categories : [];
+    const bs = {}; for (const c of cats) bs[c.categoryName] = c.score;
+    if (h.mode === "blink") { const b = Math.max(bs.eyeBlinkLeft || 0, bs.eyeBlinkRight || 0);
+      if (b > 0.6) { if (!h.blinkStart) h.blinkStart = performance.now(); else if (!h.blinkFired && performance.now() - h.blinkStart >= 300 && h.hoverEl) { hmFire(h.hoverEl); h.blinkFired = true; } }
+      else if (b < 0.3) { h.blinkStart = 0; h.blinkFired = false; } }
+    else if (h.mode === "mouth") { const m = bs.jawOpen || 0;
+      if (m > 0.5) { if (!h.blinkStart) h.blinkStart = performance.now(); else if (!h.blinkFired && performance.now() - h.blinkStart >= 200 && h.hoverEl) { hmFire(h.hoverEl); h.blinkFired = true; } }
+      else if (m < 0.25) { h.blinkStart = 0; h.blinkFired = false; } }
+    else { const dwellMs = 1100;  // dwell (default; also the fallback for modes a build doesn't do yet)
+      if (h.hoverEl) { const held = performance.now() - h.hoverStart;
+        h.cursor.style.background = "conic-gradient(var(--accent,#4F46E5) " + Math.min(360, held / dwellMs * 360) + "deg,transparent 0deg)";
+        if (held >= dwellMs) { const el = h.hoverEl; h.cursor.style.background = "none"; hmFire(el); h.hoverStart = performance.now() + 500; } }
+      else h.cursor.style.background = "none"; }
+  }
+  h.raf = requestAnimationFrame(hmLoop);
+}
+
 const commands = {
+  HeadMouse(on = "true") { if (/^(1|true|yes|on)$/i.test(String(on))) hmStart(); else hmStop(); return ""; },
+  HeadMouseMode(mode = "dwell") { const h = hmCtl(); h.mode = String(mode).toLowerCase(); h.blinkStart = 0; h.blinkFired = false; return ""; },
+  HeadMouseSpeed(percent = "30") { const h = hmCtl(); const n = parseInt(percent, 10); if (!isNaN(n)) h.speed = Math.max(5, Math.min(100, n)); return ""; },
+  Recentre() { hmCtl().pending = true; return ""; },
+  OnScreenKeyboard(on = "true") { console.info("OnScreenKeyboard: head-mouse selects controls now; the on-screen keyboard is a later build."); return ""; },
   DbOpen(name, connection) {
     try {
       const m = /^\s*sqlite\s*:(.*)$/i.exec(connection), target = (m ? m[1] : connection).trim();

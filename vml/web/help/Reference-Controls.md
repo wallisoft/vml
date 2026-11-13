@@ -1,6 +1,6 @@
 # Controls reference
 
-Every control in Visualised 1.6.2, with its properties and events. Generated from the engine itself (`tools/make_reference.py`).
+Every control in Visualised 1.13.0, with its properties and events. Generated from the engine itself (`tools/make_reference.py`).
 
 Set a property in the form (`Background=#FFFFFF`) or from a script (`Vml("SetProperty", "btnGo", "Background", "#FFFFFF")`); read it with `GetProperty`. An event's value is the script to run (`OnClick=SaveIt`).
 
@@ -187,7 +187,8 @@ Has the properties [every control](#every-control) has, or most of them.
 | `Breakpoints` | text | The lines with a breakpoint, "3, 12": a click in the margin sets or clears one. |
 | `CurrentLine` | number | A line to show in yellow (where a script is stopped), 0 for none. Default `0`. |
 | `IsReadOnly` | true/false | Can be read and selected, but not changed. Default `false`. |
-| `Language` | choice (Lua, Python, Shell, CSharp) | What it's coloured as: Lua, Python, Shell or CSharp. Default `Lua`. |
+| `ObjectModel` | text |  |
+| `Language` | choice (Lua, VB, Python, Shell, CSharp) | What it's coloured as: Lua, Python, Shell or CSharp. Default `Lua`. |
 | `Text` | text | The code in it. |
 | `Anchor` | choice (Top,Left, Top,Right, Bottom,Left, Bottom,Right, Top,Left,Right, Bottom,Left,Right, Top,Bottom,Left, Top,Bottom,Right, Top,Bottom,Left,Right) | The Canvas edges it keeps its distance from as the form is resized: anchored to both sides, it stretches. Default `Top,Left`. |
 | `Canvas.Left` | number | Its place on a Canvas: pixels from the left. |
@@ -230,6 +231,7 @@ Has the properties [every control](#every-control) has.
 |---|---|---|
 | `Focusable` | true/false | Can take the keyboard. |
 | `IsHitTestVisible` | true/false | Takes clicks (false: clicks go through to what's behind). Default `true`. |
+| `ItemTrigger` | choice (DoubleClick, Click) | When an item's own script fires. Default `DoubleClick`. |
 | `Items` | list | Its list, comma-separated: Items=Red,Green,Blue. |
 | `SelectedIndex` | number | Which item is chosen, from 0 (-1: none). |
 | `SelectedItem` | text | The chosen item (a DataGrid: its row, as JSON). |
@@ -266,10 +268,13 @@ Has the properties [every control](#every-control) has.
 |---|---|---|
 | `Focusable` | true/false | Can take the keyboard. |
 | `IsHitTestVisible` | true/false | Takes clicks (false: clicks go through to what's behind). Default `true`. |
+| `SelectAll` | text |  |
+| `SelectionMode` | choice (Single, Extended) |  Default `Single`. |
 | `Columns` | list | Its column headings, comma-separated. |
 | `Items` | list | Its list, comma-separated: Items=Red,Green,Blue. |
 | `RowCount` | number | How many rows it has (read only). |
 | `SelectedIndex` | number | Which item is chosen, from 0 (-1: none). |
+| `SelectedIndices` | text |  |
 | `SelectedItem` | text | The chosen item (a DataGrid: its row, as JSON). |
 | `SelectedValue` | text | The chosen row's value. |
 | `Database` | text | Which opened database it asks; empty = the main one. |
@@ -429,6 +434,7 @@ Has the properties [every control](#every-control) has.
 | `AlternatingRows` | true/false | Every other row shaded, for easier reading. |
 | `Focusable` | true/false | Can take the keyboard. |
 | `IsHitTestVisible` | true/false | Takes clicks (false: clicks go through to what's behind). Default `true`. |
+| `ItemTrigger` | choice (DoubleClick, Click) | When an item's own script fires. Default `DoubleClick`. |
 | `Items` | list | Its list, comma-separated: Items=Red,Green,Blue. |
 | `SelectedIndex` | number | Which item is chosen, from 0 (-1: none). |
 | `SelectedItem` | text | The chosen item (a DataGrid: its row, as JSON). |
@@ -754,7 +760,7 @@ Has the properties [every control](#every-control) has.
 
 | Property | Kind | What it does |
 |---|---|---|
-| `Accent` | colour |  |
+| `Accent` | colour | The app's colour for selections and highlights (not the computer's) |
 | `SelectedIndex` | number | Which item is chosen, from 0 (-1: none). Default `0`. |
 | `TabOrientation` | choice (Horizontal, Vertical) |  Default `Horizontal`. |
 | `TabPlacement` | choice (Top, Bottom, Left, Right) |  Default `Top`. |
@@ -983,6 +989,7 @@ Has the properties [every control](#every-control) has.
 
 | Property | Kind | What it does |
 |---|---|---|
+| `Accent` | colour | The app's colour for selections and highlights (not the computer's) |
 | `TitleBackground` | colour | (the edge's colour if not set) |
 | `TitleBar` | choice (System, Own, None) |  Default `Own`. |
 | `TitleForeground` | colour | (black or white, whichever reads) |

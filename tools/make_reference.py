@@ -200,6 +200,7 @@ SECTIONS = [
     ("Phone and device", r"^Vibrate$|^KeepAwake$|^Share$|^Notify$|^GetLocation$|^RunInBackground$|^Brightness$|^Torch$|"
                          r"^Speak$|^SaveFile$|Bluetooth|^Pressure$|Sms|Contact|^Lookup|^OnMessages$|^Listen$|^Flash$|"
                          r"Light|Photo$|^DeviceInfo$|^Clipboard"),
+    ("Head mouse (hands-free)", r"^HeadMouse|^Gaze|^HeadTrack|^Dwell|^Recentre$|^OnScreenKeyboard$"),
     ("Drives (as Mountie uses them)", r"^Ssh|^Disk|^Folder|^Ram|Terminal|^Ignore|Drive|Mount|Partition|^Image"),
     ("Licence, version and updates", r"Licen|^CheckForUpdate$|^VmlVersion$|^CSharp|^InstallDotnet$|^GetLanguages$|^GetShellName$"),
 ]
