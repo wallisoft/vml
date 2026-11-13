@@ -1,10 +1,10 @@
 # Commands reference
 
-Every `Vml()` command a script can call, in Visualised 1.6.2. Generated from the engine itself (`tools/make_reference.py`): the descriptions are the engine's own.
+Every `Vml()` command a script can call, in Visualised 1.13.0. Generated from the engine itself (`tools/make_reference.py`): the descriptions are the engine's own.
 
 A command is called as `Vml("Name", arguments...)` and returns text (`""` when there's nothing to say). Arguments in [brackets] can be left out. A command that goes wrong is logged and returns `""`: press **F12** while the designer runs your app to see every call and what came back.
 
-**Sections:** [Properties and controls](#properties-and-controls) · [Forms and dialogs](#forms-and-dialogs) · [Scripts, events and programs](#scripts,-events-and-programs) · [Settings and preferences](#settings-and-preferences) · [Data](#data) · [Web and the network](#web-and-the-network) · [Link (app to app)](#link-app-to-app) · [Phone and device](#phone-and-device) · [Drives (as Mountie uses them)](#drives-as-mountie-uses-them) · [Licence, version and updates](#licence,-version-and-updates) · [More](#more) · [The designer's own](#the-designers-own)
+**Sections:** [Properties and controls](#properties-and-controls) · [Forms and dialogs](#forms-and-dialogs) · [Scripts, events and programs](#scripts,-events-and-programs) · [Settings and preferences](#settings-and-preferences) · [Data](#data) · [Web and the network](#web-and-the-network) · [Link (app to app)](#link-app-to-app) · [Phone and device](#phone-and-device) · [Head mouse (hands-free)](#head-mouse-hands-free) · [Drives (as Mountie uses them)](#drives-as-mountie-uses-them) · [Licence, version and updates](#licence,-version-and-updates) · [More](#more) · [The designer's own](#the-designers-own)
 
 ## Properties and controls
 
@@ -712,6 +712,38 @@ On a phone: note where the phone is whenever a paired device (a car, say) connec
 
 Watch for a light going on and off through the phone's camera: each change runs handler with "on" or "off" and how many milliseconds the state before lasted; or with "error", 0 and what went wrong, which on a computer is always. where: a control to show the camera's picture over. No handler stops watching.
 
+## Head mouse (hands-free)
+
+### HeadMouse
+
+`Vml("HeadMouse", [on])`
+
+Hands-free head control: with it on, the camera follows the person's head and whichever control they rest on is chosen for them -- no touch, no mouse, no keyboard. It is all worked out on the device and no video ever leaves it. In the web and phone builds, where there is a camera; nothing happens on a computer without one. Give the form big, well-spaced buttons and this turns it into an accessible app anyone can drive by looking -- a communication board, a quiz, a remote. It controls this app only, not the computer.
+
+### HeadMouseMode
+
+`Vml("HeadMouseMode", [mode])`
+
+How a control is chosen while head control is on: "dwell" (rest on it for a moment), "blink", "mouth" (open the mouth), or "sound" (make any noise). Default "dwell".
+
+### HeadMouseSpeed
+
+`Vml("HeadMouseSpeed", [percent])`
+
+How far the head must move to reach across the screen, as a percentage of a full sweep: 30 means a small, restful movement covers the whole form. Lower asks for even less movement. Default 30.
+
+### OnScreenKeyboard
+
+`Vml("OnScreenKeyboard", [on])`
+
+Show a head-selectable on-screen keyboard so a hands-free user can type into the focused text box. Letters and word-predictions are chosen the same way as controls (see HeadMouseMode). In the web and phone builds; nothing happens on a computer, which has its own keyboard.
+
+### Recentre
+
+`Vml("Recentre")`
+
+Take wherever the head is pointing right now as the new centre. Call it once the person has settled, or wire it to a button (or a resting spot) they can rest on to re-centre themselves whenever they drift.
+
 ## Drives (as Mountie uses them)
 
 ### DiskInfo
@@ -808,7 +840,7 @@ Ask whether a newer Visualised has been released. JSON: current, latest, newer, 
 
 `Vml("GetLanguages")`
 
-The script languages this machine can run, for the script editor.
+The script languages, for the script editor: all five, each saying what it still needs on this computer when it isn't ready (a script can be written either way; it runs once its language is there).
 
 ### GetLicence
 
@@ -864,6 +896,12 @@ The running Visualised runtime version, e.g. "0.17.1". Apps can check they have 
 
 Add an importer (a .vml file with an @Importer in it) to your own library, ~/.vml/importers. Returns "" if it was added, or why it wasn't.
 
+### AddItem
+
+`Vml("AddItem", name, [text], [index])`
+
+Add one item (a real row) to a ListBox or ComboBox. index -1 (the default) appends; otherwise it inserts.
+
 ### AttachDebugger
 
 `Vml("AttachDebugger", [pid])`
@@ -881,6 +919,12 @@ Open a debugger on another running Visualised app (by its pid; none: choose from
 ### CanUndo
 
 `Vml("CanUndo", [surface])`
+
+### ClearItems
+
+`Vml("ClearItems", name)`
+
+Empty a ListBox or ComboBox.
 
 ### DebugApps
 
@@ -954,6 +998,12 @@ The forms with Lua running, for the Variables tab: JSON [[key, name]].
 
 What this app is, for a debugger's list of running apps.
 
+### EditVml
+
+`Vml("EditVml", [surface])`
+
+Open the current form's VML source in an editor. On Save the form and its scripts are replaced by the edited VML - but only if it parses and has a Window; a broken edit leaves the form untouched.
+
 ### FileCopy
 
 `Vml("FileCopy", source, target)`
@@ -1012,6 +1062,12 @@ Write a file from base64. Returns "true" if it was written.
 
 The importers available, as JSON: name, title, files (the endings it reads), project_title, project_files.
 
+### GetItem
+
+`Vml("GetItem", name, index)`
+
+The text of the item at a row (0-based), or '' if there is none.
+
 ### GridGetData
 
 `Vml("GridGetData", name)`
@@ -1022,11 +1078,23 @@ The importers available, as JSON: name, title, files (the endings it reads), pro
 
 Fill a DataGrid from JSON: an array of objects (their keys become the headings) or of arrays. columns: headings to show instead, comma-separated.
 
+### ItemCount
+
+`Vml("ItemCount", name)`
+
+How many items a ListBox or ComboBox holds.
+
 ### LaunchedAtBoot
 
 `Vml("LaunchedAtBoot")`
 
 "true" if this run was started at login (by StartAtBoot), not by the user.
+
+### ObjectModel
+
+`Vml("ObjectModel", [surface])`
+
+The object model for the form on `surface`: {controlName: {type, props, events}} - each control's type, its get/set properties and its events. Language-agnostic; the editor turns it into a member list using the rules the chosen interpreter registered (see registry.completion_pool). For the editor's `name.` completion.
 
 ### OpenFolder
 
@@ -1058,6 +1126,12 @@ The first match of a regular expression in some text, as JSON: [whole match, gro
 
 The text with every match replaced. In the replacement, \1 is group 1 and so on.
 
+### RemoveItem
+
+`Vml("RemoveItem", name, index)`
+
+Remove the item at a row (0-based) from a ListBox or ComboBox.
+
 ### RunApp
 
 `Vml("RunApp", path, [project])`
@@ -1080,6 +1154,12 @@ Grey a menu item out ("false") or back ("true").
 
 A tab strip's pages, in tab order: JSON [{"page": its name, or "" for a new one, "header": its words}]. A page left out is deleted, with what's on it. The designer's Edit Tabs box uses this.
 
+### SetUpLanguage
+
+`Vml("SetUpLanguage", [label])`
+
+Get a script language going that isn't there yet (the script editor asks when one is chosen that says "needs ..."). C# with the SDK there: builds its host. On Windows: installs what it needs with winget, then tells the script editor it's ready. On Linux: shows the command, on the clipboard (it needs sudo). A copy from the Microsoft Store never installs other software itself: it opens the download page.
+
 ### StartAtBoot
 
 `Vml("StartAtBoot", [on])`
@@ -1098,6 +1178,12 @@ The tools folder (made if it isn't there yet).
 
 The tools, as JSON [{name, path}]: each .vml or .vmlproj in the tools folder, and each folder in it that holds a .vmlproj or a .vml (a link to an app's folder will do: ln -s ~/projects/x/apps/bob ~/.vml/tools/Bob).
 
+### TranslateScript
+
+`Vml("TranslateScript", code, from_lang, to_lang)`
+
+Translate a script between languages, for the editor's language switch and the doc tabs. Returns "" when either side isn't one of the four code languages - Bash and PowerShell are shells, not translatable.
+
 ### Tray
 
 `Vml("Tray", [tooltip], [menu], [handler])`
@@ -1114,4 +1200,4 @@ Show a notification from the app's tray icon.
 
 Commands the designer itself is built from (its forms are VML too). Handy for tools that work on forms; most apps never need them.
 
-`AddDesignControl`, `AndroidKey`, `AndroidKeyRestore`, `AndroidKeySave`, `ClearDesign`, `DuplicateControl`, `ExportApk`, `ExportApp`, `ExportHtml`, `ExportVml`, `GetControlAt`, `GetControlEvents`, `GetControlTypes`, `GetCurrentControl`, `GetDesignMenu`, `GetDesignScript`, `GetFocusedControlName`, `GetResizeZone`, `GetSelectedControlName`, `ImportForm`, `ImportProject`, `ImportVml`, `LoadControlTemplate`, `MenuAddItem`, `MenuDeleteItem`, `PhoneSize`, `PreviewDesign`, `PreviewInBrowser`, `PreviewOnPhone`, `ProjectAdd`, `ProjectClose`, `ProjectDatabase`, `ProjectInFolder`, `ProjectInfo`, `ProjectName`, `ProjectNew`, `ProjectOpen`, `ProjectPath`, `ProjectRemove`, `ProjectSetName`, `ProjectSetStartup`, `ProjectTree`, `Redo`, `RenameControl`, `RunProject`, `SelectControl`, `SetCurrentControl`, `SetDesignMenu`, `SetDesignScript`, `SetParent`, `ShowContextMenu`, `Undo`, `UndoMark`, `UndoReset`
+`AddDesignControl`, `AndroidKey`, `AndroidKeyRestore`, `AndroidKeySave`, `ClearDesign`, `DuplicateControl`, `ExportApk`, `ExportApp`, `ExportHtml`, `ExportVml`, `GetControlAt`, `GetControlEvents`, `GetControlTypes`, `GetCurrentControl`, `GetDesignMenu`, `GetDesignScript`, `GetFocusedControlName`, `GetResizeZone`, `GetSelectedControlName`, `ImportForm`, `ImportProject`, `ImportVml`, `LoadControlTemplate`, `MenuAddItem`, `MenuDeleteItem`, `PhonePairCode`, `PhoneShare`, `PhoneShareStatus`, `PhoneSize`, `PhonesNearby`, `PreviewDesign`, `PreviewInBrowser`, `PreviewOnPhone`, `ProjectAdd`, `ProjectClose`, `ProjectDatabase`, `ProjectInFolder`, `ProjectInfo`, `ProjectName`, `ProjectNew`, `ProjectOpen`, `ProjectPath`, `ProjectRemove`, `ProjectSetName`, `ProjectSetStartup`, `ProjectTree`, `Redo`, `RenameControl`, `RunProject`, `SelectControl`, `SetCurrentControl`, `SetDesignMenu`, `SetDesignScript`, `SetParent`, `ShowContextMenu`, `Undo`, `UndoMark`, `UndoReset`
