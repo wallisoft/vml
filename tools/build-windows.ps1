@@ -92,6 +92,11 @@ $numeric = ($Version -split "[-+]")[0]                  # Windows file versions 
     --file-version=$numeric --product-version=$numeric `
     --output-filename=vml.exe --output-dir=build vml.py
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path build\vml.dist\vml.exe)) { Fail "Nuitka" }
+# WebView is a bolt-on, not core: drop QtWebEngine (Chromium, ~250MB) from the bundle before packaging.
+Get-ChildItem -Path build\vml.dist -Recurse -Force | Where-Object {
+    $_.Name -like "*WebEngine*" -or $_.Name -eq "icudtl.dat" -or $_.Name -eq "v8_context_snapshot.bin"
+} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host "    pruned WebEngine from the bundle"
 
 # ---- smoke tests (the release job's)
 Step "Smoke tests"
