@@ -38,6 +38,9 @@ from .data import DataCommands
 from .projects import ProjectCommands
 from .library import LibraryCommands
 from .systemcommands import SystemCommands
+from .headinput import InputCommands
+from .capture import CaptureCommands
+from .kvminject import KvmInjectCommands
 from .stepping import SteppingCommands
 from . import dialogs, licence as licences
 
@@ -163,7 +166,7 @@ QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 """
 
 
-class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, SteppingCommands):
+class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, SteppingCommands, InputCommands, CaptureCommands, KvmInjectCommands):
     log_line = staticmethod(log)
 
     def __init__(self, db_path=None, lua_paths=()):
@@ -1018,7 +1021,7 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
         hinted fully). VML_FONT_WEIGHT (100-900) sets it: 400 is Windows' regular."""
         from PySide6.QtGui import QFont, QFontDatabase
         try:
-            weight = int(os.environ.get("VML_FONT_WEIGHT") or 600)
+            weight = int(os.environ.get("VML_FONT_WEIGHT") or 800)
             f = QFont(self.app.font())
             if weight != 400 and "Segoe UI Variable Text" in QFontDatabase.families():
                 f.setFamily("Segoe UI Variable Text")
@@ -3674,6 +3677,32 @@ class Engine(DataCommands, ProjectCommands, LibraryCommands, SystemCommands, Ste
 
     def cmd_ClipboardGet(self):
         return QApplication.clipboard().text()
+
+    def cmd_QrCode(self, data="", path="", scale="8", border="4"):
+        """Make a QR code for some text (a link, a pairing code, a Wi-Fi join string, anything) and save
+        it as an image, returning the file's path. The format follows the path's extension - .png (the
+        default) or .svg; with no path it writes a .png in the system temp folder. scale is the pixels
+        per module, border the quiet-zone width in modules."""
+        import segno, tempfile, os as _os
+        if not str(data):
+            raise RuntimeError("QrCode needs some text to encode")
+        p = str(path).strip()
+        if not p:
+            fd, p = tempfile.mkstemp(suffix=".png", prefix="qr_")
+            _os.close(fd)
+        segno.make(str(data), error="m").save(p, scale=int(scale), border=int(border))
+        return p
+
+    def cmd_QrMatrix(self, data=""):
+        """The QR code for some text as a grid, for drawing yourself on a Canvas when you want to style,
+        size or colour it without a file: JSON with "size" (modules per side, no border) and "rows"
+        (each a string of 0/1, a filled square per 1)."""
+        import segno
+        if not str(data):
+            raise RuntimeError("QrMatrix needs some text to encode")
+        q = segno.make(str(data), error="m")
+        rows = ["".join("1" if m else "0" for m in row) for row in q.matrix]
+        return json.dumps({"size": len(rows), "rows": rows})
 
     # --- the phone. On a computer these do the nearest sensible thing, so the same script runs in both places.
     def cmd_DeviceInfo(self):

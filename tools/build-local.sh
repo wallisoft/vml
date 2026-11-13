@@ -26,12 +26,12 @@ if [ ! -x "$VENV/bin/python" ]; then
     python3 -m venv "$VENV"
 fi
 "$VENV/bin/python" -m pip install -q --upgrade pip
-"$VENV/bin/python" -m pip install -q -r packaging/build-requirements.txt paramiko mfusepy python-xlib
+"$VENV/bin/python" -m pip install -q -r packaging/build-requirements.txt paramiko mfusepy python-xlib pynput segno
 
 echo "==> Compiling with Nuitka (the cache makes the second build much quicker)"
 rm -rf "$OUT" && mkdir -p "$OUT"
 "$VENV/bin/python" -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 \
-    --include-package=vml --include-package=lupa \
+    --include-package=vml --include-package=lupa --include-package=pynput --include-package=segno \
     --include-package=paramiko --include-module=mfusepy --include-package=Xlib \
     --include-data-dir=designer=designer --include-data-dir=vml/lua=lua --include-data-dir=vml/web=web \
     --include-data-dir=csharp=csharp \
@@ -39,6 +39,10 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 
 D="$OUT/dist-vml"
 mv "$OUT/vml.dist" "$D"
+# WebView is a bolt-on, not core: drop QtWebEngine (Chromium, ~250MB). The pyside6 plugin bundles it
+# even when unused, so prune it from the bundle here, before the smoke tests and packaging.
+find "$D" -depth \( -iname '*webengine*' -o -name 'icudtl.dat' -o -name 'v8_context_snapshot.bin' \) -exec rm -rf {} + 2>/dev/null || true
+echo "    pruned WebEngine from the bundle"
 "$VENV/bin/python" packaging/make_icon.py "$D/vml.png"
 cp packaging/THIRD-PARTY-NOTICES.txt "$D/"; cp LICENSE "$D/LICENSE.txt"; cp LICENSE-EXCEPTION.md "$D/"
 

@@ -54,6 +54,7 @@ final class Device {
     private volatile Thread signalling;
     private SensorEventListener air;
     private volatile float pressureNow;
+    private volatile Thread micThread;
 
     private final Texts texts;
 
@@ -62,6 +63,60 @@ final class Device {
         this.texts = new Texts(activity);
         SshDrives.listener = activity::tell;
         PhoneShare.listener = activity::tell;
+    }
+
+    // ---- native microphone level (grunt) --------------------------------------------------------
+    // WebView getUserMedia audio fails on some devices (NotReadableError) though the mic works, so we
+    // read the mic natively and stream its level to the page as vmlFromPhone("mic", "<rms 0..1>", "").
+    // A page uses this whenever window.VisualisedDevice && VisualisedDevice.micStart exist.
+    @JavascriptInterface
+    public void micStart() {
+        if (micThread != null) return;
+        Thread t = new Thread(() -> {
+            android.media.AudioRecord rec = null;
+            try {
+                int rate = 16000;
+                int minBuf = android.media.AudioRecord.getMinBufferSize(rate,
+                        android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT);
+                if (minBuf <= 0) minBuf = 4096;
+                int bufSize = Math.max(minBuf, 4096);
+                rec = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        rate, android.media.AudioFormat.CHANNEL_IN_MONO,
+                        android.media.AudioFormat.ENCODING_PCM_16BIT, bufSize * 2);
+                if (rec.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
+                    try { rec.release(); } catch (Throwable ignore) {}
+                    rec = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.MIC,
+                            rate, android.media.AudioFormat.CHANNEL_IN_MONO,
+                            android.media.AudioFormat.ENCODING_PCM_16BIT, bufSize * 2);
+                }
+                short[] frame = new short[1024];
+                rec.startRecording();
+                long lastEmit = 0;
+                while (!Thread.currentThread().isInterrupted()) {
+                    int n = rec.read(frame, 0, frame.length);
+                    if (n <= 0) continue;
+                    double sum = 0;
+                    for (int i = 0; i < n; i++) { double s = frame[i] / 32768.0; sum += s * s; }
+                    double rms = Math.sqrt(sum / n);
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - lastEmit >= 40) { lastEmit = now; activity.tell("mic", String.format(java.util.Locale.US, "%.4f", rms), ""); }
+                }
+            } catch (Throwable e) {
+                activity.tell("mic", "error", e.getMessage() == null ? "mic failed" : e.getMessage());
+            } finally {
+                if (rec != null) { try { rec.stop(); } catch (Throwable ignore) {} try { rec.release(); } catch (Throwable ignore) {} }
+            }
+        }, "vml-mic");
+        micThread = t;
+        t.start();
+    }
+
+    /** Stop the native microphone level stream started by micStart. */
+    @JavascriptInterface
+    public void micStop() {
+        Thread t = micThread;
+        micThread = null;
+        if (t != null) t.interrupt();
     }
 
     /**

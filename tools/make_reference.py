@@ -200,6 +200,10 @@ SECTIONS = [
     ("Phone and device", r"^Vibrate$|^KeepAwake$|^Share$|^Notify$|^GetLocation$|^RunInBackground$|^Brightness$|^Torch$|"
                          r"^Speak$|^SaveFile$|Bluetooth|^Pressure$|Sms|Contact|^Lookup|^OnMessages$|^Listen$|^Flash$|"
                          r"Light|Photo$|^DeviceInfo$|^Clipboard"),
+    ("Head and input", r"^Face|^AllowInput$|^Mouse(Move|Click|Down|Up)$|^Key(Text|Press)$"),
+    ("Capturing input", r"^AllowCapture$|^Capture(Start|Stop|Barriers|Release|Error)$|^InputEvents$"),
+    ("KVM inject", r"^Inject(Release|ServiceReady)?$"),
+    ("QR codes", r"^Qr(Code|Matrix)$"),
     ("Drives (as Mountie uses them)", r"^Ssh|^Disk|^Folder|^Ram|Terminal|^Ignore|Drive|Mount|Partition|^Image"),
     ("Licence, version and updates", r"Licen|^CheckForUpdate$|^VmlVersion$|^CSharp|^InstallDotnet$|^GetLanguages$|^GetShellName$"),
 ]

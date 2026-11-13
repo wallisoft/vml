@@ -18,6 +18,8 @@ Height=652
 AppBar=true
 About=A simple talking board: tap a tile and it speaks aloud. Made with Visualised by Wallisoft.
 OnOpened=Opened
+AndroidPackage=io.visualised.made.shinewatertalker.k7b1ce6cd
+AndroidKey=7b1ce6cd
 
 @Canvas c
 Parent=Talker
@@ -50,6 +52,12 @@ Parent=c
 Interval=1600
 IsEnabled=false
 OnTick=ScanTick
+
+@Timer tmrHead
+Parent=c
+Interval=100
+IsEnabled=false
+OnTick=HeadTick
 
 @Rectangle rHi1
 Parent=c
@@ -369,6 +377,17 @@ Content=Scan mode: off
 OnClick=ToggleScan
 Style=background:#FFFFFF;color:#0F766E;border:2px solid #0F766E;border-radius:14px;font-weight:700
 
+@Button btnHead
+Parent=pSet
+Canvas.Left=16
+Canvas.Top=168
+Width=328
+Height=46
+FontSize=17
+Content=Head mode: off
+OnClick=ToggleHead
+Style=background:#FFFFFF;color:#7C3AED;border:2px solid #7C3AED;border-radius:14px;font-weight:700
+
 @TextBox txtPhrases
 Parent=pSet
 Canvas.Left=16
@@ -612,6 +631,29 @@ function startScan(on)
   end
 end
 
+-- head-tracking mode: look around the board, rest on a tile, it speaks (camera head-mouse)
+headOn = false
+hCx, hCy, hTile, hStill = nil, nil, 0, 0
+hGainX, hGainY, hDwell = 2.2, 2.6, 9
+
+function startHead(on)
+  headOn = on
+  Vml("SetProperty", "btnHead", "Content", on and "Head mode: ON" or "Head mode: off")
+  if on then
+    if not json then json = require("dkjson") end
+    hCx, hCy, hTile, hStill = nil, nil, 0, 0
+    Vml("Face")
+    Vml("SetProperty", "btnBanner", "Content", "Look at a tile and rest on it")
+    Vml("SetProperty", "tmrHead", "IsEnabled", "true")
+  else
+    Vml("SetProperty", "tmrHead", "IsEnabled", "false")
+    Vml("FaceStop")
+    clearHi()
+    Vml("SetProperty", "btnBanner", "Content", "Choose a tile to talk")
+  end
+end
+
+if (Vml("GetSetting", "talker_head") or "") == "1" then startHead(true) end
 if (Vml("GetSetting", "talker_scan") or "") == "1" then startScan(true) end
 LUA
 
@@ -765,4 +807,35 @@ Interpreter=lua
 local now = not scanning
 startScan(now)
 Vml("SetSetting", "talker_scan", now and "1" or "")
+LUA
+
+@Script HeadTick
+Interpreter=lua
+<<LUA
+if not headOn then return end
+local f = json.decode(Vml("Face") or "") or {}
+if (f.present or 0) == 0 then return end
+if hCx == nil then hCx, hCy = f.nx, f.ny ; return end
+local function cl(v) if v < 0 then return 0 elseif v > 0.999 then return 0.999 else return v end end
+local col = math.floor(cl(0.5 + (f.nx - hCx) * hGainX) * 3)
+local row = math.floor(cl(0.5 + (f.ny - hCy) * hGainY) * 4)
+local tile = row * 3 + col + 1
+if not (spoken[tile] and spoken[tile] ~= "") then
+  clearHi() ; hTile = 0 ; hStill = 0 ; return
+end
+if tile ~= hTile then
+  clearHi()
+  Vml("SetProperty", "rHi" .. tile, "IsVisible", "true")
+  hTile = tile ; hStill = 0
+else
+  hStill = hStill + 1
+  if hStill == hDwell then Say(tile) ; hStill = -8 end
+end
+LUA
+
+@Script ToggleHead
+Interpreter=lua
+<<LUA
+startHead(not headOn)
+Vml("SetSetting", "talker_head", headOn and "1" or "0")
 LUA

@@ -72,7 +72,7 @@ if (-not (Test-Path $vpy)) {
 }
 Step "Build requirements"
 & $vpy -m pip install -q --upgrade pip
-& $vpy -m pip install -q -r packaging\build-requirements.txt paramiko wsgidav cheroot
+& $vpy -m pip install -q -r packaging\build-requirements.txt paramiko wsgidav cheroot pynput segno
 if ($LASTEXITCODE -ne 0) { Fail "installing the build requirements" }
 & $vpy -m pip install -q winfspy 2>$null
 $winfsp = @()
@@ -84,7 +84,7 @@ Step "Compiling with Nuitka (the first build fetches its compiler and takes a wh
 $numeric = ($Version -split "[-+]")[0]                  # Windows file versions are numbers only: 1.5.0-dev.x -> 1.5.0
 & $vpy -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
     --windows-console-mode=attach --windows-icon-from-ico=packaging/art/vml.ico `
-    --include-package=vml --include-package=lupa `
+    --include-package=vml --include-package=lupa --include-package=pynput --include-package=segno `
     --include-package=paramiko --include-package=wsgidav --include-package-data=wsgidav --include-package=cheroot @winfsp `
     --include-data-dir=designer=designer --include-data-dir=vml/lua=lua --include-data-dir=vml/web=web `
     --include-data-dir=csharp=csharp `
@@ -92,6 +92,11 @@ $numeric = ($Version -split "[-+]")[0]                  # Windows file versions 
     --file-version=$numeric --product-version=$numeric `
     --output-filename=vml.exe --output-dir=build vml.py
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path build\vml.dist\vml.exe)) { Fail "Nuitka" }
+# WebView is a bolt-on, not core: drop QtWebEngine (Chromium, ~250MB) from the bundle before packaging.
+Get-ChildItem -Path build\vml.dist -Recurse -Force | Where-Object {
+    $_.Name -like "*WebEngine*" -or $_.Name -eq "icudtl.dat" -or $_.Name -eq "v8_context_snapshot.bin"
+} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host "    pruned WebEngine from the bundle"
 
 # ---- smoke tests (the release job's)
 Step "Smoke tests"

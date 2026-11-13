@@ -799,6 +799,7 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);   // let the app's https page reach a plain-http LAN server (head-mouse bridge)
         s.setTextZoom(120);                             // a form drawn for a computer, shrunk to a phone's width, reads small: its
                                                         // words a fifth bigger (the boxes stay where they were drawn)
         s.setSupportMultipleWindows(false);

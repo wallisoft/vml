@@ -1277,6 +1277,52 @@ def make_button(node):
     return w
 
 
+def make_webview(node):
+    """A web view - the one primitive you can't compose from buttons. Url= loads a page,
+    Html= sets inline markup, IgnoreCertErrors=True trusts a self-signed local server."""
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+    except Exception:
+        w = QLabel("WebView needs QtWebEngine\n(pip install PySide6-Addons)")
+        w.setWordWrap(True); w.setAlignment(Qt.AlignCenter)
+        return w
+    w = QWebEngineView()
+    w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    w._ignore_certs = False
+    try:
+        def _onerr(err):
+            if getattr(w, "_ignore_certs", False):
+                for m in ("acceptCertificate", "ignoreCertificateError"):
+                    try:
+                        getattr(err, m)(); break
+                    except Exception:
+                        pass
+                return True
+            return False
+        w.page().certificateError.connect(_onerr)
+    except Exception:
+        pass
+    return w
+
+
+def _webview_url(w, v):
+    if hasattr(w, "setUrl"):
+        from PySide6.QtCore import QUrl
+        v = str(v or "").strip()
+        if v:
+            w.setUrl(QUrl(v))
+
+
+def _webview_ignore(w, on):
+    if hasattr(w, "_ignore_certs"):
+        w._ignore_certs = bool(on)
+        if on:
+            try:
+                w.reload()
+            except Exception:
+                pass
+
+
 def text_of(w):
     return w.toPlainText() if isinstance(w, QPlainTextEdit) else w.text()
 
@@ -2199,6 +2245,13 @@ register(ControlType("Image", lambda n: ImageWidget(n), events=dict(POINTER_EVEN
          [Prop("Source", "text", "Common", apply=lambda n, v: n.widget.load()),
           Prop("Stretch", "choice", "Appearance", options=("Uniform", "Fill", "UniformToFill", "None"),
                apply=lambda n, v: n.widget.update())])
+
+register(ControlType("WebView", make_webview, events=dict(POINTER_EVENTS)),
+         COMMON, ATTACHED,
+         [Prop("Url", "text", "Common", apply=lambda n, v: _webview_url(n.widget, v)),
+          Prop("Html", "text", "Common",
+               apply=lambda n, v: (n.widget.setHtml(str(v or "")) if hasattr(n.widget, "setHtml") else None)),
+          Prop("IgnoreCertErrors", "bool", "Behaviour", apply=lambda n, v: _webview_ignore(n.widget, truthy(v)))])
 
 
 # ------------------------------------------------------------------ DataGrid (rows and columns, read-only)

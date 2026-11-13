@@ -2,6 +2,8 @@
 
 @Recipe Visualised
 Version=vml/__init__.py:__version__
+Pip=pynput, segno
+Nuitka=--include-package=pynput --include-package=segno --nofollow-import-to=PySide6.QtWebEngineWidgets --nofollow-import-to=PySide6.QtWebEngineCore --nofollow-import-to=PySide6.QtWebEngineQuick
 
 @Build Linux
 Machine=here
