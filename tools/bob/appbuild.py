@@ -244,6 +244,20 @@ def compiled(recipe, out):
     if not exe.is_file():
         fail(f"Nuitka finished but {exe.name} isn't there", log)
 
+    # WebView is a bolt-on, not core: drop QtWebEngine (Chromium, ~250 MB) from the bundle. Nuitka's PySide6
+    # plugin copies these even when the import is nofollow'd, so prune them straight out here before packing.
+    _pruned = 0
+    for _p in sorted(dist.rglob("*"), key=lambda q: len(str(q)), reverse=True):
+        _n = _p.name.lower()
+        if "webengine" in _n or _n.startswith("qtwebengine") or _n == "icudtl.dat":
+            try:
+                shutil.rmtree(_p, ignore_errors=True) if _p.is_dir() else _p.unlink()
+                _pruned += 1
+            except Exception:
+                pass
+    if _pruned:
+        print(f"    pruned {_pruned} WebEngine file(s) from the bundle", flush=True)
+
     step("Smoke test: it opens its window")
     shot, slog = build / f"{slug}-shot.png", build / f"{slug}-run.log"
     shot.unlink(missing_ok=True)

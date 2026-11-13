@@ -39,6 +39,10 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 
 D="$OUT/dist-vml"
 mv "$OUT/vml.dist" "$D"
+# WebView is a bolt-on, not core: drop QtWebEngine (Chromium, ~250MB). The pyside6 plugin bundles it
+# even when unused, so prune it from the bundle here, before the smoke tests and packaging.
+find "$D" -depth \( -iname '*webengine*' -o -name 'icudtl.dat' -o -name 'v8_context_snapshot.bin' \) -exec rm -rf {} + 2>/dev/null || true
+echo "    pruned WebEngine from the bundle"
 "$VENV/bin/python" packaging/make_icon.py "$D/vml.png"
 cp packaging/THIRD-PARTY-NOTICES.txt "$D/"; cp LICENSE "$D/LICENSE.txt"; cp LICENSE-EXCEPTION.md "$D/"
 
