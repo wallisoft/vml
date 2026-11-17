@@ -71,7 +71,8 @@ def nice_time(t):
 
 
 def places():
-    """The usual places down the side, then the drives."""
+    """The usual places down the side, then the drives — including mounted ones wherever they sit:
+    SSHFS and other FUSE mounts (the drives Mountie mounts), removable media and the like."""
     home = os.path.expanduser("~")
     first = [("Home", home)] + [(n, os.path.join(home, n)) for n in ("Desktop", "Documents", "Downloads", "Pictures")]
     out = [(n, p) for n, p in first if os.path.isdir(p)]
@@ -81,12 +82,38 @@ def places():
         drives = [(d.absolutePath().rstrip("/"), d.absolutePath()) for d in QDir.drives()]
     else:
         drives = [("Computer", "/")]
+        seen = set()
         user = os.environ.get("USER", "")
-        for base in (f"/media/{user}", "/mnt", "/run/media/" + user):
+        for base in (f"/media/{user}", "/mnt", "/run/media/" + user, "/Volumes"):      # the usual spots, plus macOS
             try:
-                drives += [(n, os.path.join(base, n)) for n in sorted(os.listdir(base)) if os.path.isdir(os.path.join(base, n))]
+                for n in sorted(os.listdir(base)):
+                    full = os.path.join(base, n)
+                    if os.path.isdir(full):
+                        drives.append((n, full))
+                        seen.add(os.path.realpath(full))
             except OSError:
                 pass
+        # and mounted drives wherever else they sit: SSHFS and other FUSE mounts (Mountie's), partitions, images
+        skip = ("/proc", "/sys", "/dev", "/run", "/snap", "/boot", "/var", "/tmp")
+        keep_fs = {"sshfs", "ntfs", "ntfs3", "exfat", "vfat", "msdos", "iso9660", "udf", "hfsplus", "apfs"}
+        try:
+            with open("/proc/mounts", encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            bits = line.split()
+            if len(bits) < 3:
+                continue
+            mp, fstype = bits[1].replace("\\040", " "), bits[2]
+            real = os.path.realpath(mp)
+            if real in seen or mp in ("/", home):
+                continue
+            if any(mp == s or mp.startswith(s + "/") for s in skip) and not mp.startswith("/run/media/"):
+                continue
+            if (fstype.startswith("fuse") or fstype in keep_fs or mp.startswith(home + os.sep)) and os.path.isdir(mp):
+                seen.add(real)
+                drives.append((os.path.basename(mp) or mp, mp))
     return out, drives
 
 
