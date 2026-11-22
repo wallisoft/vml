@@ -1702,6 +1702,100 @@ const commands = {
     }).catch(err => { finish(null); if (err && err.name === "NotAllowedError") done("", "The camera wasn't allowed."); else ask(); });
     return "";
   },
+  // Beam any amount of text to another phone with no network at all: a run of QR codes that the other phone
+  // catches with QrCatch. Good for a secret, a key, the text of a small file — anything too big for one QrCode.
+  // A full-screen panel shows the codes cycling; point the other phone's QrCatch camera at it. Dropped frames
+  // don't matter — it loops until they have every piece. The handler, if given, gets "done" when you close it.
+  QrSend(data, handler = "") {
+    const b64 = btoa(unescape(encodeURIComponent(String(data))));          // UTF-8 → base64, text-clean
+    const per = 160, total = Math.max(1, Math.ceil(b64.length / per)), mats = [];
+    for (let i = 0; i < total; i++) {
+      const m = qrMatrix(i + "|" + total + "|" + b64.substr(i * per, per));
+      if (!m) { if (handler) setTimeout(() => run(handler, ["", "That was too much to beam at once."]), 0); return ""; }
+      mats.push(m);
+    }
+    const box = document.createElement("div");
+    box.id = "vml_qrsend";
+    box.style.cssText = "position:fixed;inset:0;z-index:99997;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font:15px system-ui,sans-serif;color:#111";
+    const cv = document.createElement("canvas"); cv.width = cv.height = 360;
+    cv.style.cssText = "width:min(86vw,60vh);height:min(86vw,60vh);image-rendering:pixelated;border-radius:10px";
+    const lab = document.createElement("div");
+    const close = document.createElement("button"); close.textContent = "Done";
+    close.style.cssText = "font:inherit;padding:9px 20px;border-radius:9px;border:0;background:#111;color:#fff";
+    box.append(cv, lab, close); document.body.appendChild(box);
+    const g = cv.getContext("2d");
+    let idx = 0;
+    const timer = setInterval(() => {
+      const m = mats[idx], n = m.length, k = Math.max(1, Math.floor(cv.width / (n + 8)));
+      g.fillStyle = "#fff"; g.fillRect(0, 0, cv.width, cv.height); g.fillStyle = "#000";
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (m[y][x]) g.fillRect((x + 4) * k, (y + 4) * k, k, k);
+      lab.textContent = total > 1 ? "frame " + (idx + 1) + " / " + total : "ready to scan";
+      idx = (idx + 1) % total;
+    }, 120);                                                               // ~8 frames/sec
+    close.onclick = () => { clearInterval(timer); box.remove(); if (handler) run(handler, ["done", ""]); };
+    return "";
+  },
+  // Catch a long message beamed by another phone's QrSend: point the camera at its screen and this gathers the
+  // run of QR codes, in any order, until it has them all, then hands the handler the whole text (or a blank and
+  // what went wrong). Needs a camera that reads QR codes (a phone, or Chrome on an https page / the Visualised app).
+  QrCatch(handler, prompt_ = "") {
+    const done = (text, problem = "") => setTimeout(() => run(handler, [text, problem]), 0);
+    const own = DEV && DEV.readCode;                                        // the Visualised app reads codes itself
+    if (!(own || "BarcodeDetector" in window) || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.isSecureContext) {
+      done("", "Catching a beamed message needs a camera that reads QR codes — a phone, or Chrome on an https page."); return "";
+    }
+    const parts = new Map(); let total = 0;
+    const box = document.createElement("div");
+    box.id = "vml_qrcatch";
+    box.style.cssText = "position:fixed;inset:0;z-index:99997;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font:15px system-ui,sans-serif;color:#fff";
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.setAttribute("playsinline", "");
+    v.style.cssText = "width:min(86vw,60vh);height:min(86vw,60vh);object-fit:cover;border-radius:14px;background:#111";
+    const say = document.createElement("div"); say.textContent = prompt_ || "Point the camera at the beaming screen";
+    const cancel = document.createElement("button"); cancel.textContent = "Cancel";
+    cancel.style.cssText = "font:inherit;padding:9px 18px;border-radius:9px;border:0;background:#fff;color:#111";
+    let stream = null, over = false, timer = 0;
+    const finish = (text, problem) => { if (over) return; over = true; clearInterval(timer); if (stream) stream.getTracks().forEach(t => t.stop()); box.remove(); done(text, problem); };
+    const take = (raw) => {
+      const s = String(raw), a = s.indexOf("|"), b = s.indexOf("|", a + 1);
+      if (a < 1 || b < 0) return;                                          // not one of ours
+      const seq = +s.slice(0, a), tot = +s.slice(a + 1, b), piece = s.slice(b + 1);
+      if (!(tot > 0) || !(seq >= 0) || seq >= tot) return;
+      total = tot; if (!parts.has(seq)) parts.set(seq, piece);
+      say.textContent = "caught " + parts.size + " / " + total;
+      if (parts.size === total) {
+        let b64 = ""; for (let i = 0; i < total; i++) b64 += parts.get(i);
+        let text; try { text = decodeURIComponent(escape(atob(b64))); } catch (e) { finish("", "The beamed message came through damaged — try again."); return; }
+        finish(text, "");
+      }
+    };
+    cancel.onclick = () => finish("", "Nothing was caught.");
+    box.append(say, v, cancel); document.body.appendChild(box);
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false }).then(s => {
+      if (over) { s.getTracks().forEach(t => t.stop()); return; }
+      stream = s; v.srcObject = s; v.play().catch(() => {});
+      let reader = null, told = false;
+      try { if ("BarcodeDetector" in window) reader = new BarcodeDetector({ formats: ["qr_code"] }); } catch (err) { reader = null; }
+      const shot = document.createElement("canvas");
+      const look = () => {
+        const k = Math.min(1, 720 / Math.max(v.videoWidth, v.videoHeight)), w = Math.round(v.videoWidth * k), h = Math.round(v.videoHeight * k);
+        shot.width = w; shot.height = h;
+        const g = shot.getContext("2d", { willReadFrequently: true });
+        g.drawImage(v, 0, 0, w, h);
+        const d = g.getImageData(0, 0, w, h).data; let s = "";
+        for (let i = 0; i < d.length; i += 4) s += String.fromCharCode((d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8);
+        const text = DEV.readCode(btoa(s), w, h);
+        if (text) take(text);
+      };
+      timer = setInterval(() => {
+        if (!v.videoWidth || over) return;
+        if (own) { try { look(); } catch (err) { if (!told) { told = true; commands.Log("QrCatch: " + err); } } return; }
+        reader.detect(v).then(found => { for (const f of found) if (f.rawValue) take(f.rawValue); })
+          .catch(err => { if (!told) { told = true; commands.Log("QrCatch: " + err); } });
+      }, own ? 300 : 180);
+    }).catch(err => { finish("", err && err.name === "NotAllowedError" ? "The camera wasn't allowed." : "The camera couldn't start."); });
+    return "";
+  },
   // Link: this app talking to another, anywhere, with nobody between able to read it. With no code a new link is
   // started and its code returned, to show the other app; with a code, that link is joined. The handler is run
   // with "joined" when the other side arrives, "message" and the text when it sends, "left" when it closes, and
